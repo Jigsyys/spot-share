@@ -144,7 +144,7 @@ export default function LoginPage() {
               <MapPin size={28} className="text-white" />
             </motion.div>
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              SpotShare
+              FriendSpot
             </h1>
             <p className="mt-1 text-sm text-zinc-400">
               {mode === "login"

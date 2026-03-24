@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "name": "spot-share",
+  "name": "friend-spot",
   "cleanUrls": true,
   "regions": ["cdg1"],
   "installCommand": "npm install",

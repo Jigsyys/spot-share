@@ -1,6 +1,6 @@
 {
-  "name": "SpotShare",
-  "short_name": "SpotShare",
+  "name": "FriendSpot",
+  "short_name": "FriendSpot",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",

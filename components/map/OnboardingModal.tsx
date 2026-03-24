@@ -63,7 +63,7 @@ export default function OnboardingModal({ isOpen, user, onComplete }: Onboarding
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30">
                   <Sparkles size={28} className="text-white" />
                 </div>
-                <h2 className="text-xl font-bold">Bienvenue sur SpotShare !</h2>
+                <h2 className="text-xl font-bold">Bienvenue sur FriendSpot !</h2>
                 <p className="text-sm text-zinc-400">
                   Choisis le nom que tu veux utiliser sur l&apos;app.
                 </p>

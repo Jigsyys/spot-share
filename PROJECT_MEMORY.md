@@ -1,8 +1,8 @@
-# 🧠 SpotShare - Project Memory
+# 🧠 FriendSpot - Project Memory
 
 ## 🚀 Vue d'Ensemble
 
-SpotShare est une application Web Node.js/Next.js (App Router) qui permet aux utilisateurs de partager et visualiser des "spots" intéressants (cafés, restaurants, vues extérieures) avec leurs amis sur une carte interactive.
+FriendSpot est une application Web Node.js/Next.js (App Router) qui permet aux utilisateurs de partager et visualiser des "spots" intéressants (cafés, restaurants, vues extérieures) avec leurs amis sur une carte interactive.
 
 ## ⚙️ Stack Technique
 

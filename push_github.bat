@@ -1,9 +1,9 @@
 @echo off
-title Envoi vers GitHub - SpotShare
+title Envoi vers GitHub - FriendSpot
 color 0b
 
 echo =======================================
-echo     DEPLOIEMENT GITHUB - SPOTSHARE
+echo     DEPLOIEMENT GITHUB - FRIENDSPOT
 echo =======================================
 echo.
 

@@ -1142,7 +1142,7 @@ export default function MapView() {
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(
-                      `📍 Découvre ce spot magnifique sur SpotShare : ${selectedSpot.title} - ${selectedSpot.address || ""}`
+                      `📍 Découvre ce spot magnifique sur FriendSpot : ${selectedSpot.title} - ${selectedSpot.address || ""}`
                     )
                     toast.success("Lien copié dans le presse-papier !")
                   }}

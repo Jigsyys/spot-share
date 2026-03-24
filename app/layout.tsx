@@ -8,7 +8,7 @@ import { Toaster } from "sonner"
 import type { Metadata, Viewport } from "next"
 
 export const metadata: Metadata = {
-  title: "SpotShare",
+  title: "FriendSpot",
   description: "Partagez vos meilleurs spots",
   manifest: "/manifest.json",
 }
