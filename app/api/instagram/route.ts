@@ -305,7 +305,7 @@ STRATÉGIE DE RECHERCHE (applique-les dans l'ordre) :
 ${CATEGORY_GUIDE}
 
 Réponds UNIQUEMENT avec ce JSON valide (aucun autre texte) :
-{"name":"Nom officiel exact","city":"Ville","address":"Numéro rue, Ville","category":"..."}
+{"name":"Nom officiel exact","city":"Ville, Pays (ex: Paris, France)","address":"Numéro rue, Ville","category":"..."}
 Si c'est un compte personnel sans lieu associé : {"name":null}`
 
       const result = await model.generateContent(prompt)
@@ -357,7 +357,7 @@ MISSION : Identifie le lieu exact présenté dans cette vidéo.
 ${CATEGORY_GUIDE}
 
 Réponds UNIQUEMENT avec ce JSON valide :
-{"name":"Nom exact","city":"Ville","address":"Adresse ou null","category":"..."}`
+{"name":"Nom exact","city":"Ville, Pays (ex: Paris, France)","address":"Adresse ou null","category":"..."}`
 
   const raw = await callGemini(prompt, 150)
   if (!raw) return null
@@ -551,7 +551,7 @@ Données Google Maps :
 - Types Google : ${placeDetails.types.join(", ")}
 
 Règles strictes :
-1. Rédige une description courte et accrocheuse (2 phrases max) basée sur l'ambiance de la vidéo et du lieu.
+1. Rédige un résumé court et factuel (1-2 phrases max) basé UNIQUEMENT sur les informations concrètes de la légende de la vidéo. Pas de style commercial ni de "incontournable". Juste l'essentiel : type d'expérience, spécialité ou particularité du lieu (ex: "Brunch de luxe à la carte, situé près de la Place Vendôme.").
 2. Choisis UNE catégorie parmi : cafe, restaurant, bar, outdoor, vue, culture, shopping, other.
    ${CATEGORY_GUIDE}
 
@@ -698,22 +698,22 @@ export async function GET(request: Request) {
       finalCategory = normalizeCategory(hypothesis?.category)
       if (placeName !== "Nouveau Spot") {
         finalDesc = await callGemini(
-          `Écris 2 phrases accrocheuses pour le lieu "${placeName}" (${finalCategory}). Ton dynamique, sans adresse ni hashtag.`,
+          `Écris 1-2 phrases factuelles et concises sur le lieu "${placeName}" (${finalCategory}), basées sur ce contexte de post : "${meta.description.slice(0, 200)}". Pas de style commercial, juste l'essentiel.`,
           100
-        ) || `Découvrez ${placeName}, un lieu à ne pas manquer !`
+        ) || ""
       }
     }
 
     // Coordonnées finales (Place Details > Mapbox fallback)
     let coordinates: { lat: number; lng: number } | null = null
     let resolvedAddress: string | null = null
-    let photosUrl: string | null = null
+    let photos: string[] = []
     let mapsUrl: string | null = null
 
     if (placeDetails) {
       coordinates = { lat: placeDetails.lat, lng: placeDetails.lng }
       resolvedAddress = placeDetails.address
-      photosUrl = placeDetails.photoUrls[0] || null
+      photos = placeDetails.photoUrls
       mapsUrl = placeDetails.mapsUrl
     }
 
@@ -725,10 +725,11 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       title: placeDetails?.name || placeName,
-      description: finalDesc || `Découvrez ${placeName}, un lieu à ne pas manquer !`,
+      description: finalDesc || null,
       location: resolvedAddress,
       category: finalCategory,
-      image_url: photosUrl,
+      photos,
+      image_url: photos[0] || null,  // compat frontend existant
       coordinates,
       maps_url: mapsUrl,
     })
