@@ -291,9 +291,10 @@ async function searchPlaceWithGrounding(
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
     // Gemini 2.0 Flash avec Google Search grounding (gratuit, même clé)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model = genAI.getGenerativeModel({
       model: "gemini-2.0-flash",
-      tools: [{ googleSearch: {} }],
+      tools: [{ googleSearch: {} }] as any,
     })
     const cityCtx = cityHint ? ` situé à ${cityHint}` : ""
     const prompt = `Recherche sur internet le compte Instagram "@${username}"${cityCtx}.
