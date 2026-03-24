@@ -105,12 +105,15 @@ const CATEGORY_NORMALIZE: Record<string, string> = {
   "café": "café", "cafe": "café", "coffee": "café", "patisserie": "café",
   "pâtisserie": "café", "boulangerie": "café", "salon de thé": "café",
   "restaurant": "restaurant", "resto": "restaurant", "bistro": "restaurant",
-  "brasserie": "restaurant", "pizzeria": "restaurant",
-  "bar": "bar", "cocktail": "bar", "pub": "bar", "rooftop": "bar",
-  "outdoor": "outdoor", "parc": "outdoor", "nature": "outdoor",
-  "vue": "vue", "panorama": "vue",
-  "culture": "culture", "musée": "culture", "museum": "culture",
+  "brasserie": "restaurant", "pizzeria": "restaurant", "gastronomie": "restaurant",
+  "bar": "bar", "cocktail": "bar", "pub": "bar", "rooftop": "bar", "brasserie bar": "bar",
+  "outdoor": "outdoor", "parc": "outdoor", "nature": "outdoor", "plage": "outdoor", "jardin": "outdoor",
+  "vue": "vue", "panorama": "vue", "belvédère": "vue",
+  "culture": "culture", "musée": "culture", "museum": "culture", "galerie": "culture",
   "shopping": "shopping", "boutique": "shopping", "friperie": "shopping",
+  "salon": "shopping", "spa": "shopping", "beauté": "shopping", "beauty": "shopping",
+  "institut": "shopping", "soin": "shopping", "nail": "shopping", "coiffeur": "shopping",
+  "wellness": "shopping", "bien-être": "shopping", "massage": "shopping",
   "other": "other", "autre": "other",
 }
 
@@ -173,12 +176,20 @@ interface GooglePlaceResult {
   editorial: string | null
 }
 
-async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | null> {
+async function findPlaceOnGoogle(
+  query: string,
+  userLat?: number | null,
+  userLng?: number | null
+): Promise<GooglePlaceResult | null> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY
   if (!apiKey || !query) return null
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=fr&key=${apiKey}`
+    // Location bias : si on connaît la position de l'utilisateur, on l'utilise pour biaiser vers sa zone
+    const locationBias = userLat != null && userLng != null
+      ? `&location=${userLat},${userLng}&radius=15000`
+      : ""
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=fr${locationBias}&key=${apiKey}`
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
     const data = await res.json()
 
@@ -452,33 +463,35 @@ export async function GET(request: Request) {
 
     // ------------------------------------------------------------------
     // 4. Google Maps textsearch : trouver le lieu EXACT
-    //    Ordre optimisé : avec ville en premier (précision max)
+    //    Les coordonnées GPS servent de biais de localisation sur chaque requête
     // ------------------------------------------------------------------
     let googlePlace: GooglePlaceResult | null = null
+    const userLatN = userLatParam ? parseFloat(userLatParam) : null
+    const userLngN = userLngParam ? parseFloat(userLngParam) : null
 
-    // T1: nom AI + ville (ex: "Le Couteau Paris")
+    // T1: nom AI + ville (ex: "Andia Paris")
     if (aiData?.name && placeCity) {
-      googlePlace = await findPlaceOnGoogle(`${aiData.name} ${placeCity}`)
+      googlePlace = await findPlaceOnGoogle(`${aiData.name} ${placeCity}`, userLatN, userLngN)
     }
 
     // T2: username converti + ville (ex: "Le Couteau Paris")
     if (!googlePlace && usernameAsName && placeCity && usernameAsName !== aiData?.name) {
-      googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`)
+      googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`, userLatN, userLngN)
     }
 
-    // T3: nom AI seul
+    // T3: nom AI seul (avec biais GPS pour rester dans la bonne ville)
     if (!googlePlace && aiData?.name) {
-      googlePlace = await findPlaceOnGoogle(aiData.name)
+      googlePlace = await findPlaceOnGoogle(aiData.name, userLatN, userLngN)
     }
 
     // T4: username converti seul
     if (!googlePlace && usernameAsName) {
-      googlePlace = await findPlaceOnGoogle(usernameAsName)
+      googlePlace = await findPlaceOnGoogle(usernameAsName, userLatN, userLngN)
     }
 
     // T5: avec le lieu OG brut
     if (!googlePlace && cleaned.location) {
-      googlePlace = await findPlaceOnGoogle(`${placeName} ${cleaned.location}`)
+      googlePlace = await findPlaceOnGoogle(`${placeName} ${cleaned.location}`, userLatN, userLngN)
     }
 
     let coordinates: { lat: number; lng: number } | null = null
