@@ -395,11 +395,16 @@ export default function MapView() {
 
   const visibleSpots = useMemo(() => {
     let filtered =
-      filter === "all"
-        ? spots
-        : filter === "mine"
-          ? spots.filter((s) => s.user_id === user?.id)
-          : spots.filter((s) => visibleFriendIds.includes(s.user_id))
+      filter === "mine"
+        ? spots.filter((s) => s.user_id === user?.id)
+        : filter === "friends"
+          ? spots.filter((s) => visibleFriendIds.includes(s.user_id))
+          : // "all" = mes spots + spots des amis visibles uniquement
+            spots.filter(
+              (s) =>
+                s.user_id === user?.id ||
+                visibleFriendIds.includes(s.user_id)
+            )
 
     if (activeCategory !== "all") {
       filtered = filtered.filter((s) => s.category === activeCategory)

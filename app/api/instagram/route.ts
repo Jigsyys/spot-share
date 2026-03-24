@@ -288,20 +288,34 @@ async function callGemini(prompt: string, maxTokens: number = 100): Promise<stri
   }
 }
 
-async function extractPlaceName(
+interface AiExtraction {
+  name: string
+  city: string
+  category: string
+}
+
+async function extractPlaceInfo(
   titleHint: string,
   locationHint: string | null,
   rawText: string
-): Promise<string | null> {
-  // Tronquer le texte brut à 300 caractères max pour éviter de surcharger l'IA
+): Promise<AiExtraction | null> {
   const shortText = rawText.length > 300 ? rawText.slice(0, 300) : rawText
 
-  const prompt = `Quel est le nom exact de l'établissement ou du lieu mentionné dans ce post ?
-Indices : titre="${titleHint}", lieu="${locationHint || ""}"
-Texte : "${shortText}"
-Réponds UNIQUEMENT avec le nom du lieu, rien d'autre. Ex: Pâtisserie Melilot`
+  const prompt = `Extrait les infos de ce post social.
+Indices: titre="${titleHint}", lieu="${locationHint || ""}"
+Texte: "${shortText}"
+Réponds UNIQUEMENT en JSON:
+{"name":"nom du lieu","city":"ville","category":"une parmi: café|restaurant|bar|outdoor|vue|culture|shopping|other"}`
 
-  return callGemini(prompt, 50)
+  const raw = await callGemini(prompt, 80)
+  if (!raw) return null
+  try {
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (match) return JSON.parse(match[0])
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
 }
 
 async function generateDescription(
@@ -355,36 +369,49 @@ export async function GET(request: Request) {
     const cleaned = cleanOGData(ogTitle, ogDescription)
 
     // ------------------------------------------------------------------
-    // 3. Gemini : extraire le nom du lieu (prompt minimal)
+    // 3. Gemini : extraire nom + ville + catégorie (prompt minimal)
     // ------------------------------------------------------------------
-    const aiPlaceName = await extractPlaceName(cleaned.title, cleaned.location, cleaned.rawText)
-    const finalTitle = aiPlaceName && aiPlaceName.length <= 60 ? aiPlaceName : cleaned.title
-    console.log(`[Step 3] AI place name: "${aiPlaceName}" -> finalTitle: "${finalTitle}"`)
+    const aiData = await extractPlaceInfo(cleaned.title, cleaned.location, cleaned.rawText)
+
+    const finalTitle = (aiData?.name && aiData.name.length <= 60) ? aiData.name : cleaned.title
+    const aiCity = aiData?.city || null
+    // Catégorie Gemini = source de vérité (comprend le contexte du post)
+    const ALLOWED_CATEGORIES = ["café", "restaurant", "bar", "outdoor", "vue", "culture", "shopping", "other"]
+    let finalCategory = (aiData?.category && ALLOWED_CATEGORIES.includes(aiData.category))
+      ? aiData.category
+      : cleaned.category
+
+    console.log(`[Step 3] AI: name="${aiData?.name}" city="${aiCity}" cat="${aiData?.category}" -> title="${finalTitle}" cat="${finalCategory}"`)
 
     // ------------------------------------------------------------------
-    // 4. Google Places : adresse, catégorie, coords, photos (source de vérité)
+    // 4. Google Places : adresse vérifiée, coords, photos
+    //    Recherche avec "nom, ville" pour un résultat précis
     // ------------------------------------------------------------------
-    let finalCategory = cleaned.category
     let coordinates: { lat: number; lng: number } | null = null
     let resolvedLocation: string | null = null
     let photosUrl: string | null = null
     let googleDescription: string | null = null
 
-    const googlePlace = await fetchGooglePlaceDetails(finalTitle, cleaned.location)
+    // Construire la query avec la ville pour précision
+    const searchLocation = aiCity || cleaned.location
+    const googlePlace = await fetchGooglePlaceDetails(finalTitle, searchLocation)
 
     if (googlePlace) {
       if (googlePlace.address) resolvedLocation = googlePlace.address
       if (googlePlace.lat != null && googlePlace.lng != null) {
         coordinates = { lat: googlePlace.lat, lng: googlePlace.lng }
       }
-      if (googlePlace.category) finalCategory = googlePlace.category
+      // Catégorie Google seulement si Gemini n'a pas trouvé
+      if (finalCategory === "other" && googlePlace.category) {
+        finalCategory = googlePlace.category
+      }
       googleDescription = googlePlace.description
       photosUrl = googlePlace.photoUrls
     }
 
     // Fallback Mapbox si Google n'a pas trouvé de coordonnées
-    if (!coordinates && (cleaned.location || finalTitle)) {
-      const geo = await geocode(cleaned.location || finalTitle, finalTitle)
+    if (!coordinates && (searchLocation || finalTitle)) {
+      const geo = await geocode(searchLocation || finalTitle, finalTitle)
       if (geo) {
         coordinates = { lat: geo.lat, lng: geo.lng }
         if (!resolvedLocation) resolvedLocation = geo.place_name

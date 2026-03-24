@@ -605,8 +605,8 @@ export default function FriendsModal({
                   </div>
                 )}
 
-                {/* Recommendations (when search is empty) */}
-                {query.length < 2 && recommendations.length > 0 && (
+                {/* Recommendations (only when actively searching) */}
+                {query.length >= 2 && searchResults.length === 0 && !searchLoading && recommendations.length > 0 && (
                   <div>
                     <p className="mb-2 text-xs font-medium tracking-wider text-zinc-500 uppercase">
                       Suggestions
