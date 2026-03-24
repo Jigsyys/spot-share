@@ -233,7 +233,18 @@ function extractWeakSignals(meta: VideoMeta): WeakSignals {
   const addressHints: string[] = []
   const rawFull = [meta.title, meta.description].join(" ")
   const pinMatch = rawFull.match(/📍\s*([^\n#]{3,60})/g)
-  if (pinMatch) addressHints.push(...pinMatch.map(m => m.replace("📍", "").trim()))
+  if (pinMatch) {
+    for (const m of pinMatch) {
+      const val = m.replace("📍", "").trim()
+      // Si ça commence par un chiffre → adresse postale, sinon → nom de lieu
+      if (/^\d/.test(val)) {
+        addressHints.push(val)
+      } else {
+        // Nom de lieu explicite via 📍 → priorité maximale
+        nameHints.unshift(val)
+      }
+    }
+  }
   const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
   if (streetMatch) addressHints.push(...streetMatch.slice(0, 2))
 
@@ -396,13 +407,28 @@ interface PlaceSearchResult {
   photoRef: string | null
 }
 
+// Mots vides français/anglais ignorés lors du calcul de similarité
+const STOP_WORDS = new Set(["de","du","la","le","les","des","l","d","à","a","en","et","un","une","the","of","in","at","du","au","aux"])
+
+/** Ratio de mots significatifs communs entre deux chaînes (0..1) */
+function wordOverlap(a: string, b: string): number {
+  const words = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .split(/[\s\-'']+/).filter(w => w.length > 1 && !STOP_WORDS.has(w))
+  const wa = words(a)
+  const wb = words(b)
+  if (!wa.length) return 0
+  const matches = wa.filter(w => wb.some(v => v.includes(w) || w.includes(v)))
+  return matches.length / wa.length
+}
+
 async function searchGooglePlace(
   query: string,
   userLat: number | null,
   userLng: number | null
-): Promise<PlaceSearchResult | null> {
+): Promise<PlaceSearchResult[]> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  if (!apiKey || !query) return null
+  if (!apiKey || !query) return []
   const locationBias = userLat != null && userLng != null
     ? `&location=${userLat},${userLng}&radius=15000` : ""
   const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=fr${locationBias}&key=${apiKey}`
@@ -412,17 +438,16 @@ async function searchGooglePlace(
       console.warn("[Google Places 429] waiting 1s...")
       await new Promise((r) => setTimeout(r, 1000))
       const retry = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      if (!retry.ok) return null
+      if (!retry.ok) return []
       const d = await retry.json()
-      return d.results?.[0] ? mapPlaceResult(d.results[0]) : null
+      return (d.results ?? []).slice(0, 5).map(mapPlaceResult)
     }
     const data = await res.json()
     console.log(`[Google textsearch] "${query}" → ${data.results?.length ?? 0} résultats (${data.status})`)
-    if (!data.results?.length) return null
-    return mapPlaceResult(data.results[0])
+    return (data.results ?? []).slice(0, 5).map(mapPlaceResult)
   } catch (e) {
     console.error("[Google textsearch error]:", e)
-    return null
+    return []
   }
 }
 
@@ -700,27 +725,64 @@ export async function GET(request: Request) {
 
     // Tentatives par ordre de précision
     const queries: string[] = []
+
+    // 📍 noms explicites en priorité absolue (extraits du texte via emoji pin)
+    // signals.nameHints[0] est le nom 📍 s'il existe (mis en tête par unshift)
+    const pinName = signals.nameHints[0] && signals.nameHints[0] !== placeName ? signals.nameHints[0] : null
+    if (pinName && bestCity) queries.push(`${pinName} ${bestCity}`)
+    if (pinName) queries.push(pinName)
+
     if (hypothesis?.address) queries.push(hypothesis.address)
     if (placeName && placeName !== "Nouveau Spot" && bestCity) queries.push(`${placeName} ${bestCity}`)
     if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
     if (placeName && placeName !== "Nouveau Spot") queries.push(placeName)
     if (usernameAsName && usernameAsName !== placeName) queries.push(usernameAsName)
     // Signaux faibles : noms de hashtags + ville
-    for (const hint of signals.nameHints.slice(0, 2)) {
+    for (const hint of signals.nameHints.slice(0, 3)) {
       if (bestCity) queries.push(`${hint} ${bestCity}`)
       queries.push(hint)
     }
     // Adresses détectées directement dans le texte
     for (const addr of signals.addressHints) queries.push(addr)
 
+    // Catégories Google considérées comme "alimentaire" (pour détecter les faux positifs)
+    const FOOD_TYPES = new Set(["restaurant", "food", "cafe", "bar", "bakery", "meal_takeaway", "meal_delivery"])
+    const expectedCat = normalizeCategory(hypothesis?.category)
+
     for (const q of [...new Set(queries)]) {
-      const candidate = await searchGooglePlace(q, userLatN, userLngN)
-      if (candidate && isBusinessResult(candidate)) {
-        searchResult = candidate
-        console.log(`[Step 3] Found via "${q}": ${searchResult.name} (${searchResult.types.slice(0,3).join(",")})`)
+      const candidates = await searchGooglePlace(q, userLatN, userLngN)
+      if (!candidates.length) continue
+
+      // Tri : d'abord les business valides, puis par score de similarité avec la query
+      const scored = candidates
+        .filter(c => isBusinessResult(c))
+        .map(c => {
+          const sim = wordOverlap(q, c.name)
+          // Pénalise si la catégorie attendue est outdoor/culture/vue mais résultat = restaurant/food
+          const catMismatch =
+            ["outdoor","culture","vue"].includes(expectedCat) &&
+            c.types.some(t => FOOD_TYPES.has(t)) &&
+            !c.types.some(t => ["park","tourist_attraction","natural_feature","place_of_worship","museum","art_gallery","stadium"].includes(t))
+          return { c, score: catMismatch ? sim * 0.3 : sim }
+        })
+        .sort((a, b) => b.score - a.score)
+
+      if (!scored.length) {
+        console.log(`[Step 3] No business result via "${q}"`)
+        continue
+      }
+
+      const best = scored[0]
+      console.log(`[Step 3] Best match via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} types=${best.c.types.slice(0,3).join(",")}`)
+
+      // Accepte si score suffisant OU si c'est la dernière tentative (évite de ne rien trouver)
+      const isLastQuery = q === [...new Set(queries)].at(-1)
+      if (best.score >= 0.25 || isLastQuery) {
+        searchResult = best.c
+        console.log(`[Step 3] Accepted: "${searchResult.name}"`)
         break
-      } else if (candidate) {
-        console.log(`[Step 3] Rejected generic address result via "${q}": ${candidate.name} (${candidate.types.join(",")})`)
+      } else {
+        console.log(`[Step 3] Rejected low score (${best.score.toFixed(2)}) for "${best.c.name}" — trying next query`)
       }
     }
 
