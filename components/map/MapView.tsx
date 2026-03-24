@@ -1181,18 +1181,15 @@ export default function MapView() {
               const photos = selectedSpot.image_url!.split(",").map(s => s.trim()).filter(Boolean)
               return (
                 <div className="relative -mx-5 -mt-5 mb-5 h-56 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:-mx-5 sm:h-64 sm:rounded-t-3xl">
-                  <div
-                    ref={carouselRef}
-                    className="flex h-full snap-x snap-mandatory overflow-x-auto"
-                    style={{ scrollbarWidth: "none" }}
-                  >
+                  <div ref={carouselRef} className="relative h-full w-full">
                     {photos.map((url, idx) => (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
                         key={idx}
                         src={url}
                         alt={selectedSpot.title}
-                        className="h-full w-full flex-shrink-0 snap-center object-cover"
+                        className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-300 ease-in-out"
+                        style={{ transform: `translateX(${(idx - carouselIdx) * 100}%)` }}
                       />
                     ))}
                   </div>
