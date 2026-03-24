@@ -1,0 +1,8 @@
+{
+  "framework": "nextjs",
+  "name": "spot-share",
+  "cleanUrls": true,
+  "regions": ["cdg1"],
+  "installCommand": "npm install",
+  "buildCommand": "next build"
+}

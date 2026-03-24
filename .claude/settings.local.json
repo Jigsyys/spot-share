@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/maxen/OneDrive/Bureau/FriendSpot\" rev-parse --git-dir)",
+      "Bash(gh auth:*)",
+      "Bash(where gh:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth status)",
+      "Bash(\"/c/Program Files \\(x86\\)/GitHub CLI/gh.exe\" auth status)",
+      "Bash(command -v git)",
+      "Bash(git --version)"
+    ]
+  }
+}
