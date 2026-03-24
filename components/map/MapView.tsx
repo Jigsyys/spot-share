@@ -16,6 +16,8 @@ import {
   X,
   Building2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Filter,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
@@ -120,6 +122,16 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 
 const DEMO_SPOTS: Spot[] = []
 
+function cleanDescription(text: string): string {
+  return text
+    .replace(/[,.]?\s*d[''']après une publication (instagram|tiktok|instagram ou tiktok)/gi, "")
+    .replace(/[,.]?\s*selon une publication (instagram|tiktok)/gi, "")
+    .replace(/[,.]?\s*d[''']après (son |sa |leur |les? )?(compte|publication|post) (instagram|tiktok)/gi, "")
+    .replace(/[,.]?\s*(source|via)\s*:\s*(instagram|tiktok)[^.)]*/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}
+
 // ---------------------------------------------------------------------------
 // Composant horaires d'ouverture avec dropdown animé
 // ---------------------------------------------------------------------------
@@ -205,6 +217,9 @@ export default function MapView() {
   const [activeCategory, setActiveCategory] = useState<string>("all")
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
+  const [carouselIdx, setCarouselIdx] = useState(0)
+  const carouselRef = useRef<HTMLDivElement>(null)
+  const filterMenuRef = useRef<HTMLDivElement>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
@@ -556,6 +571,24 @@ export default function MapView() {
       }
     }
   }, [])
+
+  // Reset carousel index when a new spot is selected
+  useEffect(() => {
+    setCarouselIdx(0)
+    if (carouselRef.current) carouselRef.current.scrollLeft = 0
+  }, [selectedSpot?.id])
+
+  // Close filter menu on outside click
+  useEffect(() => {
+    if (!isCategoryMenuOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
+        setIsCategoryMenuOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleOutside)
+    return () => document.removeEventListener("mousedown", handleOutside)
+  }, [isCategoryMenuOpen])
 
   const handleOpenAddSpot = async () => {
     let pastedUrl = ""
@@ -942,7 +975,7 @@ export default function MapView() {
 
       {/* Top Bar */}
       <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 left-0 z-30 mt-4 flex items-start justify-between px-4">
-        <div className="pointer-events-auto relative">
+        <div className="pointer-events-auto relative" ref={filterMenuRef}>
           <button
             onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-zinc-800"
@@ -1144,46 +1177,70 @@ export default function MapView() {
               <X size={16} />
             </button>
 
-            {selectedSpot.image_url ? (
-              <div className="relative -mx-5 -mt-5 mb-5 h-56 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:-mx-5 sm:h-64 sm:rounded-t-3xl">
-                <div
-                  className="flex h-full snap-x snap-mandatory overflow-x-auto"
-                  style={{ scrollbarWidth: "none" }}
-                >
-                  {selectedSpot.image_url.split(",").map((url, idx) => (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      key={idx}
-                      src={url.trim()}
-                      alt={selectedSpot.title}
-                      className="h-full w-full flex-shrink-0 snap-center object-cover"
-                    />
-                  ))}
-                </div>
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent" />
-                <div className="absolute bottom-4 left-4 z-10 rounded-xl border border-white/10 bg-white/10 p-2 backdrop-blur-md">
+            {selectedSpot.image_url ? (() => {
+              const photos = selectedSpot.image_url!.split(",").map(s => s.trim()).filter(Boolean)
+              return (
+                <div className="relative -mx-5 -mt-5 mb-5 h-56 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:-mx-5 sm:h-64 sm:rounded-t-3xl">
                   <div
-                    className="h-4 w-4 flex-shrink-0 rounded-full"
-                    style={{
-                      background:
-                        CATEGORY_COLORS[selectedSpot.category ?? "default"] ??
-                        CATEGORY_COLORS.default,
-                    }}
-                  />
+                    ref={carouselRef}
+                    className="flex h-full snap-x snap-mandatory overflow-x-auto"
+                    style={{ scrollbarWidth: "none" }}
+                  >
+                    {photos.map((url, idx) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={idx}
+                        src={url}
+                        alt={selectedSpot.title}
+                        className="h-full w-full flex-shrink-0 snap-center object-cover"
+                      />
+                    ))}
+                  </div>
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent" />
+                  {photos.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const next = Math.max(0, carouselIdx - 1)
+                          setCarouselIdx(next)
+                          if (carouselRef.current) carouselRef.current.scrollTo({ left: next * carouselRef.current.offsetWidth, behavior: "smooth" })
+                        }}
+                        className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
+                        disabled={carouselIdx === 0}
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const next = Math.min(photos.length - 1, carouselIdx + 1)
+                          setCarouselIdx(next)
+                          if (carouselRef.current) carouselRef.current.scrollTo({ left: next * carouselRef.current.offsetWidth, behavior: "smooth" })
+                        }}
+                        className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
+                        disabled={carouselIdx === photos.length - 1}
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                      <div className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 gap-1.5">
+                        {photos.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setCarouselIdx(idx)
+                              if (carouselRef.current) carouselRef.current.scrollTo({ left: idx * carouselRef.current.offsetWidth, behavior: "smooth" })
+                            }}
+                            className={cn(
+                              "h-1.5 rounded-full transition-all",
+                              idx === carouselIdx ? "w-4 bg-white" : "w-1.5 bg-white/40"
+                            )}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-            ) : (
-              <div className="mb-2">
-                <div
-                  className="h-4 w-4 rounded-full"
-                  style={{
-                    background:
-                      CATEGORY_COLORS[selectedSpot.category ?? "default"] ??
-                      CATEGORY_COLORS.default,
-                  }}
-                />
-              </div>
-            )}
+              )
+            })() : null}
 
             <div className="min-w-0 flex-1 px-1">
               <h3 className="line-clamp-2 text-2xl leading-tight font-extrabold">
@@ -1201,10 +1258,10 @@ export default function MapView() {
                 openingHours={selectedSpot.opening_hours}
               />
 
-              {selectedSpot.description && (
+              {selectedSpot.description && cleanDescription(selectedSpot.description) && (
                 <div className="mt-4 rounded-2xl border border-white/5 bg-zinc-900/60 p-4">
                   <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-300">
-                    {selectedSpot.description}
+                    {cleanDescription(selectedSpot.description)}
                   </p>
                 </div>
               )}
@@ -1219,11 +1276,19 @@ export default function MapView() {
                   <Navigation size={16} /> S&apos;y rendre
                 </a>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      `📍 Découvre ce spot magnifique sur FriendSpot : ${selectedSpot.title} - ${selectedSpot.address || ""}`
-                    )
-                    toast.success("Lien copié dans le presse-papier !")
+                  onClick={async () => {
+                    const mapsLink = selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`
+                    const text = `📍 ${selectedSpot.title}${selectedSpot.address ? ` · ${selectedSpot.address}` : ""}`
+                    if (navigator.share) {
+                      try {
+                        await navigator.share({ title: selectedSpot.title, text, url: mapsLink })
+                      } catch {
+                        /* user cancelled */
+                      }
+                    } else {
+                      await navigator.clipboard.writeText(`${text}\n${mapsLink}`)
+                      toast.success("Lien copié dans le presse-papier !")
+                    }
                   }}
                   className="flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/20"
                 >

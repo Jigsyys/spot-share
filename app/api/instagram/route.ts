@@ -580,7 +580,7 @@ Données Google Maps :
 - Types Google : ${placeDetails.types.join(", ")}
 
 Règles strictes :
-1. Rédige un résumé court et factuel (1-2 phrases max) basé UNIQUEMENT sur les informations concrètes de la légende de la vidéo. Pas de style commercial ni de "incontournable". Juste l'essentiel : type d'expérience, spécialité ou particularité du lieu (ex: "Brunch de luxe à la carte, situé près de la Place Vendôme.").
+1. Rédige un résumé court et factuel (1-2 phrases max) basé UNIQUEMENT sur les informations concrètes de la légende de la vidéo. Pas de style commercial ni de "incontournable". Juste l'essentiel : type d'expérience, spécialité ou particularité du lieu (ex: "Brunch de luxe à la carte, situé près de la Place Vendôme."). INTERDIT : ne mentionne jamais "Instagram", "TikTok", "publication", "post", "selon", "d'après", ni l'adresse postale du lieu.
 2. Choisis UNE catégorie parmi : cafe, restaurant, bar, outdoor, vue, culture, shopping, other.
    ${CATEGORY_GUIDE}
 

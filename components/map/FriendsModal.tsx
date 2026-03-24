@@ -793,6 +793,7 @@ function UserRow({
         )}
         {isFollowing && onToggleVisibility && (
           <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
               onToggleVisibility()
