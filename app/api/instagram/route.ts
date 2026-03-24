@@ -82,10 +82,10 @@ function cleanOGData(rawTitle: string | null, rawDescription: string | null) {
   title = title.replace(/^[A-Za-zÀ-ÿ\s]+\(@[\w.]+\)\s*$/i, "").trim()
 
   if (!title || title.toLowerCase() === "instagram" || title.toLowerCase().includes("login") || title.length < 2) {
-    title = location ? location.split(",")[0].trim() : "Nouveau Spot"
+    title = location ? location.split(",")[0].trim() : ""
   }
 
-  if (title.length > 50) title = "Nouveau Spot"
+  if (title.length > 50) title = ""
 
   const cleanRawText = fullText
     .replace(/^[\d,.]+ likes?,?\s*[\d,.]+ comments?\s*-\s*\w+\s*(le|on)?\s*[\w\s,.]+\.\s*/i, "")
@@ -125,8 +125,23 @@ function normalizeCategory(raw: string | undefined | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mapbox Geocoding (fallback uniquement)
+// Mapbox Geocoding — reverse + forward
 // ---------------------------------------------------------------------------
+
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  if (!MAPBOX_TOKEN) return null
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=place&language=fr&limit=1`,
+      { signal: AbortSignal.timeout(5000) }
+    )
+    const data = await res.json()
+    const city = data.features?.[0]?.text
+    return city || null
+  } catch {
+    return null
+  }
+}
 
 async function geocode(query: string): Promise<{ lat: number; lng: number; place_name: string } | null> {
   if (!MAPBOX_TOKEN || !query) return null
@@ -146,7 +161,6 @@ async function geocode(query: string): Promise<{ lat: number; lng: number; place
 
 // ---------------------------------------------------------------------------
 // Google Places : Find Place (API classique textsearch)
-// Fonctionne exactement comme la barre de recherche Google Maps
 // ---------------------------------------------------------------------------
 
 interface GooglePlaceResult {
@@ -164,7 +178,6 @@ async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | nul
   if (!apiKey || !query) return null
 
   try {
-    // API classique Google Maps textsearch : la plus fiable pour trouver un lieu par son nom
     const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=fr&key=${apiKey}`
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
     const data = await res.json()
@@ -175,7 +188,6 @@ async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | nul
 
     const place = data.results[0]
 
-    // --- Photos ---
     let photoUrls: string | null = null
     if (place.photos && place.photos.length > 0) {
       const urls: string[] = []
@@ -191,7 +203,7 @@ async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | nul
       if (urls.length > 0) photoUrls = urls.join(",")
     }
 
-    console.log(`[Google textsearch] Found: "${place.name}" @ ${place.formatted_address} (types=${place.types?.join(",")})`)
+    console.log(`[Google textsearch] Found: "${place.name}" @ ${place.formatted_address}`)
 
     return {
       name: place.name || null,
@@ -208,7 +220,6 @@ async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | nul
   }
 }
 
-// Mapper les types Google vers nos catégories
 function googleTypesToCategory(types: string[]): string | null {
   const map: Record<string, string> = {
     cafe: "café", coffee_shop: "café", bakery: "café",
@@ -229,7 +240,7 @@ function googleTypesToCategory(types: string[]): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Gemini : extraction nom + ville + catégorie (prompt minimal)
+// Gemini helpers
 // ---------------------------------------------------------------------------
 
 async function callGemini(prompt: string, maxTokens: number = 100): Promise<string | null> {
@@ -266,6 +277,50 @@ interface AiExtraction {
   city: string
   category: string
 }
+
+// ---------------------------------------------------------------------------
+// Gemini avec Google Search grounding
+// Utilisé quand on n'a que le username et aucun contexte textuel
+// ---------------------------------------------------------------------------
+
+async function searchPlaceWithGrounding(
+  username: string,
+  cityHint: string | null
+): Promise<AiExtraction | null> {
+  if (!process.env.GEMINI_API_KEY) return null
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    // Gemini 2.0 Flash avec Google Search grounding (gratuit, même clé)
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      tools: [{ googleSearch: {} }],
+    })
+    const cityCtx = cityHint ? ` situé à ${cityHint}` : ""
+    const prompt = `Recherche sur internet le compte Instagram "@${username}"${cityCtx}.
+Est-ce un établissement (restaurant, café, bar, lieu culturel, boutique...) ?
+Si oui, réponds UNIQUEMENT en JSON (pas d'autre texte):
+{"name":"nom exact du lieu","city":"ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}
+Si c'est un compte personnel et non un lieu, réponds: {"name":null}`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+    console.log(`[Gemini grounding] username="${username}" -> raw="${text.slice(0, 200)}"`)
+
+    const match = text.match(/\{[\s\S]*?\}/)
+    if (match) {
+      const parsed = JSON.parse(match[0])
+      if (parsed.name && parsed.name !== "null") return parsed
+    }
+    return null
+  } catch (e) {
+    console.error("[Gemini grounding error]:", e)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Extraction classique (quand on a du texte de caption)
+// ---------------------------------------------------------------------------
 
 async function extractPlaceInfo(
   titleHint: string,
@@ -307,12 +362,27 @@ async function generateDescription(
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const url = searchParams.get("url")
+  const userLatParam = searchParams.get("lat")
+  const userLngParam = searchParams.get("lng")
 
   if (!url || (!url.includes("instagram.com") && !url.includes("tiktok.com"))) {
     return NextResponse.json({ error: "URL invalide. Seuls Instagram et TikTok sont acceptés." }, { status: 400 })
   }
 
   try {
+    // ------------------------------------------------------------------
+    // 0. Ville de l'utilisateur (GPS passé depuis le frontend)
+    // ------------------------------------------------------------------
+    let userCity: string | null = null
+    if (userLatParam && userLngParam) {
+      const lat = parseFloat(userLatParam)
+      const lng = parseFloat(userLngParam)
+      if (!isNaN(lat) && !isNaN(lng)) {
+        userCity = await reverseGeocode(lat, lng)
+        console.log(`[User city] lat=${lat} lng=${lng} -> "${userCity}"`)
+      }
+    }
+
     // ------------------------------------------------------------------
     // 1. Scraping OG tags
     // ------------------------------------------------------------------
@@ -340,51 +410,72 @@ export async function GET(request: Request) {
     // 2. Nettoyage
     // ------------------------------------------------------------------
     const cleaned = cleanOGData(ogTitle, ogDescription)
-
-    // ------------------------------------------------------------------
-    // 3. Gemini : extraire nom + ville + catégorie
-    // ------------------------------------------------------------------
-    const aiData = await extractPlaceInfo(cleaned.title, cleaned.location, cleaned.rawText)
-
-    // Nom du username converti en nom lisible (ex: "le_couteau" → "Le Couteau")
     const usernameAsName = cleaned.username ? usernameToName(cleaned.username) : null
 
-    // Gemini a du contexte ? Sinon on utilise le username comme nom du lieu
+    console.log(`[OG] title="${cleaned.title}" location="${cleaned.location}" username="${cleaned.username}"`)
+
+    // ------------------------------------------------------------------
+    // 3. Extraction AI du lieu
+    //    - Si le titre est vide (Instagram a tout bloqué) → Gemini grounding
+    //    - Sinon → extraction classique avec la caption
+    // ------------------------------------------------------------------
+    let aiData: AiExtraction | null = null
+    const hasContext = cleaned.title.length > 0 || cleaned.rawText.length > 10
+
+    if (!hasContext && cleaned.username) {
+      // Instagram a bloqué → on cherche sur Google via Gemini grounding
+      console.log(`[Step 3] No OG context, using Gemini grounding for "@${cleaned.username}"`)
+      aiData = await searchPlaceWithGrounding(cleaned.username, userCity)
+    } else {
+      // On a du contexte textuel → extraction classique
+      const effectiveTitleHint = cleaned.title || usernameAsName || ""
+      const effectiveLocationHint = cleaned.location || userCity
+      aiData = await extractPlaceInfo(effectiveTitleHint, effectiveLocationHint, cleaned.rawText)
+
+      // Si la ville est manquante mais qu'on a userCity, on l'injecte
+      if (aiData && !aiData.city && userCity) {
+        aiData = { ...aiData, city: userCity }
+      }
+    }
+
+    // Nom final du lieu
     const placeName = (aiData?.name && aiData.name.length <= 60 && aiData.name !== "Nouveau Spot")
       ? aiData.name
-      : (usernameAsName || cleaned.title)
-    const placeCity = aiData?.city || null
+      : (usernameAsName || cleaned.title || "Nouveau Spot")
+
+    // Ville finale : Gemini > userCity > null
+    const placeCity = aiData?.city || userCity || null
     let finalCategory = normalizeCategory(aiData?.category)
 
-    console.log(`[Step 3] Gemini: name="${aiData?.name}" city="${placeCity}" cat="${finalCategory}" | username="${usernameAsName}" -> placeName="${placeName}"`)
+    console.log(`[Step 3] AI: name="${aiData?.name}" city="${placeCity}" cat="${finalCategory}" -> placeName="${placeName}"`)
 
     // ------------------------------------------------------------------
     // 4. Google Maps textsearch : trouver le lieu EXACT
-    //    Stratégie par ordre de précision
+    //    Ordre optimisé : avec ville en premier (précision max)
     // ------------------------------------------------------------------
     let googlePlace: GooglePlaceResult | null = null
 
-    // Tentative 1 : nom Gemini + ville
+    // T1: nom AI + ville (ex: "Le Couteau Paris")
     if (aiData?.name && placeCity) {
       googlePlace = await findPlaceOnGoogle(`${aiData.name} ${placeCity}`)
     }
 
-    // Tentative 2 : nom Gemini seul
+    // T2: username converti + ville (ex: "Le Couteau Paris")
+    if (!googlePlace && usernameAsName && placeCity && usernameAsName !== aiData?.name) {
+      googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`)
+    }
+
+    // T3: nom AI seul
     if (!googlePlace && aiData?.name) {
       googlePlace = await findPlaceOnGoogle(aiData.name)
     }
 
-    // Tentative 3 : username converti + ville (ex: "Le Couteau Paris")
-    if (!googlePlace && usernameAsName && placeCity) {
-      googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`)
-    }
-
-    // Tentative 4 : username converti seul (ex: "Le Couteau")
+    // T4: username converti seul
     if (!googlePlace && usernameAsName) {
       googlePlace = await findPlaceOnGoogle(usernameAsName)
     }
 
-    // Tentative 5 : avec le lieu OG brut
+    // T5: avec le lieu OG brut
     if (!googlePlace && cleaned.location) {
       googlePlace = await findPlaceOnGoogle(`${placeName} ${cleaned.location}`)
     }
@@ -421,7 +512,7 @@ export async function GET(request: Request) {
     // 5. Gemini : description engageante
     // ------------------------------------------------------------------
     let description = ""
-    if (resolvedAddress && placeName) {
+    if (resolvedAddress && placeName && placeName !== "Nouveau Spot") {
       const aiDesc = await generateDescription(placeName, finalCategory, resolvedAddress)
       if (aiDesc) description = aiDesc
     }

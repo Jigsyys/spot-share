@@ -1320,6 +1320,8 @@ export default function MapView() {
       <AddSpotModal
         isOpen={showAddModal}
         initialUrl={initialAddUrl}
+        userLat={userLocation?.lat}
+        userLng={userLocation?.lng}
         onClose={() => setShowAddModal(false)}
         onAdd={(spotData) => {
           const promise = handleAddSpot(spotData)

@@ -47,6 +47,8 @@ interface AddSpotModalProps {
     opening_hours: Record<string, string> | null
   }) => Promise<void>
   initialUrl?: string
+  userLat?: number
+  userLng?: number
 }
 
 type Tab = "instagram" | "manual"
@@ -56,6 +58,8 @@ export default function AddSpotModal({
   onClose,
   onAdd,
   initialUrl,
+  userLat,
+  userLng,
 }: AddSpotModalProps) {
   const [tab, setTab] = useState<Tab>("instagram")
   const [instagramUrl, setInstagramUrl] = useState("")
@@ -137,7 +141,8 @@ export default function AddSpotModal({
     igDebounceRef.current = setTimeout(async () => {
       setAutoFillLoading(true)
       try {
-        const res = await fetch(`/api/instagram?url=${encodeURIComponent(url)}`)
+        const locParams = userLat != null && userLng != null ? `&lat=${userLat}&lng=${userLng}` : ""
+        const res = await fetch(`/api/instagram?url=${encodeURIComponent(url)}${locParams}`)
         const data = await res.json()
 
         if (!res.ok || data.error) {
