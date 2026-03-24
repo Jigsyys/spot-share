@@ -35,7 +35,12 @@ function decodeHTML(str: string): string {
 function extractOG(html: string) {
   const get = (prop: string) =>
     html.match(new RegExp(`<meta property="${prop}" content="([^"]*?)"\\s*/?>`)) ?.[1] ?? null
-  return { title: get("og:title"), description: get("og:description") }
+  return { title: get("og:title"), description: get("og:description"), image: get("og:image") }
+}
+
+/** Détecte si une chaîne ressemble à une adresse postale plutôt qu'à un nom commercial */
+function looksLikeAddress(str: string): boolean {
+  return /^\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée|passage|cour|villa|chemin|voie|quai|square|résidence)\b/i.test(str.trim())
 }
 
 function usernameToName(handle: string): string {
@@ -84,6 +89,7 @@ interface VideoMeta {
   tags: string[]
   uploader: string | null
   username: string | null
+  ogImage: string | null   // og:image extrait du scraping HTML
 }
 
 async function extractMetadata(url: string): Promise<VideoMeta> {
@@ -114,6 +120,7 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         tags: info.tags || [],
         uploader: info.uploader || null,
         username,
+        ogImage: null,
       }
     }
   } catch (e) {
@@ -142,11 +149,12 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         tags: [],
         uploader: parsed.username ? usernameToName(parsed.username) : null,
         username: parsed.username,
+        ogImage: og.image ? decodeHTML(og.image) : null,
       }
     }
   } catch { /* bloqué */ }
 
-  return { title: "", description: "", tags: [], uploader: null, username: null }
+  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -304,9 +312,12 @@ STRATÉGIE DE RECHERCHE (applique-les dans l'ordre) :
 
 ${CATEGORY_GUIDE}
 
+RÈGLE ABSOLUE : "name" = NOM COMMERCIAL uniquement (ex: "Café de Flore", "Le Meurice", "Baieta").
+Si tu n'as QUE l'adresse (ex: "161 Rue Montmartre") sans nom d'établissement → mets name:null et l'adresse dans "address".
+
 Réponds UNIQUEMENT avec ce JSON valide (aucun autre texte) :
-{"name":"Nom officiel exact","city":"Ville, Pays (ex: Paris, France)","address":"Numéro rue, Ville","category":"..."}
-Si c'est un compte personnel sans lieu associé : {"name":null}`
+{"name":"Nom commercial ou null","city":"Ville, Pays (ex: Paris, France)","address":"Numéro rue, Ville","category":"..."}
+Si compte personnel sans lieu : {"name":null}`
 
       const result = await model.generateContent(prompt)
       const text = result.response.text().trim()
@@ -356,8 +367,11 @@ MISSION : Identifie le lieu exact présenté dans cette vidéo.
 
 ${CATEGORY_GUIDE}
 
+RÈGLE ABSOLUE : "name" = NOM COMMERCIAL uniquement (ex: "Café de Flore", "Baieta").
+Si tu n'as QUE l'adresse sans nom d'établissement → mets name:null et l'adresse dans "address".
+
 Réponds UNIQUEMENT avec ce JSON valide :
-{"name":"Nom exact","city":"Ville, Pays (ex: Paris, France)","address":"Adresse ou null","category":"..."}`
+{"name":"Nom commercial ou null","city":"Ville, Pays (ex: Paris, France)","address":"Adresse ou null","category":"..."}`
 
   const raw = await callGemini(prompt, 150)
   if (!raw) return null
@@ -659,6 +673,14 @@ export async function GET(request: Request) {
     console.log("[Step 2] LLM hypothesis...")
     const hypothesis = await extractHypothesis(url, meta, userCity)
     const usernameAsName = meta.username ? usernameToName(meta.username) : null
+
+    // Garde-fou : si l'IA a mis une adresse dans "name", la déplacer vers "address"
+    if (hypothesis?.name && looksLikeAddress(hypothesis.name)) {
+      console.log(`[Step 2] name ressemble à une adresse → déplacé dans address: "${hypothesis.name}"`)
+      if (!hypothesis.address) hypothesis.address = hypothesis.name
+      hypothesis.name = null as unknown as string
+    }
+
     const placeName = hypothesis?.name || usernameAsName || meta.title.split("\n")[0].slice(0, 60) || "Nouveau Spot"
     const placeCity = hypothesis?.city || userCity || null
     console.log(`[Step 2] name="${placeName}" city="${placeCity}" cat="${hypothesis?.category}"`)
@@ -671,12 +693,17 @@ export async function GET(request: Request) {
     const signals = extractWeakSignals(meta)
     const bestCity = placeCity || signals.cityHints[0] || null
 
-    // Tentatives par ordre de précision, enrichies des signaux faibles
+    // Types Google que l'on refuse (geocodes génériques, pas des établissements)
+    const REJECT_TYPES = new Set(["street_address", "route", "premise", "subpremise", "postal_code", "locality", "country"])
+    const isBusinessResult = (r: PlaceSearchResult) =>
+      r.types.length > 0 && !r.types.every(t => REJECT_TYPES.has(t))
+
+    // Tentatives par ordre de précision
     const queries: string[] = []
     if (hypothesis?.address) queries.push(hypothesis.address)
-    if (placeName && bestCity) queries.push(`${placeName} ${bestCity}`)
+    if (placeName && placeName !== "Nouveau Spot" && bestCity) queries.push(`${placeName} ${bestCity}`)
     if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
-    if (placeName) queries.push(placeName)
+    if (placeName && placeName !== "Nouveau Spot") queries.push(placeName)
     if (usernameAsName && usernameAsName !== placeName) queries.push(usernameAsName)
     // Signaux faibles : noms de hashtags + ville
     for (const hint of signals.nameHints.slice(0, 2)) {
@@ -687,8 +714,14 @@ export async function GET(request: Request) {
     for (const addr of signals.addressHints) queries.push(addr)
 
     for (const q of [...new Set(queries)]) {
-      searchResult = await searchGooglePlace(q, userLatN, userLngN)
-      if (searchResult) { console.log(`[Step 3] Found via "${q}": ${searchResult.name}`); break }
+      const candidate = await searchGooglePlace(q, userLatN, userLngN)
+      if (candidate && isBusinessResult(candidate)) {
+        searchResult = candidate
+        console.log(`[Step 3] Found via "${q}": ${searchResult.name} (${searchResult.types.slice(0,3).join(",")})`)
+        break
+      } else if (candidate) {
+        console.log(`[Step 3] Rejected generic address result via "${q}": ${candidate.name} (${candidate.types.join(",")})`)
+      }
     }
 
     let placeDetails: PlaceDetails | null = null
@@ -732,6 +765,12 @@ export async function GET(request: Request) {
       photos = placeDetails.photoUrls
       mapsUrl = placeDetails.mapsUrl
       weekdayDescriptions = placeDetails.weekdayDescriptions
+    }
+
+    // Fallback photo : og:image du post si Google Places n'a rien retourné
+    if (photos.length === 0 && meta.ogImage) {
+      console.log("[Photos] Fallback og:image:", meta.ogImage.slice(0, 80))
+      photos = [meta.ogImage]
     }
 
     if (!coordinates) {
