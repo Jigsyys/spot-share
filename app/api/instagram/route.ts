@@ -286,42 +286,57 @@ async function callGemini(prompt: string, maxTokens: number = 100): Promise<stri
 interface AiExtraction {
   name: string
   city: string
+  address: string | null
   category: string
 }
 
 // ---------------------------------------------------------------------------
-// Gemini avec Google Search grounding
-// Utilisé quand on n'a que le username et aucun contexte textuel
+// Gemini avec Google Search grounding — reçoit TOUTES les informations
 // ---------------------------------------------------------------------------
 
 async function searchPlaceWithGrounding(
-  username: string,
-  cityHint: string | null
+  instagramUrl: string,
+  username: string | null,
+  ogTitle: string | null,
+  ogText: string | null,
+  userCity: string | null
 ): Promise<AiExtraction | null> {
   if (!process.env.GEMINI_API_KEY) return null
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    // Gemini 2.0 Flash avec Google Search grounding (gratuit, même clé)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const model = genAI.getGenerativeModel({
       model: "gemini-2.0-flash",
       tools: [{ googleSearch: {} }] as any,
     })
-    const cityCtx = cityHint ? ` situé à ${cityHint}` : ""
-    const prompt = `Recherche sur internet le compte Instagram "@${username}"${cityCtx}.
-Est-ce un établissement (restaurant, café, bar, lieu culturel, boutique...) ?
-Si oui, réponds UNIQUEMENT en JSON (pas d'autre texte):
-{"name":"nom exact du lieu","city":"ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}
-Si c'est un compte personnel et non un lieu, réponds: {"name":null}`
+
+    const lines: string[] = [
+      `Post Instagram: ${instagramUrl}`,
+    ]
+    if (username) lines.push(`Compte Instagram: @${username}`)
+    if (ogTitle) lines.push(`Titre visible: "${ogTitle}"`)
+    if (ogText) lines.push(`Texte visible: "${ogText.slice(0, 400)}"`)
+    if (userCity) lines.push(`Ville de l'utilisateur (indice géo): ${userCity}`)
+
+    const prompt = `Tu es expert en recherche de lieux.
+${lines.join("\n")}
+
+Utilise Google Search pour identifier quel établissement est présenté dans ce post.
+${username ? `Cherche le compte "@${username}" et "${usernameToName(username)}${userCity ? " " + userCity : ""}" sur Google Maps.` : ""}
+Détermine: nom exact, ville, adresse complète, type d'établissement.
+
+Réponds UNIQUEMENT en JSON (aucun autre texte):
+{"name":"nom exact","city":"ville","address":"adresse complète rue et ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}
+Si ce n'est pas un lieu public: {"name":null}`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
-    console.log(`[Gemini grounding] username="${username}" -> raw="${text.slice(0, 200)}"`)
+    console.log(`[Gemini grounding] -> raw="${text.slice(0, 300)}"`)
 
     const match = text.match(/\{[\s\S]*?\}/)
     if (match) {
       const parsed = JSON.parse(match[0])
-      if (parsed.name && parsed.name !== "null") return parsed
+      if (parsed.name && parsed.name !== "null") return { address: null, ...parsed }
     }
     return null
   } catch (e) {
@@ -331,23 +346,34 @@ Si c'est un compte personnel et non un lieu, réponds: {"name":null}`
 }
 
 // ---------------------------------------------------------------------------
-// Extraction classique (quand on a du texte de caption)
+// Extraction classique enrichie (quand on a du texte de caption)
 // ---------------------------------------------------------------------------
 
 async function extractPlaceInfo(
+  instagramUrl: string,
+  username: string | null,
   titleHint: string,
   locationHint: string | null,
-  rawText: string
+  rawText: string,
+  userCity: string | null
 ): Promise<AiExtraction | null> {
-  const shortText = rawText.length > 300 ? rawText.slice(0, 300) : rawText
+  const shortText = rawText.length > 500 ? rawText.slice(0, 500) : rawText
 
-  const prompt = `Identifie le lieu mentionné dans ce post social.
-Indices: titre="${titleHint}", lieu="${locationHint || ""}"
-Texte: "${shortText}"
+  const lines: string[] = [`Post: ${instagramUrl}`]
+  if (username) lines.push(`Compte: @${username}`)
+  if (titleHint) lines.push(`Titre: "${titleHint}"`)
+  if (locationHint) lines.push(`Localisation mentionnée: "${locationHint}"`)
+  if (userCity) lines.push(`Ville de l'utilisateur: ${userCity}`)
+  if (shortText) lines.push(`Texte du post: "${shortText}"`)
+
+  const prompt = `Identifie le lieu exact présenté dans ce post social.
+${lines.join("\n")}
+
+Extrait le nom du lieu, la ville, l'adresse si mentionnée, et la catégorie.
 Réponds UNIQUEMENT en JSON:
-{"name":"nom exact du lieu","city":"ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}`
+{"name":"nom exact","city":"ville","address":"adresse complète ou null","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}`
 
-  const raw = await callGemini(prompt, 80)
+  const raw = await callGemini(prompt, 120)
   if (!raw) return null
   try {
     const match = raw.match(/\{[\s\S]*\}/)
@@ -435,14 +461,14 @@ export async function GET(request: Request) {
     const hasContext = cleaned.title.length > 0 || cleaned.rawText.length > 10
 
     if (!hasContext && cleaned.username) {
-      // Instagram a bloqué → on cherche sur Google via Gemini grounding
+      // Instagram a bloqué → Gemini grounding avec toutes les infos disponibles
       console.log(`[Step 3] No OG context, using Gemini grounding for "@${cleaned.username}"`)
-      aiData = await searchPlaceWithGrounding(cleaned.username, userCity)
+      aiData = await searchPlaceWithGrounding(url, cleaned.username, ogTitle, cleaned.rawText, userCity)
     } else {
-      // On a du contexte textuel → extraction classique
+      // Caption disponible → extraction classique enrichie
       const effectiveTitleHint = cleaned.title || usernameAsName || ""
       const effectiveLocationHint = cleaned.location || userCity
-      aiData = await extractPlaceInfo(effectiveTitleHint, effectiveLocationHint, cleaned.rawText)
+      aiData = await extractPlaceInfo(url, cleaned.username, effectiveTitleHint, effectiveLocationHint, cleaned.rawText, userCity)
 
       // Si la ville est manquante mais qu'on a userCity, on l'injecte
       if (aiData && !aiData.city && userCity) {
@@ -469,27 +495,35 @@ export async function GET(request: Request) {
     const userLatN = userLatParam ? parseFloat(userLatParam) : null
     const userLngN = userLngParam ? parseFloat(userLngParam) : null
 
-    // T1: nom AI + ville (ex: "Andia Paris")
-    if (aiData?.name && placeCity) {
+    // Si Gemini a retourné une adresse directement, on l'utilise en priorité pour la recherche Google
+    const aiAddress = aiData?.address || null
+
+    // T1: adresse exacte retournée par Gemini (ex: "15 rue de Rivoli, Paris")
+    if (aiAddress) {
+      googlePlace = await findPlaceOnGoogle(aiAddress, userLatN, userLngN)
+    }
+
+    // T2: nom AI + ville (ex: "Andia Paris")
+    if (!googlePlace && aiData?.name && placeCity) {
       googlePlace = await findPlaceOnGoogle(`${aiData.name} ${placeCity}`, userLatN, userLngN)
     }
 
-    // T2: username converti + ville (ex: "Le Couteau Paris")
+    // T3: username converti + ville (ex: "Le Couteau Paris")
     if (!googlePlace && usernameAsName && placeCity && usernameAsName !== aiData?.name) {
       googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`, userLatN, userLngN)
     }
 
-    // T3: nom AI seul (avec biais GPS pour rester dans la bonne ville)
+    // T4: nom AI seul (avec biais GPS)
     if (!googlePlace && aiData?.name) {
       googlePlace = await findPlaceOnGoogle(aiData.name, userLatN, userLngN)
     }
 
-    // T4: username converti seul
+    // T5: username converti seul
     if (!googlePlace && usernameAsName) {
       googlePlace = await findPlaceOnGoogle(usernameAsName, userLatN, userLngN)
     }
 
-    // T5: avec le lieu OG brut
+    // T6: avec le lieu OG brut
     if (!googlePlace && cleaned.location) {
       googlePlace = await findPlaceOnGoogle(`${placeName} ${cleaned.location}`, userLatN, userLngN)
     }
@@ -514,7 +548,7 @@ export async function GET(request: Request) {
 
     // Fallback Mapbox si Google n'a rien trouvé
     if (!coordinates) {
-      const fallbackQuery = placeCity ? `${placeName}, ${placeCity}` : placeName
+      const fallbackQuery = aiAddress || (placeCity ? `${placeName}, ${placeCity}` : placeName)
       const geo = await geocode(fallbackQuery)
       if (geo) {
         coordinates = { lat: geo.lat, lng: geo.lng }
