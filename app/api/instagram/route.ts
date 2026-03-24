@@ -90,6 +90,7 @@ interface VideoMeta {
   uploader: string | null
   username: string | null
   ogImage: string | null   // og:image extrait du scraping HTML
+  locationHint: string | null  // nom de lieu explicite extrait du 📍
 }
 
 async function extractMetadata(url: string): Promise<VideoMeta> {
@@ -114,13 +115,19 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
       console.log("[yt-dlp] OK — title:", info.title?.slice(0, 80))
       const uploaderRaw = info.uploader_id || info.uploader || info.channel || null
       const username = uploaderRaw ? uploaderRaw.replace(/^@/, "") : null
+      // Extraire le nom de lieu depuis 📍 dans la description yt-dlp
+      const desc = info.description || ""
+      const ytPinMatch = desc.match(/📍\s*([^\n#]{3,80})/)
+      const locationHint = ytPinMatch ? ytPinMatch[1].replace(/["\s]+$/, "").trim() : null
+      if (locationHint) console.log("[yt-dlp] 📍 locationHint:", locationHint)
       return {
         title: info.title || "",
-        description: info.description || "",
+        description: desc,
         tags: info.tags || [],
         uploader: info.uploader || null,
         username,
         ogImage: null,
+        locationHint,
       }
     }
   } catch (e) {
@@ -150,11 +157,12 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         uploader: parsed.username ? usernameToName(parsed.username) : null,
         username: parsed.username,
         ogImage: og.image ? decodeHTML(og.image) : null,
+        locationHint: parsed.location,  // nom de lieu explicite du 📍 (avant suppression du rawText)
       }
     }
   } catch { /* bloqué */ }
 
-  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null }
+  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null, locationHint: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,22 +237,30 @@ function extractWeakSignals(meta: VideoMeta): WeakSignals {
     .map(h => h.replace(/_/g, " ").replace(/-/g, " "))
     .slice(0, 5)
 
-  // Adresses et 📍
+  // Adresses et 📍 (dans le texte brut non lowercasé)
   const addressHints: string[] = []
   const rawFull = [meta.title, meta.description].join(" ")
-  const pinMatch = rawFull.match(/📍\s*([^\n#]{3,60})/g)
+  const pinMatch = rawFull.match(/📍\s*([^\n#]{3,80})/g)
   if (pinMatch) {
     for (const m of pinMatch) {
       const val = m.replace("📍", "").trim()
-      // Si ça commence par un chiffre → adresse postale, sinon → nom de lieu
       if (/^\d/.test(val)) {
         addressHints.push(val)
       } else {
-        // Nom de lieu explicite via 📍 → priorité maximale
         nameHints.unshift(val)
       }
     }
   }
+  // locationHint (déjà extrait et préservé depuis OG/yt-dlp) → priorité absolue
+  if (meta.locationHint && !/^\d/.test(meta.locationHint)) {
+    // Évite doublon si déjà détecté via pinMatch
+    if (!nameHints.includes(meta.locationHint)) {
+      nameHints.unshift(meta.locationHint)
+    }
+  } else if (meta.locationHint && /^\d/.test(meta.locationHint)) {
+    addressHints.unshift(meta.locationHint)
+  }
+
   const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
   if (streetMatch) addressHints.push(...streetMatch.slice(0, 2))
 
@@ -355,13 +371,16 @@ Si compte personnel sans lieu : {"name":null}`
 
   // Contexte disponible → LLM classique enrichi des signaux faibles
   const ctx = [
+    // ⚠️ locationHint en premier avec label explicite — info la plus fiable
+    meta.locationHint ? `⚠️ LIEU EXPLICITEMENT MENTIONNÉ (📍 dans la légende): "${meta.locationHint}" — utilise ce nom en priorité absolue` : "",
     `URL: ${postUrl}`,
     meta.username ? `Compte: @${meta.username} (nom: "${usernameToName(meta.username)}")` : "",
     meta.title ? `Titre: "${meta.title}"` : "",
     meta.description ? `Description: "${meta.description.slice(0, 500)}"` : "",
     meta.tags.length ? `Hashtags: ${meta.tags.slice(0, 15).join(" ")}` : "",
     signals.addressHints.length ? `📍 Adresses détectées: ${signals.addressHints.join(" | ")}` : "",
-    signals.nameHints.length ? `Noms dans hashtags: ${signals.nameHints.join(", ")}` : "",
+    signals.nameHints.filter(n => n !== meta.locationHint).length
+      ? `Autres noms détectés: ${signals.nameHints.filter(n => n !== meta.locationHint).join(", ")}` : "",
     bestCity ? `Ville (GPS/hashtags): ${bestCity}` : "",
     impliedCategory ? `Catégorie implicite (hashtags): ${impliedCategory}` : "",
   ].filter(Boolean).join("\n")
@@ -372,7 +391,8 @@ Données de la vidéo :
 ${ctx}
 
 MISSION : Identifie le lieu exact présenté dans cette vidéo.
-- Si le nom n'est pas explicite, déduis-le depuis le compte, les hashtags ou les noms détectés.
+- Si un "LIEU EXPLICITEMENT MENTIONNÉ (📍)" est indiqué ci-dessus, c'est le nom du lieu — utilise-le directement comme "name".
+- Sinon, déduis-le depuis le compte, les hashtags ou les noms détectés.
 - Si l'adresse n'est pas explicite, utilise la ville (GPS ou hashtag) comme indice.
 - La catégorie implicite (hashtags) est un indice fort, utilise-la.
 
@@ -726,22 +746,23 @@ export async function GET(request: Request) {
     // Tentatives par ordre de précision
     const queries: string[] = []
 
-    // 📍 noms explicites en priorité absolue (extraits du texte via emoji pin)
-    // signals.nameHints[0] est le nom 📍 s'il existe (mis en tête par unshift)
-    const pinName = signals.nameHints[0] && signals.nameHints[0] !== placeName ? signals.nameHints[0] : null
-    if (pinName && bestCity) queries.push(`${pinName} ${bestCity}`)
-    if (pinName) queries.push(pinName)
+    // locationHint = nom 📍 extrait directement (OG ou yt-dlp) → priorité absolue
+    const locationHint = meta.locationHint
+    if (locationHint && bestCity) queries.push(`${locationHint} ${bestCity}`)
+    if (locationHint) queries.push(locationHint)
+
+    // Autres noms depuis nameHints (📍 in-text + hashtags)
+    for (const hint of signals.nameHints.slice(0, 2)) {
+      if (hint === locationHint) continue
+      if (bestCity) queries.push(`${hint} ${bestCity}`)
+      queries.push(hint)
+    }
 
     if (hypothesis?.address) queries.push(hypothesis.address)
     if (placeName && placeName !== "Nouveau Spot" && bestCity) queries.push(`${placeName} ${bestCity}`)
     if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
     if (placeName && placeName !== "Nouveau Spot") queries.push(placeName)
     if (usernameAsName && usernameAsName !== placeName) queries.push(usernameAsName)
-    // Signaux faibles : noms de hashtags + ville
-    for (const hint of signals.nameHints.slice(0, 3)) {
-      if (bestCity) queries.push(`${hint} ${bestCity}`)
-      queries.push(hint)
-    }
     // Adresses détectées directement dans le texte
     for (const addr of signals.addressHints) queries.push(addr)
 
@@ -749,16 +770,18 @@ export async function GET(request: Request) {
     const FOOD_TYPES = new Set(["restaurant", "food", "cafe", "bar", "bakery", "meal_takeaway", "meal_delivery"])
     const expectedCat = normalizeCategory(hypothesis?.category)
 
+    // Nom de référence pour la similarité (locationHint > placeName)
+    const refName = locationHint || placeName
+
     for (const q of [...new Set(queries)]) {
       const candidates = await searchGooglePlace(q, userLatN, userLngN)
       if (!candidates.length) continue
 
-      // Tri : d'abord les business valides, puis par score de similarité avec la query
       const scored = candidates
         .filter(c => isBusinessResult(c))
         .map(c => {
-          const sim = wordOverlap(q, c.name)
-          // Pénalise si la catégorie attendue est outdoor/culture/vue mais résultat = restaurant/food
+          // Similarité calculée par rapport au nom de référence, pas la query
+          const sim = wordOverlap(refName, c.name)
           const catMismatch =
             ["outdoor","culture","vue"].includes(expectedCat) &&
             c.types.some(t => FOOD_TYPES.has(t)) &&
@@ -775,15 +798,19 @@ export async function GET(request: Request) {
       const best = scored[0]
       console.log(`[Step 3] Best match via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} types=${best.c.types.slice(0,3).join(",")}`)
 
-      // Accepte si score suffisant OU si c'est la dernière tentative (évite de ne rien trouver)
-      const isLastQuery = q === [...new Set(queries)].at(-1)
-      if (best.score >= 0.25 || isLastQuery) {
+      // Accepte seulement si score suffisant — pas de fallback aveugle
+      if (best.score >= 0.2) {
         searchResult = best.c
         console.log(`[Step 3] Accepted: "${searchResult.name}"`)
         break
       } else {
-        console.log(`[Step 3] Rejected low score (${best.score.toFixed(2)}) for "${best.c.name}" — trying next query`)
+        console.log(`[Step 3] Rejected (score ${best.score.toFixed(2)}) for "${best.c.name}" — trying next query`)
       }
+    }
+
+    // Si aucun résultat Google confirmé → on garde placeName/locationHint + Mapbox geocoding
+    if (!searchResult) {
+      console.log(`[Step 3] No confident Google match found — will use Mapbox geocoding fallback`)
     }
 
     let placeDetails: PlaceDetails | null = null
@@ -836,13 +863,18 @@ export async function GET(request: Request) {
     }
 
     if (!coordinates) {
-      const fallbackQ = placeCity ? `${placeName}, ${placeCity}` : placeName
+      // Préférer locationHint (plus fiable que placeName issu du LLM)
+      const geoName = locationHint || placeName
+      const fallbackQ = placeCity ? `${geoName}, ${placeCity}` : geoName
       const geo = await geocodeFallback(fallbackQ)
       if (geo) { coordinates = { lat: geo.lat, lng: geo.lng }; resolvedAddress = geo.place_name }
     }
 
+    // Titre final : Place Details > locationHint > placeName LLM
+    const finalTitle = placeDetails?.name || locationHint || placeName
+
     return NextResponse.json({
-      title: placeDetails?.name || placeName,
+      title: finalTitle,
       description: finalDesc || null,
       location: resolvedAddress,
       category: finalCategory,
