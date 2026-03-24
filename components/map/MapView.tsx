@@ -1137,7 +1137,7 @@ export default function MapView() {
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${selectedSpot.lat},${selectedSpot.lng}`}
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(", "))}&travelmode=driving`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-500 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.02] hover:bg-indigo-400"

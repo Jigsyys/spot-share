@@ -247,6 +247,10 @@ function googleTypesToCategory(types: string[]): string | null {
   for (const t of types) {
     if (map[t]) return map[t]
   }
+  // Fallback partiel sur les types Google
+  if (types.some(t => t.includes("beauty") || t.includes("hair") || t.includes("spa") || t.includes("nail"))) return "shopping"
+  if (types.some(t => t.includes("food") || t.includes("meal"))) return "restaurant"
+  if (types.some(t => t.includes("bar") || t.includes("night"))) return "bar"
   return null
 }
 
@@ -290,6 +294,17 @@ interface AiExtraction {
   category: string
 }
 
+// Guide des catégories injecté dans tous les prompts
+const CATEGORY_GUIDE = `Catégories disponibles (choisis la plus précise) :
+- cafe : café, boulangerie, pâtisserie, salon de thé, coffee shop, brunch
+- restaurant : restaurant, pizzeria, brasserie, gastronomie, sushi, fast-food
+- bar : bar, cocktail bar, pub, boîte de nuit, rooftop bar, wine bar
+- outdoor : parc, plage, forêt, jardin, randonnée, lac, nature, piscine
+- vue : belvédère, panorama, point de vue, terrasse avec vue, rooftop panoramique
+- culture : musée, galerie d'art, théâtre, monument, église, exposition, cinéma
+- shopping : boutique, magasin, salon de beauté, spa, nail art, coiffeur, institut, friperie, marché
+- other : tout ce qui ne rentre dans aucune catégorie ci-dessus`
+
 // ---------------------------------------------------------------------------
 // Gemini avec Google Search grounding — reçoit TOUTES les informations
 // ---------------------------------------------------------------------------
@@ -310,28 +325,31 @@ async function searchPlaceWithGrounding(
       tools: [{ googleSearch: {} }] as any,
     })
 
-    const lines: string[] = [
-      `Post Instagram: ${instagramUrl}`,
-    ]
-    if (username) lines.push(`Compte Instagram: @${username}`)
-    if (ogTitle) lines.push(`Titre visible: "${ogTitle}"`)
-    if (ogText) lines.push(`Texte visible: "${ogText.slice(0, 400)}"`)
-    if (userCity) lines.push(`Ville de l'utilisateur (indice géo): ${userCity}`)
+    const ctx: string[] = [`URL du post: ${instagramUrl}`]
+    if (username) ctx.push(`Compte Instagram: @${username} (nom probable: "${usernameToName(username)}")`)
+    if (ogTitle) ctx.push(`Titre extrait: "${ogTitle}"`)
+    if (ogText) ctx.push(`Texte extrait: "${ogText.slice(0, 400)}"`)
+    if (userCity) ctx.push(`Ville de l'utilisateur (contexte géographique): ${userCity}`)
 
-    const prompt = `Tu es expert en recherche de lieux.
-${lines.join("\n")}
+    const prompt = `Tu es un expert OSINT spécialisé dans l'identification de lieux.
 
-Utilise Google Search pour identifier quel établissement est présenté dans ce post.
-${username ? `Cherche le compte "@${username}" et "${usernameToName(username)}${userCity ? " " + userCity : ""}" sur Google Maps.` : ""}
-Détermine: nom exact, ville, adresse complète, type d'établissement.
+Données du post :
+${ctx.join("\n")}
 
-Réponds UNIQUEMENT en JSON (aucun autre texte):
-{"name":"nom exact","city":"ville","address":"adresse complète rue et ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}
-Si ce n'est pas un lieu public: {"name":null}`
+MISSION :
+1. Recherche sur Google le compte Instagram "@${username || ""}"${userCity ? ` dans la ville "${userCity}"` : ""}.
+2. Identifie l'établissement exact (nom officiel, adresse postale complète, type).
+3. Si le compte correspond à un lieu public, retourne ses infos précises.
+
+${CATEGORY_GUIDE}
+
+Réponds UNIQUEMENT avec ce JSON valide (aucun autre texte) :
+{"name":"Nom officiel exact","city":"Ville","address":"Numéro rue, Ville, Pays","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}
+Si c'est un compte personnel sans lieu associé : {"name":null}`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
-    console.log(`[Gemini grounding] -> raw="${text.slice(0, 300)}"`)
+    console.log(`[Gemini grounding] -> "${text.slice(0, 300)}"`)
 
     const match = text.match(/\{[\s\S]*?\}/)
     if (match) {
@@ -359,21 +377,29 @@ async function extractPlaceInfo(
 ): Promise<AiExtraction | null> {
   const shortText = rawText.length > 500 ? rawText.slice(0, 500) : rawText
 
-  const lines: string[] = [`Post: ${instagramUrl}`]
-  if (username) lines.push(`Compte: @${username}`)
-  if (titleHint) lines.push(`Titre: "${titleHint}"`)
-  if (locationHint) lines.push(`Localisation mentionnée: "${locationHint}"`)
-  if (userCity) lines.push(`Ville de l'utilisateur: ${userCity}`)
-  if (shortText) lines.push(`Texte du post: "${shortText}"`)
+  const ctx: string[] = [`URL: ${instagramUrl}`]
+  if (username) ctx.push(`Compte: @${username} (nom: "${usernameToName(username)}")`)
+  if (titleHint) ctx.push(`Titre du post: "${titleHint}"`)
+  if (locationHint) ctx.push(`Localisation mentionnée: "${locationHint}"`)
+  if (userCity) ctx.push(`Ville de l'utilisateur: ${userCity}`)
+  if (shortText) ctx.push(`Texte du post: "${shortText}"`)
 
-  const prompt = `Identifie le lieu exact présenté dans ce post social.
-${lines.join("\n")}
+  const prompt = `Tu es un expert en identification de lieux à partir de posts sociaux.
 
-Extrait le nom du lieu, la ville, l'adresse si mentionnée, et la catégorie.
-Réponds UNIQUEMENT en JSON:
-{"name":"nom exact","city":"ville","address":"adresse complète ou null","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}`
+Données :
+${ctx.join("\n")}
 
-  const raw = await callGemini(prompt, 120)
+MISSION : Identifie le lieu exact présenté dans ce post.
+- Utilise le contexte géographique de la ville de l'utilisateur.
+- Si le titre ou le texte contient un nom de lieu, utilise-le.
+- Si une adresse est mentionnée dans le texte, extrait-la.
+
+${CATEGORY_GUIDE}
+
+Réponds UNIQUEMENT avec ce JSON valide :
+{"name":"Nom exact","city":"Ville","address":"Adresse complète ou null","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}`
+
+  const raw = await callGemini(prompt, 150)
   if (!raw) return null
   try {
     const match = raw.match(/\{[\s\S]*\}/)
