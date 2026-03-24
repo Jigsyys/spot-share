@@ -36,48 +36,36 @@ function extractOG(html: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Catégorie auto
+// Nettoyage OG brut Instagram + extraction username
 // ---------------------------------------------------------------------------
 
-// Ordre de priorité : shopping avant bar pour éviter les faux positifs
-const CATEGORY_KEYWORDS: [string, string[]][] = [
-  ["shopping", ["shopping", "shop", "boutique", "friperie", "vintage", "store", "magasin", "marché", "thrift"]],
-  ["café", ["café", "cafe", "coffee", "coffeeshop", "barista", "latte"]],
-  ["restaurant", ["restaurant", "resto", "gastronomie", "foodie", "brunch", "bistro", "brasserie", "sushi", "pizza", "burger"]],
-  ["bar", ["cocktail", "pub", "rooftop", "apéro", "speakeasy"]],
-  ["outdoor", ["outdoor", "randonnée", "rando", "hiking", "nature", "plage", "beach", "parc", "park", "jardin", "montagne"]],
-  ["vue", ["panorama", "skyline", "sunset", "sunrise"]],
-  ["culture", ["musée", "museum", "expo", "galerie", "gallery", "théâtre", "concert", "festival"]],
-]
-
-function detectCategory(text: string): string {
-  const lower = text.toLowerCase()
-  for (const [cat, kws] of CATEGORY_KEYWORDS) {
-    for (const kw of kws) {
-      // Utiliser des word boundaries pour éviter "bar" dans "embarquer"
-      const regex = new RegExp(`(?:^|[\\s#,.;:!?()"'])${kw}(?:$|[\\s#,.;:!?()"'])`, "i")
-      if (regex.test(lower)) return cat
-    }
-  }
-  return "other"
+/** Convertit un handle Instagram en nom lisible : "le_couteau" → "Le Couteau" */
+function usernameToName(handle: string): string {
+  return handle
+    .replace(/_/g, " ")
+    .replace(/-/g, " ")
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+    .trim()
 }
-
-// ---------------------------------------------------------------------------
-// Nettoyage OG brut Instagram
-// ---------------------------------------------------------------------------
 
 function cleanOGData(rawTitle: string | null, rawDescription: string | null) {
   let title = ""
   let location: string | null = null
+  let username: string | null = null
   const fullText = `${rawTitle || ""} ${rawDescription || ""}`
 
-  // Extraction lieu depuis 📍
+  // Extraire le @username du titre OG (ex: "Sarah Piot (@le_couteau) • Instagram reel")
+  const usernameMatch = fullText.match(/@([\w.]+)/)
+  if (usernameMatch) username = usernameMatch[1]
+
+  // Extraire 📍 lieu
   const locMatch = fullText.match(/📍\s*([^"#\n]+)/i)
   if (locMatch) {
     location = locMatch[1].replace(/["\s]+$/, "").replace(/#\w+/g, "").trim()
   }
 
-  // Nettoyage titre
   if (rawTitle) {
     const quoteMatch = rawTitle.match(/(?:sur|on) Instagram\s*:\s*"(.+?)"/i)
     if (quoteMatch) {
@@ -90,18 +78,15 @@ function cleanOGData(rawTitle: string | null, rawDescription: string | null) {
     }
   }
 
-  if (!title || title.toLowerCase() === "instagram" || title.toLowerCase().includes("login")) {
+  // Supprimer le "Prénom Nom (@username)" si c'est juste le nom de l'auteur
+  title = title.replace(/^[A-Za-zÀ-ÿ\s]+\(@[\w.]+\)\s*$/i, "").trim()
+
+  if (!title || title.toLowerCase() === "instagram" || title.toLowerCase().includes("login") || title.length < 2) {
     title = location ? location.split(",")[0].trim() : "Nouveau Spot"
   }
 
-  // Si le titre est vraiment très long (capture le texte entier du reel), on tronque
-  if (title.length > 50) {
-    title = "Nouveau Spot"
-  }
+  if (title.length > 50) title = "Nouveau Spot"
 
-  const category = detectCategory(fullText)
-
-  // Nettoyage brut du texte pour extraire les vraies infos du post
   const cleanRawText = fullText
     .replace(/^[\d,.]+ likes?,?\s*[\d,.]+ comments?\s*-\s*\w+\s*(le|on)?\s*[\w\s,.]+\.\s*/i, "")
     .replace(/\s*(on|sur)\s*Instagram.*$/i, "")
@@ -109,17 +94,42 @@ function cleanOGData(rawTitle: string | null, rawDescription: string | null) {
     .replace(/📍\s*[^#\n]+/i, "")
     .trim()
 
-  return { title, location, category, rawText: cleanRawText }
+  return { title, location, rawText: cleanRawText, username }
 }
 
 // ---------------------------------------------------------------------------
-// Mapbox Geocoding
+// Catégorie : normalisation
 // ---------------------------------------------------------------------------
 
-async function geocode(address: string, titleHint?: string): Promise<{ lat: number; lng: number; place_name: string } | null> {
-  if (!MAPBOX_TOKEN || !address) return null
-  // Ajouter le nom du lieu à la recherche pour plus de précision
-  const query = titleHint ? `${titleHint}, ${address}` : address
+const CATEGORY_NORMALIZE: Record<string, string> = {
+  "café": "café", "cafe": "café", "coffee": "café", "patisserie": "café",
+  "pâtisserie": "café", "boulangerie": "café", "salon de thé": "café",
+  "restaurant": "restaurant", "resto": "restaurant", "bistro": "restaurant",
+  "brasserie": "restaurant", "pizzeria": "restaurant",
+  "bar": "bar", "cocktail": "bar", "pub": "bar", "rooftop": "bar",
+  "outdoor": "outdoor", "parc": "outdoor", "nature": "outdoor",
+  "vue": "vue", "panorama": "vue",
+  "culture": "culture", "musée": "culture", "museum": "culture",
+  "shopping": "shopping", "boutique": "shopping", "friperie": "shopping",
+  "other": "other", "autre": "other",
+}
+
+function normalizeCategory(raw: string | undefined | null): string {
+  if (!raw) return "other"
+  const lower = raw.trim().toLowerCase()
+  if (CATEGORY_NORMALIZE[lower]) return CATEGORY_NORMALIZE[lower]
+  for (const [key, val] of Object.entries(CATEGORY_NORMALIZE)) {
+    if (lower.includes(key) || key.includes(lower)) return val
+  }
+  return "other"
+}
+
+// ---------------------------------------------------------------------------
+// Mapbox Geocoding (fallback uniquement)
+// ---------------------------------------------------------------------------
+
+async function geocode(query: string): Promise<{ lat: number; lng: number; place_name: string } | null> {
+  if (!MAPBOX_TOKEN || !query) return null
   try {
     const res = await fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr`,
@@ -135,89 +145,35 @@ async function geocode(address: string, titleHint?: string): Promise<{ lat: numb
 }
 
 // ---------------------------------------------------------------------------
-// Google Places API (Details + Photos via Text Search)
+// Google Places : Find Place (API classique textsearch)
+// Fonctionne exactement comme la barre de recherche Google Maps
 // ---------------------------------------------------------------------------
 
-const GOOGLE_TYPE_TO_CATEGORY: Record<string, string> = {
-  // Café
-  cafe: "café", coffee_shop: "café", bakery: "café", tea_house: "café",
-  // Restaurant
-  restaurant: "restaurant", meal_delivery: "restaurant", meal_takeaway: "restaurant",
-  fast_food_restaurant: "restaurant", fine_dining_restaurant: "restaurant",
-  pizza_restaurant: "restaurant", sushi_restaurant: "restaurant",
-  brunch_restaurant: "restaurant", bistro: "restaurant",
-  // Bar
-  bar: "bar", night_club: "bar", wine_bar: "bar", cocktail_bar: "bar",
-  pub: "bar", brewery: "bar",
-  // Outdoor
-  park: "outdoor", campground: "outdoor", hiking_area: "outdoor",
-  national_park: "outdoor", garden: "outdoor", beach: "outdoor",
-  dog_park: "outdoor", marina: "outdoor",
-  // Vue
-  observation_deck: "vue", scenic_spot: "vue", lookout: "vue",
-  // Culture
-  museum: "culture", art_gallery: "culture", performing_arts_theater: "culture",
-  movie_theater: "culture", library: "culture", cultural_center: "culture",
-  concert_hall: "culture", monument: "culture", historical_landmark: "culture",
-  // Shopping
-  shopping_mall: "shopping", clothing_store: "shopping", book_store: "shopping",
-  gift_shop: "shopping", market: "shopping", flea_market: "shopping",
-  department_store: "shopping", jewelry_store: "shopping",
-  shoe_store: "shopping", furniture_store: "shopping",
-}
-
 interface GooglePlaceResult {
-  title: string | null
+  name: string | null
   address: string | null
-  category: string | null
   lat: number | null
   lng: number | null
-  description: string | null
+  types: string[]
   photoUrls: string | null
+  editorial: string | null
 }
 
-async function fetchGooglePlaceDetails(
-  title: string,
-  location: string | null
-): Promise<GooglePlaceResult | null> {
+async function findPlaceOnGoogle(query: string): Promise<GooglePlaceResult | null> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  if (!apiKey) return null
+  if (!apiKey || !query) return null
 
   try {
-    const query = `${title} ${location || ""}`.trim()
+    // API classique Google Maps textsearch : la plus fiable pour trouver un lieu par son nom
+    const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=fr&key=${apiKey}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    const data = await res.json()
 
-    const searchRes = await fetch(
-      "https://places.googleapis.com/v1/places:searchText",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.displayName,places.formattedAddress,places.primaryType,places.types,places.location,places.editorialSummary,places.photos",
-        },
-        body: JSON.stringify({ textQuery: query, languageCode: "fr" }),
-      }
-    )
+    console.log(`[Google textsearch] query="${query}" -> ${data.results?.length ?? 0} results, status=${data.status}`)
 
-    const searchData = await searchRes.json()
-    const place = searchData.places?.[0]
-    if (!place) return null
+    if (!data.results || data.results.length === 0) return null
 
-    // --- Catégorie ---
-    let category: string | null = null
-    if (place.primaryType && GOOGLE_TYPE_TO_CATEGORY[place.primaryType]) {
-      category = GOOGLE_TYPE_TO_CATEGORY[place.primaryType]
-    }
-    // Fallback: parcourir tous les types
-    if (!category && place.types) {
-      for (const t of place.types) {
-        if (GOOGLE_TYPE_TO_CATEGORY[t]) {
-          category = GOOGLE_TYPE_TO_CATEGORY[t]
-          break
-        }
-      }
-    }
+    const place = data.results[0]
 
     // --- Photos ---
     let photoUrls: string | null = null
@@ -225,38 +181,55 @@ async function fetchGooglePlaceDetails(
       const urls: string[] = []
       const maxPhotos = Math.min(3, place.photos.length)
       for (let i = 0; i < maxPhotos; i++) {
-        const photoName = place.photos[i].name
-        const photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxHeightPx=800&maxWidthPx=800&key=${apiKey}&skipHttpRedirect=true`
-        try {
-          const res = await fetch(photoUrl)
-          if (res.ok) {
-            const data = await res.json()
-            if (data.photoUri) urls.push(data.photoUri)
-          }
-        } catch { /* skip photo */ }
+        const ref = place.photos[i].photo_reference
+        if (ref) {
+          urls.push(
+            `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${ref}&key=${apiKey}`
+          )
+        }
       }
       if (urls.length > 0) photoUrls = urls.join(",")
     }
 
-    console.log(`[Google Places] Found: "${place.displayName?.text}" @ ${place.formattedAddress} (type=${place.primaryType})`)
+    console.log(`[Google textsearch] Found: "${place.name}" @ ${place.formatted_address} (types=${place.types?.join(",")})`)
 
     return {
-      title: place.displayName?.text || null,
-      address: place.formattedAddress || null,
-      category,
-      lat: place.location?.latitude ?? null,
-      lng: place.location?.longitude ?? null,
-      description: place.editorialSummary?.text || null,
+      name: place.name || null,
+      address: place.formatted_address || null,
+      lat: place.geometry?.location?.lat ?? null,
+      lng: place.geometry?.location?.lng ?? null,
+      types: place.types || [],
       photoUrls,
+      editorial: null,
     }
   } catch (e) {
-    console.error("Google Places Error:", e)
+    console.error("[Google textsearch error]:", e)
     return null
   }
 }
 
+// Mapper les types Google vers nos catégories
+function googleTypesToCategory(types: string[]): string | null {
+  const map: Record<string, string> = {
+    cafe: "café", coffee_shop: "café", bakery: "café",
+    restaurant: "restaurant", meal_delivery: "restaurant", meal_takeaway: "restaurant",
+    food: "restaurant",
+    bar: "bar", night_club: "bar",
+    park: "outdoor", campground: "outdoor", natural_feature: "outdoor",
+    museum: "culture", art_gallery: "culture", movie_theater: "culture",
+    church: "culture", hindu_temple: "culture", mosque: "culture", synagogue: "culture",
+    tourist_attraction: "culture", point_of_interest: "culture",
+    shopping_mall: "shopping", clothing_store: "shopping", store: "shopping",
+    book_store: "shopping", shoe_store: "shopping",
+  }
+  for (const t of types) {
+    if (map[t]) return map[t]
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
-// Gemini : Extraction du nom du lieu UNIQUEMENT (prompt minimal)
+// Gemini : extraction nom + ville + catégorie (prompt minimal)
 // ---------------------------------------------------------------------------
 
 async function callGemini(prompt: string, maxTokens: number = 100): Promise<string | null> {
@@ -290,32 +263,8 @@ async function callGemini(prompt: string, maxTokens: number = 100): Promise<stri
 
 interface AiExtraction {
   name: string
-  address: string
+  city: string
   category: string
-}
-
-const CATEGORY_NORMALIZE: Record<string, string> = {
-  "café": "café", "cafe": "café", "coffee": "café", "patisserie": "café",
-  "pâtisserie": "café", "boulangerie": "café", "salon de thé": "café",
-  "restaurant": "restaurant", "resto": "restaurant", "bistro": "restaurant",
-  "brasserie": "restaurant", "pizzeria": "restaurant",
-  "bar": "bar", "cocktail": "bar", "pub": "bar", "rooftop": "bar",
-  "outdoor": "outdoor", "parc": "outdoor", "nature": "outdoor",
-  "vue": "vue", "panorama": "vue",
-  "culture": "culture", "musée": "culture", "museum": "culture",
-  "shopping": "shopping", "boutique": "shopping", "friperie": "shopping",
-  "other": "other", "autre": "other",
-}
-
-function normalizeCategory(raw: string | undefined | null): string {
-  if (!raw) return "other"
-  const lower = raw.trim().toLowerCase()
-  if (CATEGORY_NORMALIZE[lower]) return CATEGORY_NORMALIZE[lower]
-  // Partial match fallback
-  for (const [key, val] of Object.entries(CATEGORY_NORMALIZE)) {
-    if (lower.includes(key) || key.includes(lower)) return val
-  }
-  return "other"
 }
 
 async function extractPlaceInfo(
@@ -325,15 +274,13 @@ async function extractPlaceInfo(
 ): Promise<AiExtraction | null> {
   const shortText = rawText.length > 300 ? rawText.slice(0, 300) : rawText
 
-  const prompt = `Identifie le lieu dans ce post social et utilise tes connaissances pour trouver son adresse exacte.
+  const prompt = `Identifie le lieu mentionné dans ce post social.
 Indices: titre="${titleHint}", lieu="${locationHint || ""}"
 Texte: "${shortText}"
-IMPORTANT: "address" doit être l'adresse COMPLÈTE et RÉELLE (numéro, rue, code postal, ville). Utilise tes connaissances, ne l'invente pas.
-"category" doit être EXACTEMENT un de: cafe, restaurant, bar, outdoor, vue, culture, shopping, other
 Réponds UNIQUEMENT en JSON:
-{"name":"nom exact","address":"12 rue Example, 75011 Paris","category":"cafe"}`
+{"name":"nom exact du lieu","city":"ville","category":"cafe|restaurant|bar|outdoor|vue|culture|shopping|other"}`
 
-  const raw = await callGemini(prompt, 120)
+  const raw = await callGemini(prompt, 80)
   if (!raw) return null
   try {
     const match = raw.match(/\{[\s\S]*\}/)
@@ -390,67 +337,99 @@ export async function GET(request: Request) {
     } catch { /* Instagram bloqué */ }
 
     // ------------------------------------------------------------------
-    // 2. Nettoyage intelligent
+    // 2. Nettoyage
     // ------------------------------------------------------------------
     const cleaned = cleanOGData(ogTitle, ogDescription)
 
     // ------------------------------------------------------------------
-    // 3. Gemini : extraire nom + ville + catégorie (prompt minimal)
+    // 3. Gemini : extraire nom + ville + catégorie
     // ------------------------------------------------------------------
     const aiData = await extractPlaceInfo(cleaned.title, cleaned.location, cleaned.rawText)
 
-    const finalTitle = (aiData?.name && aiData.name.length <= 60) ? aiData.name : cleaned.title
-    const aiAddress = aiData?.address || null
-    let finalCategory = normalizeCategory(aiData?.category || cleaned.category)
+    // Nom du username converti en nom lisible (ex: "le_couteau" → "Le Couteau")
+    const usernameAsName = cleaned.username ? usernameToName(cleaned.username) : null
 
-    console.log(`[Step 3] AI: name="${aiData?.name}" address="${aiAddress}" cat="${aiData?.category}" -> title="${finalTitle}" cat="${finalCategory}"`)
+    // Gemini a du contexte ? Sinon on utilise le username comme nom du lieu
+    const placeName = (aiData?.name && aiData.name.length <= 60 && aiData.name !== "Nouveau Spot")
+      ? aiData.name
+      : (usernameAsName || cleaned.title)
+    const placeCity = aiData?.city || null
+    let finalCategory = normalizeCategory(aiData?.category)
+
+    console.log(`[Step 3] Gemini: name="${aiData?.name}" city="${placeCity}" cat="${finalCategory}" | username="${usernameAsName}" -> placeName="${placeName}"`)
 
     // ------------------------------------------------------------------
-    // 4. Google Places : coords, photos (recherche avec adresse complète)
+    // 4. Google Maps textsearch : trouver le lieu EXACT
+    //    Stratégie par ordre de précision
     // ------------------------------------------------------------------
+    let googlePlace: GooglePlaceResult | null = null
+
+    // Tentative 1 : nom Gemini + ville
+    if (aiData?.name && placeCity) {
+      googlePlace = await findPlaceOnGoogle(`${aiData.name} ${placeCity}`)
+    }
+
+    // Tentative 2 : nom Gemini seul
+    if (!googlePlace && aiData?.name) {
+      googlePlace = await findPlaceOnGoogle(aiData.name)
+    }
+
+    // Tentative 3 : username converti + ville (ex: "Le Couteau Paris")
+    if (!googlePlace && usernameAsName && placeCity) {
+      googlePlace = await findPlaceOnGoogle(`${usernameAsName} ${placeCity}`)
+    }
+
+    // Tentative 4 : username converti seul (ex: "Le Couteau")
+    if (!googlePlace && usernameAsName) {
+      googlePlace = await findPlaceOnGoogle(usernameAsName)
+    }
+
+    // Tentative 5 : avec le lieu OG brut
+    if (!googlePlace && cleaned.location) {
+      googlePlace = await findPlaceOnGoogle(`${placeName} ${cleaned.location}`)
+    }
+
     let coordinates: { lat: number; lng: number } | null = null
-    let resolvedLocation: string | null = aiAddress
+    let resolvedAddress: string | null = null
     let photosUrl: string | null = null
-    let googleDescription: string | null = null
-
-    // Recherche Google avec "nom, adresse complète" pour un résultat précis
-    const googlePlace = await fetchGooglePlaceDetails(finalTitle, aiAddress || cleaned.location)
 
     if (googlePlace) {
-      if (googlePlace.address) resolvedLocation = googlePlace.address
+      resolvedAddress = googlePlace.address
       if (googlePlace.lat != null && googlePlace.lng != null) {
         coordinates = { lat: googlePlace.lat, lng: googlePlace.lng }
       }
-      // Catégorie Google seulement si Gemini n'a pas trouvé
-      if (finalCategory === "other" && googlePlace.category) {
-        finalCategory = googlePlace.category
-      }
-      googleDescription = googlePlace.description
       photosUrl = googlePlace.photoUrls
+
+      // Catégorie Google en renfort si Gemini a dit "other"
+      if (finalCategory === "other") {
+        const googleCat = googleTypesToCategory(googlePlace.types)
+        if (googleCat) finalCategory = googleCat
+      }
     }
 
-    // Fallback Mapbox si Google n'a pas trouvé de coordonnées
-    if (!coordinates && (aiAddress || finalTitle)) {
-      const geo = await geocode(aiAddress || finalTitle, finalTitle)
+    // Fallback Mapbox si Google n'a rien trouvé
+    if (!coordinates) {
+      const fallbackQuery = placeCity ? `${placeName}, ${placeCity}` : placeName
+      const geo = await geocode(fallbackQuery)
       if (geo) {
         coordinates = { lat: geo.lat, lng: geo.lng }
-        if (!resolvedLocation) resolvedLocation = geo.place_name
+        if (!resolvedAddress) resolvedAddress = geo.place_name
       }
     }
 
     // ------------------------------------------------------------------
-    // 5. Gemini : description engageante (prompt minimal)
+    // 5. Gemini : description engageante
     // ------------------------------------------------------------------
-    let description = googleDescription || ""
-    if (resolvedLocation && finalTitle) {
-      const aiDesc = await generateDescription(finalTitle, finalCategory, resolvedLocation)
+    let description = ""
+    if (resolvedAddress && placeName) {
+      const aiDesc = await generateDescription(placeName, finalCategory, resolvedAddress)
       if (aiDesc) description = aiDesc
     }
 
     return NextResponse.json({
-      title: finalTitle,
-      description: description || `Découvrez ${finalTitle}, un lieu à ne pas manquer !`,
-      location: resolvedLocation,
+      title: placeName,
+      description: description || `Découvrez ${placeName}, un lieu à ne pas manquer !`,
+      location: resolvedAddress,
       category: finalCategory,
       image_url: photosUrl,
       coordinates,
