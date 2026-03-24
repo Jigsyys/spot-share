@@ -45,6 +45,7 @@ interface AddSpotModalProps {
     image_url: string | null
     address: string | null
     opening_hours: Record<string, string> | null
+    maps_url: string | null
   }) => Promise<void>
   initialUrl?: string
   userLat?: number
@@ -79,6 +80,7 @@ export default function AddSpotModal({
   const [searchLoading, setSearchLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mapsUrl, setMapsUrl] = useState<string | null>(null)
   const [autoFillLoading, setAutoFillLoading] = useState(false)
   const [autoFillDone, setAutoFillDone] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -154,13 +156,15 @@ export default function AddSpotModal({
           return
         }
 
-        if (data.title && !title) setTitle(data.title)
+        // Toujours écraser avec le nom commercial retourné par l'API (pas l'adresse)
+        if (data.title) setTitle(data.title)
         if (data.description && !description) setDescription(data.description)
         if (data.category && CATEGORIES.some((c) => c.key === data.category))
           setCategory(data.category)
         // Priorité à photos[] (array), fallback sur image_url (compat)
         if (data.photos?.length) setImageUrl(data.photos.join(","))
         else if (data.image_url) setImageUrl(data.image_url)
+        if (data.maps_url) setMapsUrl(data.maps_url)
         if (data.opening_hours) setOpeningHours(data.opening_hours)
 
         if (data.coordinates?.lat && data.coordinates?.lng) {
@@ -265,6 +269,7 @@ export default function AddSpotModal({
         setError(null)
         setAutoFillDone(false)
         setAutoFillLoading(false)
+        setMapsUrl(null)
       }, 300)
     } else if (initialUrl && !instagramUrl) {
       setTab("instagram")
@@ -278,9 +283,7 @@ export default function AddSpotModal({
       setError("Sélectionne un lieu !")
       return
     }
-    const spotTitle =
-      title.trim() ||
-      (tab === "instagram" ? selectedPlace.place_name.split(",")[0] : "")
+    const spotTitle = title.trim()
     if (!spotTitle) {
       setError("Ajoute un titre !")
       return
@@ -298,6 +301,7 @@ export default function AddSpotModal({
         image_url: imageUrl,
         address: selectedPlace.place_name,
         opening_hours: openingHours,
+        maps_url: mapsUrl,
       })
       onClose()
     } catch (err) {

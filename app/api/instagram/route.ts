@@ -449,11 +449,22 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
     if (data.status !== "OK" || !data.result) return null
     const r = data.result
 
-    const photoUrls: string[] = (r.photos || [])
-      .slice(0, 3)
-      .map((p: any) =>
-        `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${p.photo_reference}&key=${apiKey}`
-      )
+    // Résoudre les redirects côté serveur → URLs directes lh3.googleusercontent.com
+    // (évite d'exposer la clé API dans le HTML client)
+    const photoUrls: string[] = []
+    for (const p of (r.photos || []).slice(0, 3)) {
+      const redirectUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${p.photo_reference}&key=${apiKey}`
+      try {
+        const photoRes = await fetch(redirectUrl, {
+          redirect: "manual",
+          signal: AbortSignal.timeout(5000),
+        })
+        const directUrl = photoRes.headers.get("location")
+        photoUrls.push(directUrl || redirectUrl)
+      } catch {
+        photoUrls.push(redirectUrl)
+      }
+    }
 
     console.log(`[Place Details] "${r.name}" → ${r.formatted_address}`)
     return {

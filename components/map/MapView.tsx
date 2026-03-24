@@ -530,72 +530,67 @@ export default function MapView() {
     image_url: string | null
     address: string | null
     opening_hours: Record<string, string> | null
+    maps_url: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
 
-    // Mise à jour optimiste pour que le point "se place" immédiatement sans disparaître
     const tempId = `temp-${Date.now()}`
+    const profileSnap = {
+      id: user.id,
+      username: userProfile?.username || "moi",
+      avatar_url: userProfile?.avatar_url || null,
+      created_at: "",
+    }
     const optimisticSpot: Spot = {
       id: tempId,
       user_id: user.id,
       ...spotData,
       created_at: new Date().toISOString(),
-      profiles: {
-        id: user.id,
-        username: userProfile?.username || "moi",
-        avatar_url: userProfile?.avatar_url || null,
-        created_at: "",
-      },
+      profiles: profileSnap,
     }
 
     setSpots((prev) => [optimisticSpot, ...prev])
 
     try {
-      const { error } = await supabaseRef.current.from("spots").insert({
-        user_id: user.id,
-        ...spotData,
-      })
+      // Tenter insert avec tous les champs, dont maps_url
+      const { data: inserted, error } = await supabaseRef.current
+        .from("spots")
+        .insert({ user_id: user.id, ...spotData })
+        .select()
+        .single()
 
       if (error) {
-        if (
-          error.message?.includes("image_url") ||
-          error.code === "PGRST204" ||
-          error.code === "42703"
-        ) {
-          // Fallback si la colonne `image_url` n'existe pas encore dans la table spots
+        // Colonne inconnue (42703) → retry sans les champs optionnels non migrés
+        if (error.code === "42703" || error.code === "PGRST204") {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { image_url, ...spotDataWithoutImage } = spotData
-          const { error: fallbackError } = await supabaseRef.current
+          const { maps_url, image_url, ...core } = spotData
+          const { data: fallback, error: fallbackError } = await supabaseRef.current
             .from("spots")
-            .insert({
-              user_id: user.id,
-              ...spotDataWithoutImage,
-            })
-          if (fallbackError)
-            throw new Error(
-              fallbackError.message || "Erreur Supabase RLS sur le fallback"
-            )
-
-          await fetchSpots()
-          toast.success(
-            "Lieu ajouté ! (L'image nécessite la création de la colonne image_url)"
-          )
+            .insert({ user_id: user.id, ...core, image_url })
+            .select()
+            .single()
+          if (fallbackError) throw new Error(fallbackError.message)
+          if (fallback) {
+            const realSpot: Spot = { ...fallback, maps_url: spotData.maps_url, profiles: profileSnap }
+            setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
+            setSelectedSpot(realSpot)
+          } else {
+            await fetchSpots()
+          }
           return
         }
         throw new Error(error.message || "Erreur Supabase RLS")
       }
 
-      // Re-fetch silencieux pour avoir le vrai ID de la base
-      await fetchSpots()
-      toast.success("Lieu ajouté avec succès !")
+      // Succès : remplacer le spot optimiste par le vrai et l'ouvrir
+      const realSpot: Spot = { ...inserted, maps_url: spotData.maps_url, profiles: profileSnap }
+      setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
+      setSelectedSpot(realSpot)
     } catch (e: unknown) {
       const err = e as { message?: string }
       console.error("Insert error:", err)
-      // Annuler la mise à jour optimiste en cas d'erreur
       setSpots((prev) => prev.filter((s) => s.id !== tempId))
-      toast.error(
-        "Erreur serveur : ton lieu n'a pas pu être sauvegardé. (Problème de permissions ?)"
-      )
+      toast.error("Erreur serveur : ton lieu n'a pas pu être sauvegardé.")
       throw err
     }
   }
@@ -1137,7 +1132,7 @@ export default function MapView() {
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(", "))}&travelmode=driving`}
+                  href={selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-500 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.02] hover:bg-indigo-400"
