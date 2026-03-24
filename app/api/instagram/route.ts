@@ -160,6 +160,78 @@ interface AiHypothesis {
   category: string
 }
 
+// ---------------------------------------------------------------------------
+// Extraction de signaux faibles (hashtags, emojis, patterns implicites)
+// ---------------------------------------------------------------------------
+
+interface WeakSignals {
+  cityHints: string[]       // #paris, #lyon, noms de villes détectés
+  categoryHints: string[]   // #restaurant, #café, keywords ambiance
+  nameHints: string[]       // #lecouteau, @handle, noms entre guillemets
+  addressHints: string[]    // 📍, "rue", "avenue", codes postaux
+}
+
+const CITY_KEYWORDS = [
+  "paris","lyon","marseille","bordeaux","nantes","toulouse","lille","nice","strasbourg",
+  "montpellier","rennes","grenoble","rouen","toulon","nancy","metz","reims","brest",
+  "london","barcelona","madrid","rome","berlin","amsterdam","brussels","geneva","zurich",
+]
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  restaurant: "restaurant", resto: "restaurant", food: "restaurant", sushi: "restaurant",
+  pizza: "restaurant", burger: "restaurant", brunch: "restaurant", gastronomie: "restaurant",
+  cafe: "café", café: "café", coffee: "café", breakfast: "café", petitdej: "café",
+  boulangerie: "café", patisserie: "café",
+  bar: "bar", cocktail: "bar", apero: "bar", aperitif: "bar", rooftop: "bar",
+  pub: "bar", wine: "bar",
+  parc: "outdoor", plage: "outdoor", nature: "outdoor", randonnee: "outdoor",
+  outdoor: "outdoor", camping: "outdoor",
+  vue: "vue", panorama: "vue", belvedere: "vue", paysage: "vue",
+  musee: "culture", museum: "culture", galerie: "culture", expo: "culture",
+  culture: "culture", theatre: "culture",
+  shopping: "shopping", boutique: "shopping", spa: "shopping", beaute: "shopping",
+  beauty: "shopping", salon: "shopping", nail: "shopping",
+}
+
+function extractWeakSignals(meta: VideoMeta): WeakSignals {
+  const allText = [meta.title, meta.description, meta.tags.join(" "), meta.uploader || ""]
+    .join(" ").toLowerCase()
+
+  // Hashtags bruts
+  const hashtags = allText.match(/#[\w]+/g)?.map(h => h.slice(1)) || []
+
+  // Villes
+  const cityHints = CITY_KEYWORDS.filter(c =>
+    allText.includes(c) || hashtags.some(h => h.toLowerCase() === c)
+  )
+  // Codes postaux (75001, 69001...)
+  const postalMatches = allText.match(/\b(?:7[0-9]|6[0-9]|3[0-9]|1[0-9])\d{3}\b/g) || []
+  cityHints.push(...postalMatches)
+
+  // Catégories depuis hashtags et texte
+  const categoryHints: string[] = []
+  for (const [kw, cat] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (allText.includes(kw) || hashtags.some(h => h.includes(kw))) {
+      if (!categoryHints.includes(cat)) categoryHints.push(cat)
+    }
+  }
+
+  // Noms de lieux depuis hashtags (#lecouteau → "le couteau")
+  const nameHints: string[] = hashtags
+    .filter(h => h.length > 3 && !CITY_KEYWORDS.includes(h) && !CATEGORY_KEYWORDS[h])
+    .map(h => h.replace(/_/g, " ").replace(/-/g, " "))
+    .slice(0, 5)
+
+  // Adresses et 📍
+  const addressHints: string[] = []
+  const rawFull = [meta.title, meta.description].join(" ")
+  const pinMatch = rawFull.match(/📍\s*([^\n#]{3,60})/g)
+  if (pinMatch) addressHints.push(...pinMatch.map(m => m.replace("📍", "").trim()))
+  const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
+  if (streetMatch) addressHints.push(...streetMatch.slice(0, 2))
+
+  return { cityHints, categoryHints, nameHints, addressHints }
+}
+
 async function callGemini(prompt: string, maxTokens = 150): Promise<string | null> {
   if (!process.env.GEMINI_API_KEY) return null
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
@@ -190,31 +262,51 @@ async function extractHypothesis(
   meta: VideoMeta,
   userCity: string | null
 ): Promise<AiHypothesis | null> {
-  const noContext = !meta.title && !meta.description && !meta.tags.length
+  // Extraction des signaux faibles depuis tout le texte disponible
+  const signals = extractWeakSignals(meta)
 
-  if (noContext && meta.username) {
-    // Aucun texte disponible → Gemini grounding cherche sur Google
+  // Ville la plus probable : GPS > hashtag ville > postal
+  const bestCity = userCity || signals.cityHints[0] || null
+
+  // Catégorie implicite depuis hashtags (si trouvée, on la donne en indice)
+  const impliedCategory = signals.categoryHints[0] || null
+
+  const noContext = !meta.title && !meta.description && !meta.tags.length
+  const weakContext = meta.title.length < 5 && meta.description.length < 20
+
+  // Utilise Gemini grounding si : aucun contexte OU contexte trop faible ET username dispo
+  if ((noContext || weakContext) && meta.username) {
     try {
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash", tools: [{ googleSearch: {} }] as any })
+
       const ctx = [
         `URL du post: ${postUrl}`,
-        `Compte Instagram: @${meta.username} (nom: "${usernameToName(meta.username)}")`,
-        userCity ? `Ville de l'utilisateur: ${userCity}` : "",
+        `Compte: @${meta.username} (nom probable: "${usernameToName(meta.username)}")`,
+        meta.title ? `Titre visible: "${meta.title}"` : "",
+        meta.description ? `Texte visible: "${meta.description.slice(0, 300)}"` : "",
+        signals.addressHints.length ? `Adresses détectées: ${signals.addressHints.join(" | ")}` : "",
+        bestCity ? `Ville probable: ${bestCity}` : "",
+        impliedCategory ? `Catégorie probable (depuis hashtags): ${impliedCategory}` : "",
+        signals.nameHints.length ? `Noms détectés dans les hashtags: ${signals.nameHints.join(", ")}` : "",
       ].filter(Boolean).join("\n")
 
       const prompt = `Tu es un expert OSINT spécialisé dans l'identification de lieux.
+
 ${ctx}
 
-1. Recherche sur Google le compte "@${meta.username}"${userCity ? ` dans "${userCity}"` : ""}.
-2. Identifie l'établissement exact (nom officiel, adresse, type).
+STRATÉGIE DE RECHERCHE (applique-les dans l'ordre) :
+1. Recherche "@${meta.username}" sur Google → est-ce un établissement ou un lieu ?
+2. Recherche "${usernameToName(meta.username)}${bestCity ? " " + bestCity : ""}" sur Google Maps.
+3. Si non trouvé, recherche les noms détectés dans les hashtags avec la ville.
+4. Analyse les signaux indirects : hashtags de lieu, codes postaux, noms mentionnés.
 
 ${CATEGORY_GUIDE}
 
-Réponds UNIQUEMENT avec ce JSON valide :
+Réponds UNIQUEMENT avec ce JSON valide (aucun autre texte) :
 {"name":"Nom officiel exact","city":"Ville","address":"Numéro rue, Ville","category":"..."}
-Si c'est un compte personnel : {"name":null}`
+Si c'est un compte personnel sans lieu associé : {"name":null}`
 
       const result = await model.generateContent(prompt)
       const text = result.response.text().trim()
@@ -227,17 +319,29 @@ Si c'est un compte personnel : {"name":null}`
     } catch (e) {
       console.error("[Gemini grounding error]:", e)
     }
+    // Si grounding échoue, on retourne quand même ce qu'on a déduit des signaux
+    if (signals.nameHints.length || meta.username) {
+      return {
+        name: usernameToName(meta.username || signals.nameHints[0] || ""),
+        city: bestCity || "",
+        address: signals.addressHints[0] || null,
+        category: impliedCategory || "other",
+      }
+    }
     return null
   }
 
-  // Contexte disponible → LLM classique
+  // Contexte disponible → LLM classique enrichi des signaux faibles
   const ctx = [
     `URL: ${postUrl}`,
     meta.username ? `Compte: @${meta.username} (nom: "${usernameToName(meta.username)}")` : "",
     meta.title ? `Titre: "${meta.title}"` : "",
     meta.description ? `Description: "${meta.description.slice(0, 500)}"` : "",
-    meta.tags.length ? `Hashtags: ${meta.tags.slice(0, 10).join(" ")}` : "",
-    userCity ? `Ville de l'utilisateur: ${userCity}` : "",
+    meta.tags.length ? `Hashtags: ${meta.tags.slice(0, 15).join(" ")}` : "",
+    signals.addressHints.length ? `📍 Adresses détectées: ${signals.addressHints.join(" | ")}` : "",
+    signals.nameHints.length ? `Noms dans hashtags: ${signals.nameHints.join(", ")}` : "",
+    bestCity ? `Ville (GPS/hashtags): ${bestCity}` : "",
+    impliedCategory ? `Catégorie implicite (hashtags): ${impliedCategory}` : "",
   ].filter(Boolean).join("\n")
 
   const prompt = `Tu es un expert en identification de lieux à partir de vidéos sociales.
@@ -246,8 +350,9 @@ Données de la vidéo :
 ${ctx}
 
 MISSION : Identifie le lieu exact présenté dans cette vidéo.
-- Utilise le contexte géographique de l'utilisateur.
-- Extrait le nom officiel et l'adresse si mentionnés.
+- Si le nom n'est pas explicite, déduis-le depuis le compte, les hashtags ou les noms détectés.
+- Si l'adresse n'est pas explicite, utilise la ville (GPS ou hashtag) comme indice.
+- La catégorie implicite (hashtags) est un indice fort, utilise-la.
 
 ${CATEGORY_GUIDE}
 
@@ -547,16 +652,26 @@ export async function GET(request: Request) {
     console.log("[Step 3] Google Places...")
     let searchResult: PlaceSearchResult | null = null
 
-    // Tentatives par ordre de précision
-    const queries = [
-      hypothesis?.address,
-      placeCity ? `${placeName} ${placeCity}` : null,
-      usernameAsName && placeCity && usernameAsName !== placeName ? `${usernameAsName} ${placeCity}` : null,
-      placeName,
-      usernameAsName !== placeName ? usernameAsName : null,
-    ].filter(Boolean) as string[]
+    // Signaux faibles pour enrichir les requêtes
+    const signals = extractWeakSignals(meta)
+    const bestCity = placeCity || signals.cityHints[0] || null
 
-    for (const q of queries) {
+    // Tentatives par ordre de précision, enrichies des signaux faibles
+    const queries: string[] = []
+    if (hypothesis?.address) queries.push(hypothesis.address)
+    if (placeName && bestCity) queries.push(`${placeName} ${bestCity}`)
+    if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
+    if (placeName) queries.push(placeName)
+    if (usernameAsName && usernameAsName !== placeName) queries.push(usernameAsName)
+    // Signaux faibles : noms de hashtags + ville
+    for (const hint of signals.nameHints.slice(0, 2)) {
+      if (bestCity) queries.push(`${hint} ${bestCity}`)
+      queries.push(hint)
+    }
+    // Adresses détectées directement dans le texte
+    for (const addr of signals.addressHints) queries.push(addr)
+
+    for (const q of [...new Set(queries)]) {
       searchResult = await searchGooglePlace(q, userLatN, userLngN)
       if (searchResult) { console.log(`[Step 3] Found via "${q}": ${searchResult.name}`); break }
     }
