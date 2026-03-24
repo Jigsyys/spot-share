@@ -20,7 +20,7 @@ import {
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import useSupercluster from "use-supercluster"
-import { cn, getOpeningStatus } from "@/lib/utils"
+import { cn, getOpeningStatus, getGoogleOpeningStatus } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/hooks/useAuth"
 import { useTheme } from "next-themes"
@@ -119,6 +119,82 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 }
 
 const DEMO_SPOTS: Spot[] = []
+
+// ---------------------------------------------------------------------------
+// Composant horaires d'ouverture avec dropdown animé
+// ---------------------------------------------------------------------------
+function OpeningHoursBlock({
+  weekdays,
+  openingHours,
+}: {
+  weekdays: string[] | null | undefined
+  openingHours: Record<string, string> | null | undefined
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  const googleStatus = weekdays?.length ? getGoogleOpeningStatus(weekdays) : null
+  const manualStatus = googleStatus == null ? getOpeningStatus(openingHours ?? null) : null
+  const status = googleStatus ?? manualStatus
+
+  if (!status) return null
+
+  const canExpand = !!weekdays?.length
+  // Aujourd'hui en index Google (0=Lun … 6=Dim)
+  const todayIdx = (new Date().getDay() + 6) % 7
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => canExpand && setExpanded((e) => !e)}
+        className={cn(
+          "flex items-center gap-2 text-left",
+          canExpand ? "cursor-pointer" : "cursor-default"
+        )}
+      >
+        <div className={cn("h-2 w-2 flex-shrink-0 rounded-full", status.color)} />
+        <span className="text-sm font-medium text-zinc-300">{status.text}</span>
+        {canExpand && (
+          <ChevronDown
+            size={13}
+            className={cn(
+              "text-zinc-500 transition-transform duration-200",
+              expanded && "rotate-180"
+            )}
+          />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {expanded && weekdays && (
+          <motion.div
+            key="hours"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2 space-y-1 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-2.5">
+              {weekdays.map((day, i) => (
+                <p
+                  key={i}
+                  className={cn(
+                    "text-xs leading-relaxed",
+                    i === todayIdx
+                      ? "font-semibold text-white"
+                      : "text-zinc-400"
+                  )}
+                >
+                  {day}
+                </p>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
@@ -530,6 +606,7 @@ export default function MapView() {
     image_url: string | null
     address: string | null
     opening_hours: Record<string, string> | null
+    weekday_descriptions: string[] | null
     maps_url: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
@@ -563,7 +640,7 @@ export default function MapView() {
         // Colonne inconnue (42703) → retry sans les champs optionnels non migrés
         if (error.code === "42703" || error.code === "PGRST204") {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { maps_url, image_url, ...core } = spotData
+          const { maps_url, weekday_descriptions, image_url, ...core } = spotData
           const { data: fallback, error: fallbackError } = await supabaseRef.current
             .from("spots")
             .insert({ user_id: user.id, ...core, image_url })
@@ -571,7 +648,12 @@ export default function MapView() {
             .single()
           if (fallbackError) throw new Error(fallbackError.message)
           if (fallback) {
-            const realSpot: Spot = { ...fallback, maps_url: spotData.maps_url, profiles: profileSnap }
+            const realSpot: Spot = {
+              ...fallback,
+              maps_url: spotData.maps_url,
+              weekday_descriptions: spotData.weekday_descriptions,
+              profiles: profileSnap,
+            }
             setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
             setSelectedSpot(realSpot)
           } else {
@@ -583,7 +665,12 @@ export default function MapView() {
       }
 
       // Succès : remplacer le spot optimiste par le vrai et l'ouvrir
-      const realSpot: Spot = { ...inserted, maps_url: spotData.maps_url, profiles: profileSnap }
+      const realSpot: Spot = {
+        ...inserted,
+        maps_url: spotData.maps_url,
+        weekday_descriptions: spotData.weekday_descriptions,
+        profiles: profileSnap,
+      }
       setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
       setSelectedSpot(realSpot)
     } catch (e: unknown) {
@@ -1109,18 +1196,10 @@ export default function MapView() {
                 </p>
               )}
 
-              {(() => {
-                const status = getOpeningStatus(selectedSpot.opening_hours)
-                if (!status) return null
-                return (
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <div className={cn("h-2 w-2 rounded-full", status.color)} />
-                    <span className="text-sm font-medium text-zinc-300">
-                      {status.text}
-                    </span>
-                  </div>
-                )
-              })()}
+              <OpeningHoursBlock
+                weekdays={selectedSpot.weekday_descriptions}
+                openingHours={selectedSpot.opening_hours}
+              />
 
               {selectedSpot.description && (
                 <div className="mt-4 rounded-2xl border border-white/5 bg-zinc-900/60 p-4">

@@ -436,12 +436,13 @@ interface PlaceDetails {
   types: string[]
   mapsUrl: string | null
   photoUrls: string[]
+  weekdayDescriptions: string[]
 }
 
 async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY
   if (!apiKey || !placeId) return null
-  const fields = "name,formatted_address,geometry,types,photos,url"
+  const fields = "name,formatted_address,geometry,types,photos,url,opening_hours"
   const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&language=fr&key=${apiKey}`
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
@@ -466,7 +467,9 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
       }
     }
 
-    console.log(`[Place Details] "${r.name}" → ${r.formatted_address}`)
+    const weekdayDescriptions: string[] = r.opening_hours?.weekday_text || []
+
+    console.log(`[Place Details] "${r.name}" → ${r.formatted_address} (${weekdayDescriptions.length} horaires)`)
     return {
       name: r.name || "",
       address: r.formatted_address || "",
@@ -475,6 +478,7 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
       types: r.types || [],
       mapsUrl: r.url || null,
       photoUrls,
+      weekdayDescriptions,
     }
   } catch (e) {
     console.error("[Place Details error]:", e)
@@ -720,12 +724,14 @@ export async function GET(request: Request) {
     let resolvedAddress: string | null = null
     let photos: string[] = []
     let mapsUrl: string | null = null
+    let weekdayDescriptions: string[] = []
 
     if (placeDetails) {
       coordinates = { lat: placeDetails.lat, lng: placeDetails.lng }
       resolvedAddress = placeDetails.address
       photos = placeDetails.photoUrls
       mapsUrl = placeDetails.mapsUrl
+      weekdayDescriptions = placeDetails.weekdayDescriptions
     }
 
     if (!coordinates) {
@@ -740,9 +746,10 @@ export async function GET(request: Request) {
       location: resolvedAddress,
       category: finalCategory,
       photos,
-      image_url: photos[0] || null,  // compat frontend existant
+      image_url: photos[0] || null,
       coordinates,
       maps_url: mapsUrl,
+      weekday_descriptions: weekdayDescriptions,
     })
   } catch (e) {
     console.error("[Pipeline error]:", e)

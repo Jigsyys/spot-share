@@ -17,6 +17,7 @@ export interface Spot {
   image_url: string | null
   address: string | null
   opening_hours: Record<string, string> | null
+  weekday_descriptions: string[] | null
   maps_url: string | null
   created_at: string
   profiles?: Profile

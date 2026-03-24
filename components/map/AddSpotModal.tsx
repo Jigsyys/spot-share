@@ -45,6 +45,7 @@ interface AddSpotModalProps {
     image_url: string | null
     address: string | null
     opening_hours: Record<string, string> | null
+    weekday_descriptions: string[] | null
     maps_url: string | null
   }) => Promise<void>
   initialUrl?: string
@@ -81,6 +82,7 @@ export default function AddSpotModal({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mapsUrl, setMapsUrl] = useState<string | null>(null)
+  const [weekdayDescriptions, setWeekdayDescriptions] = useState<string[] | null>(null)
   const [autoFillLoading, setAutoFillLoading] = useState(false)
   const [autoFillDone, setAutoFillDone] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -165,6 +167,7 @@ export default function AddSpotModal({
         if (data.photos?.length) setImageUrl(data.photos.join(","))
         else if (data.image_url) setImageUrl(data.image_url)
         if (data.maps_url) setMapsUrl(data.maps_url)
+        if (data.weekday_descriptions?.length) setWeekdayDescriptions(data.weekday_descriptions)
         if (data.opening_hours) setOpeningHours(data.opening_hours)
 
         if (data.coordinates?.lat && data.coordinates?.lng) {
@@ -270,6 +273,7 @@ export default function AddSpotModal({
         setAutoFillDone(false)
         setAutoFillLoading(false)
         setMapsUrl(null)
+        setWeekdayDescriptions(null)
       }, 300)
     } else if (initialUrl && !instagramUrl) {
       setTab("instagram")
@@ -301,6 +305,7 @@ export default function AddSpotModal({
         image_url: imageUrl,
         address: selectedPlace.place_name,
         opening_hours: openingHours,
+        weekday_descriptions: weekdayDescriptions,
         maps_url: mapsUrl,
       })
       onClose()
