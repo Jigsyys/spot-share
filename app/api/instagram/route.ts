@@ -290,8 +290,32 @@ async function callGemini(prompt: string, maxTokens: number = 100): Promise<stri
 
 interface AiExtraction {
   name: string
-  city: string
+  address: string
   category: string
+}
+
+const CATEGORY_NORMALIZE: Record<string, string> = {
+  "café": "café", "cafe": "café", "coffee": "café", "patisserie": "café",
+  "pâtisserie": "café", "boulangerie": "café", "salon de thé": "café",
+  "restaurant": "restaurant", "resto": "restaurant", "bistro": "restaurant",
+  "brasserie": "restaurant", "pizzeria": "restaurant",
+  "bar": "bar", "cocktail": "bar", "pub": "bar", "rooftop": "bar",
+  "outdoor": "outdoor", "parc": "outdoor", "nature": "outdoor",
+  "vue": "vue", "panorama": "vue",
+  "culture": "culture", "musée": "culture", "museum": "culture",
+  "shopping": "shopping", "boutique": "shopping", "friperie": "shopping",
+  "other": "other", "autre": "other",
+}
+
+function normalizeCategory(raw: string | undefined | null): string {
+  if (!raw) return "other"
+  const lower = raw.trim().toLowerCase()
+  if (CATEGORY_NORMALIZE[lower]) return CATEGORY_NORMALIZE[lower]
+  // Partial match fallback
+  for (const [key, val] of Object.entries(CATEGORY_NORMALIZE)) {
+    if (lower.includes(key) || key.includes(lower)) return val
+  }
+  return "other"
 }
 
 async function extractPlaceInfo(
@@ -301,13 +325,15 @@ async function extractPlaceInfo(
 ): Promise<AiExtraction | null> {
   const shortText = rawText.length > 300 ? rawText.slice(0, 300) : rawText
 
-  const prompt = `Extrait les infos de ce post social.
+  const prompt = `Identifie le lieu dans ce post social et utilise tes connaissances pour trouver son adresse exacte.
 Indices: titre="${titleHint}", lieu="${locationHint || ""}"
 Texte: "${shortText}"
+IMPORTANT: "address" doit être l'adresse COMPLÈTE et RÉELLE (numéro, rue, code postal, ville). Utilise tes connaissances, ne l'invente pas.
+"category" doit être EXACTEMENT un de: cafe, restaurant, bar, outdoor, vue, culture, shopping, other
 Réponds UNIQUEMENT en JSON:
-{"name":"nom du lieu","city":"ville","category":"une parmi: café|restaurant|bar|outdoor|vue|culture|shopping|other"}`
+{"name":"nom exact","address":"12 rue Example, 75011 Paris","category":"cafe"}`
 
-  const raw = await callGemini(prompt, 80)
+  const raw = await callGemini(prompt, 120)
   if (!raw) return null
   try {
     const match = raw.match(/\{[\s\S]*\}/)
@@ -374,27 +400,21 @@ export async function GET(request: Request) {
     const aiData = await extractPlaceInfo(cleaned.title, cleaned.location, cleaned.rawText)
 
     const finalTitle = (aiData?.name && aiData.name.length <= 60) ? aiData.name : cleaned.title
-    const aiCity = aiData?.city || null
-    // Catégorie Gemini = source de vérité (comprend le contexte du post)
-    const ALLOWED_CATEGORIES = ["café", "restaurant", "bar", "outdoor", "vue", "culture", "shopping", "other"]
-    let finalCategory = (aiData?.category && ALLOWED_CATEGORIES.includes(aiData.category))
-      ? aiData.category
-      : cleaned.category
+    const aiAddress = aiData?.address || null
+    let finalCategory = normalizeCategory(aiData?.category || cleaned.category)
 
-    console.log(`[Step 3] AI: name="${aiData?.name}" city="${aiCity}" cat="${aiData?.category}" -> title="${finalTitle}" cat="${finalCategory}"`)
+    console.log(`[Step 3] AI: name="${aiData?.name}" address="${aiAddress}" cat="${aiData?.category}" -> title="${finalTitle}" cat="${finalCategory}"`)
 
     // ------------------------------------------------------------------
-    // 4. Google Places : adresse vérifiée, coords, photos
-    //    Recherche avec "nom, ville" pour un résultat précis
+    // 4. Google Places : coords, photos (recherche avec adresse complète)
     // ------------------------------------------------------------------
     let coordinates: { lat: number; lng: number } | null = null
-    let resolvedLocation: string | null = null
+    let resolvedLocation: string | null = aiAddress
     let photosUrl: string | null = null
     let googleDescription: string | null = null
 
-    // Construire la query avec la ville pour précision
-    const searchLocation = aiCity || cleaned.location
-    const googlePlace = await fetchGooglePlaceDetails(finalTitle, searchLocation)
+    // Recherche Google avec "nom, adresse complète" pour un résultat précis
+    const googlePlace = await fetchGooglePlaceDetails(finalTitle, aiAddress || cleaned.location)
 
     if (googlePlace) {
       if (googlePlace.address) resolvedLocation = googlePlace.address
@@ -410,8 +430,8 @@ export async function GET(request: Request) {
     }
 
     // Fallback Mapbox si Google n'a pas trouvé de coordonnées
-    if (!coordinates && (searchLocation || finalTitle)) {
-      const geo = await geocode(searchLocation || finalTitle, finalTitle)
+    if (!coordinates && (aiAddress || finalTitle)) {
+      const geo = await geocode(aiAddress || finalTitle, finalTitle)
       if (geo) {
         coordinates = { lat: geo.lat, lng: geo.lng }
         if (!resolvedLocation) resolvedLocation = geo.place_name
