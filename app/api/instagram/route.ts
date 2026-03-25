@@ -753,6 +753,89 @@ async function geocodeFallback(query: string): Promise<{ lat: number; lng: numbe
 }
 
 // ---------------------------------------------------------------------------
+// ÉTAPE 2b : Confirmation Gemini+grounding AVANT Google Places
+// Analyse toutes les données de la vidéo et fait une vraie recherche web
+// pour identifier le lieu avec certitude.
+// ---------------------------------------------------------------------------
+
+interface PlaceConfirmation {
+  name: string | null
+  city: string | null
+  address: string | null
+  confidence: "high" | "medium" | "low"
+}
+
+async function confirmPlaceWithGrounding(
+  meta: VideoMeta,
+  signals: WeakSignals,
+  bestCity: string | null,
+  isFoodBlogger: boolean,
+): Promise<PlaceConfirmation> {
+  if (!process.env.GEMINI_API_KEY) return { name: null, city: null, address: null, confidence: "low" }
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash", tools: [{ googleSearch: {} }] as any })
+
+    const ctx = [
+      meta.locationHint
+        ? `⚠️ LIEU MENTIONNÉ EXPLICITEMENT DANS LA VIDÉO (📍/📌): "${meta.locationHint}" — indice le plus fiable`
+        : "",
+      (!meta.locationHint && meta.titleHint)
+        ? `Nom probable extrait du titre: "${meta.titleHint}"`
+        : "",
+      meta.title ? `Titre/légende de la vidéo: "${meta.title.slice(0, 200)}"` : "",
+      meta.description ? `Description: "${meta.description.slice(0, 400)}"` : "",
+      meta.tags.length ? `Hashtags: ${meta.tags.slice(0, 12).join(" ")}` : "",
+      meta.username
+        ? `Compte source: @${meta.username}${isFoodBlogger ? " (blog culinaire/découverte — poste des lieux visités, pas son propre établissement)" : ""}`
+        : "",
+      bestCity ? `Ville attendue (GPS ou contexte): ${bestCity}` : "",
+      signals.addressHints.length ? `Adresses détectées dans le texte: ${signals.addressHints.join(" | ")}` : "",
+      signals.nameHints.filter(n => n !== meta.locationHint && n !== meta.titleHint).length
+        ? `Autres noms détectés: ${signals.nameHints.filter(n => n !== meta.locationHint && n !== meta.titleHint).slice(0, 3).join(", ")}`
+        : "",
+    ].filter(Boolean).join("\n")
+
+    const prompt = `Tu es un expert OSINT spécialisé dans l'identification de lieux depuis des vidéos sociales.
+
+Voici toutes les données extraites d'une vidéo :
+${ctx}
+
+MISSION : Identifie le lieu exact montré dans cette vidéo, puis confirme avec une recherche Google.
+
+RÈGLES STRICTES :
+1. Commence par le signal le plus fiable : 📍 explicite > nom dans le titre > hashtags.
+2. Si le compte est un blog (ex: @localfoodparis), le lieu est dans la ville du blog — JAMAIS dans une autre ville.
+3. Recherche le nom du lieu sur Google pour trouver son adresse exacte.
+4. Si l'adresse trouvée est dans une ville différente de la ville attendue, cherche la version dans la bonne ville.
+5. "name" = NOM COMMERCIAL uniquement (ex: "Café de Flore"), jamais une adresse.
+6. Si tu n'es pas certain à au moins 70% → mets name:null.
+
+Réponds UNIQUEMENT avec ce JSON valide :
+{"name":"Nom exact ou null","city":"Ville, Pays","address":"Adresse complète avec code postal ou null","confidence":"high|medium|low"}`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+    console.log(`[Step 2b] Gemini grounding raw: ${text.slice(0, 200)}`)
+    const match = text.match(/\{[\s\S]*?\}/)
+    if (match) {
+      const parsed = JSON.parse(match[0])
+      console.log(`[Step 2b] Confirmed: name="${parsed.name}" city="${parsed.city}" address="${parsed.address}" confidence=${parsed.confidence}`)
+      return {
+        name: parsed.name && parsed.name !== "null" ? parsed.name : null,
+        city: parsed.city || null,
+        address: parsed.address && parsed.address !== "null" ? parsed.address : null,
+        confidence: parsed.confidence || "medium",
+      }
+    }
+  } catch (e) {
+    console.warn("[Step 2b] Gemini grounding error:", (e as Error).message?.slice(0, 80))
+  }
+  return { name: null, city: null, address: null, confidence: "low" }
+}
+
+// ---------------------------------------------------------------------------
 // Vérification Gemini : le résultat Google Places est-il le bon lieu ?
 // ---------------------------------------------------------------------------
 
@@ -845,81 +928,82 @@ export async function GET(request: Request) {
     const meta = await extractMetadata(url)
     console.log(`[Step 1] title="${meta.title.slice(0, 60)}" desc=${meta.description.length}chars username="${meta.username}"`)
 
-    // ── ÉTAPE 2 : LLM Pass 1 — hypothèse nom+ville ──────────────────────
-    console.log("[Step 2] LLM hypothesis...")
-    const hypothesis = await extractHypothesis(url, meta, userCity)
     const usernameAsName = meta.username ? usernameToName(meta.username) : null
-
-    // Garde-fou : si l'IA a mis une adresse dans "name", la déplacer vers "address"
-    if (hypothesis?.name && looksLikeAddress(hypothesis.name)) {
-      console.log(`[Step 2] name ressemble à une adresse → déplacé dans address: "${hypothesis.name}"`)
-      if (!hypothesis.address) hypothesis.address = hypothesis.name
-      hypothesis.name = null as unknown as string
-    }
-
-    // Fallback titre : nettoyer les emojis si meta.title est brut (yt-dlp renvoie parfois toute la légende)
-    const rawTitleFallback = stripEmojis(meta.title.split("\n")[0]).slice(0, 70).trim()
-    const placeName = hypothesis?.name || usernameAsName || (rawTitleFallback.length > 2 ? rawTitleFallback : null) || "Nouveau Spot"
-    const placeCity = hypothesis?.city || userCity || null
-    console.log(`[Step 2] name="${placeName}" city="${placeCity}" cat="${hypothesis?.category}"`)
-
-    // ── ÉTAPE 3 : Google Places — Text Search puis Place Details ─────────
-    console.log("[Step 3] Google Places...")
-    let searchResult: PlaceSearchResult | null = null
-
     const isFoodBlogger = /food|eat|local|resto|bonne|adresse|paris|plan|spot|secret|hidden|guide|foodies?|gourmand|cuisine|table|chef|meal|bite|yum|tasty/i.test(meta.username || "")
 
-    // Signaux faibles pour enrichir les requêtes
+    // Signaux faibles (hashtags, 📍, codes postaux, etc.)
     const signals = extractWeakSignals(meta)
 
-    // Extraire la ville depuis le username si non trouvée ailleurs (ex: "localfoodparis" → "paris")
-    const CITY_FROM_USERNAME = ["paris","lyon","marseille","bordeaux","nantes","toulouse","nice","lille","london","berlin","barcelona","rome","amsterdam","bruxelles","geneve","zurich","montreal","new york","dubai"]
+    // Ville : GPS > hypothèse > hashtag > username ("localfoodparis" → "paris")
+    const CITY_FROM_USERNAME = ["paris","lyon","marseille","bordeaux","nantes","toulouse","nice","lille","london","berlin","barcelona","rome","amsterdam","bruxelles","geneve","zurich","montreal","dubai"]
     const usernameCityHint = (() => {
       const uLower = (meta.username || "").toLowerCase()
       return CITY_FROM_USERNAME.find(c => uLower.includes(c.replace(" ", ""))) || null
     })()
-
-    const bestCity = placeCity || signals.cityHints[0] || usernameCityHint || null
-    if (usernameCityHint && !placeCity && !signals.cityHints[0]) {
+    const cityFromSignals = signals.cityHints[0] || null
+    const bestCity = userCity || cityFromSignals || usernameCityHint || null
+    if (usernameCityHint && !userCity && !cityFromSignals) {
       console.log(`[City] Extrait du username "@${meta.username}" → "${usernameCityHint}"`)
     }
+
+    // ── ÉTAPE 2 : Gemini+grounding — confirmation du lieu AVANT Google Places ──
+    console.log("[Step 2] Gemini grounding confirmation...")
+    const confirmation = await confirmPlaceWithGrounding(meta, signals, bestCity, isFoodBlogger)
+
+    // ── ÉTAPE 2b : Hypothèse LLM classique (fallback si grounding n'a rien trouvé) ──
+    let hypothesis: AiHypothesis | null = null
+    if (!confirmation.name) {
+      console.log("[Step 2b] Grounding gave no result — falling back to classic LLM hypothesis...")
+      hypothesis = await extractHypothesis(url, meta, userCity)
+      if (hypothesis?.name && looksLikeAddress(hypothesis.name)) {
+        if (!hypothesis.address) hypothesis.address = hypothesis.name
+        hypothesis.name = null as unknown as string
+      }
+    }
+
+    const rawTitleFallback = stripEmojis(meta.title.split("\n")[0]).slice(0, 70).trim()
+    // Priorité : confirmation Gemini > hypothèse > titleHint > titre brut
+    const placeName = confirmation.name || hypothesis?.name || meta.titleHint ||
+      (rawTitleFallback.length > 2 ? rawTitleFallback : null) || usernameAsName || "Nouveau Spot"
+    const placeCity = confirmation.city || hypothesis?.city || userCity || bestCity || null
+    console.log(`[Step 2] confirmed="${confirmation.name}" hypothesis="${hypothesis?.name}" → placeName="${placeName}" city="${placeCity}"`)
+
+    // ── ÉTAPE 3 : Google Places — Text Search puis Place Details ─────────
+    console.log("[Step 3] Google Places...")
+    let searchResult: PlaceSearchResult | null = null
 
     // Types Google que l'on refuse (geocodes génériques, pas des établissements)
     const REJECT_TYPES = new Set(["street_address", "route", "premise", "subpremise", "postal_code", "locality", "country"])
     const isBusinessResult = (r: PlaceSearchResult) =>
       r.types.length > 0 && !r.types.every(t => REJECT_TYPES.has(t))
 
-    // Tentatives par ordre de précision
     const queries: string[] = []
-
-    // locationHint = nom 📍 extrait directement (OG ou yt-dlp) → priorité absolue
     const locationHint = meta.locationHint
     const titleHint = meta.titleHint
 
-    // 1. locationHint (📍/📌) — priorité maximale
+    // 1. Adresse confirmée par Gemini grounding (la plus précise)
+    if (confirmation.address) queries.push(confirmation.address)
+    // 2. Nom confirmé + ville confirmée
+    if (confirmation.name && confirmation.city) queries.push(`${confirmation.name} ${confirmation.city}`)
+    if (confirmation.name) queries.push(confirmation.name)
+    // 3. locationHint (📍/📌 explicite)
     if (locationHint && bestCity) queries.push(`${locationHint} ${bestCity}`)
     if (locationHint) queries.push(locationHint)
-
-    // 2. titleHint (premier segment du titre "NOM - description") — priorité haute
-    if (titleHint && titleHint !== locationHint) {
+    // 4. titleHint (premier segment titre avant " - ")
+    if (titleHint && titleHint !== locationHint && titleHint !== confirmation.name) {
       if (bestCity) queries.push(`${titleHint} ${bestCity}`)
       queries.push(titleHint)
     }
-
-    // 3. Autres noms depuis nameHints (📍 in-text + hashtags)
+    // 5. Autres noms depuis signals
     for (const hint of signals.nameHints.slice(0, 2)) {
-      if (hint === locationHint || hint === titleHint) continue
+      if ([locationHint, titleHint, confirmation.name].includes(hint)) continue
       if (bestCity) queries.push(`${hint} ${bestCity}`)
       queries.push(hint)
     }
-
     if (hypothesis?.address) queries.push(hypothesis.address)
-    if (placeName && placeName !== "Nouveau Spot" && bestCity) queries.push(`${placeName} ${bestCity}`)
-    if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
-    if (placeName && placeName !== "Nouveau Spot") queries.push(placeName)
-    // Ne jamais chercher juste par username food blogger
+    if (placeName !== "Nouveau Spot" && placeCity) queries.push(`${placeName} ${placeCity}`)
+    if (placeName !== "Nouveau Spot") queries.push(placeName)
     if (usernameAsName && usernameAsName !== placeName && !isFoodBlogger) queries.push(usernameAsName)
-    // Adresses détectées directement dans le texte
     for (const addr of signals.addressHints) queries.push(addr)
 
     // Catégories Google considérées comme "alimentaire" (pour détecter les faux positifs)
