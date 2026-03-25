@@ -220,6 +220,7 @@ export default function MapView() {
   const [carouselIdx, setCarouselIdx] = useState(0)
   const carouselRef = useRef<HTMLDivElement>(null)
   const filterMenuRef = useRef<HTMLDivElement>(null)
+  const touchStartX = useRef<number | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
@@ -1165,23 +1166,38 @@ export default function MapView() {
               if (info.offset.y > 80) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[75vh] cursor-grab flex-col overflow-y-auto rounded-[2.5rem] border border-white/10 bg-zinc-950/95 p-5 text-white shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[85vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[82vh] cursor-grab flex-col overflow-hidden rounded-[2.5rem] border border-white/10 bg-zinc-950/95 text-white shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
-            {/* Drag Handle Mobile */}
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-zinc-700/50 sm:hidden" />
+            {/* Drag Handle Mobile — au-dessus de la photo */}
+            <div className="absolute top-3 left-1/2 z-30 -translate-x-1/2 sm:hidden">
+              <div className="h-1.5 w-12 rounded-full bg-white/30" />
+            </div>
 
             <button
-              className="absolute top-5 right-5 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-zinc-300 backdrop-blur-md transition-colors hover:text-white"
+              className="absolute top-4 right-4 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-zinc-300 backdrop-blur-md transition-colors hover:text-white"
               onClick={() => setSelectedSpot(null)}
             >
               <X size={16} />
             </button>
 
+            {/* Photo — hors du scroll, colle aux bords */}
             {selectedSpot.image_url ? (() => {
               const photos = selectedSpot.image_url!.split(",").map(s => s.trim()).filter(Boolean)
               return (
-                <div className="relative -mx-5 -mt-5 mb-5 h-56 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:-mx-5 sm:h-64 sm:rounded-t-3xl">
-                  <div ref={carouselRef} className="relative h-full w-full">
+                <div className="relative h-60 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:h-72 sm:rounded-t-3xl">
+                  <div
+                    ref={carouselRef}
+                    className="relative h-full w-full"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
+                    onTouchEnd={(e) => {
+                      if (touchStartX.current === null) return
+                      const delta = e.changedTouches[0].clientX - touchStartX.current
+                      if (delta > 45 && carouselIdx > 0) setCarouselIdx(i => i - 1)
+                      else if (delta < -45 && carouselIdx < photos.length - 1) setCarouselIdx(i => i + 1)
+                      touchStartX.current = null
+                    }}
+                  >
                     {photos.map((url, idx) => (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
@@ -1193,27 +1209,21 @@ export default function MapView() {
                       />
                     ))}
                   </div>
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent" />
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
                   {photos.length > 1 && (
                     <>
                       <button
-                        onClick={() => {
-                          const next = Math.max(0, carouselIdx - 1)
-                          setCarouselIdx(next)
-                          if (carouselRef.current) carouselRef.current.scrollTo({ left: next * carouselRef.current.offsetWidth, behavior: "smooth" })
-                        }}
-                        className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => setCarouselIdx(i => Math.max(0, i - 1))}
+                        className="absolute left-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
                         disabled={carouselIdx === 0}
                       >
                         <ChevronLeft size={18} />
                       </button>
                       <button
-                        onClick={() => {
-                          const next = Math.min(photos.length - 1, carouselIdx + 1)
-                          setCarouselIdx(next)
-                          if (carouselRef.current) carouselRef.current.scrollTo({ left: next * carouselRef.current.offsetWidth, behavior: "smooth" })
-                        }}
-                        className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => setCarouselIdx(i => Math.min(photos.length - 1, i + 1))}
+                        className="absolute right-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
                         disabled={carouselIdx === photos.length - 1}
                       >
                         <ChevronRight size={18} />
@@ -1222,10 +1232,8 @@ export default function MapView() {
                         {photos.map((_, idx) => (
                           <button
                             key={idx}
-                            onClick={() => {
-                              setCarouselIdx(idx)
-                              if (carouselRef.current) carouselRef.current.scrollTo({ left: idx * carouselRef.current.offsetWidth, behavior: "smooth" })
-                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={() => setCarouselIdx(idx)}
                             className={cn(
                               "h-1.5 rounded-full transition-all",
                               idx === carouselIdx ? "w-4 bg-white" : "w-1.5 bg-white/40"
@@ -1237,9 +1245,13 @@ export default function MapView() {
                   )}
                 </div>
               )
-            })() : null}
+            })() : (
+              /* Espace drag handle quand pas de photo */
+              <div className="h-8 flex-shrink-0" />
+            )}
 
-            <div className="min-w-0 flex-1 px-1">
+            {/* Contenu scrollable */}
+            <div className="flex-1 overflow-y-auto px-5 pb-6 pt-4">
               <h3 className="line-clamp-2 text-2xl leading-tight font-extrabold">
                 {selectedSpot.title}
               </h3>
