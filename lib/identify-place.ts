@@ -1,16 +1,16 @@
 /**
- * identify-place.ts — Architecture Single-Pass
+ * identify-place.ts — Architecture "Single-Pass Pure Source"
  *
  * Flux :
- *   1. Gemini (1 seul appel) — extraction + formatage complet
- *   2. Google Places NEW API (searchText) — 1 seul appel
- *   3. Validation + assemblage — 404 immédiat si lieu introuvable
+ *   1. Gemini "Sniper"  — search_query + description + catégorie
+ *   2. Google Places v1 — source unique de vérité (titre, adresse, coords, photos)
+ *   3. Assemblage       — 404 immédiat si introuvable, jamais de crash
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
 
 // ---------------------------------------------------------------------------
-// Types
+// Types publics
 // ---------------------------------------------------------------------------
 
 export interface VideoMetadata {
@@ -36,14 +36,13 @@ export interface IdentifyPlaceError {
 export type IdentifyPlaceResult = IdentifiedPlace | IdentifyPlaceError
 
 // ---------------------------------------------------------------------------
-// Interfaces internes
+// Types internes
 // ---------------------------------------------------------------------------
 
 interface GeminiPass {
   search_query: string
-  nom_propose: string
-  description: string
-  categorie: string
+  description_suggeree: string
+  categorie_suggeree: string
 }
 
 interface PlacesResult {
@@ -87,7 +86,10 @@ function normalizeCategory(raw: string | null | undefined): IdentifiedPlace["cat
   return match ?? "Restaurant"
 }
 
-/** Résout les URLs photos côté serveur en suivant le redirect → URL CDN directe (sans clé API). */
+/**
+ * Résout les URLs photos côté serveur en suivant le redirect 302
+ * → URL CDN publique (lh3.googleusercontent.com), sans exposer la clé API au frontend.
+ */
 async function resolvePhotoUrls(
   photos: PlacesResult["photos"],
   apiKey: string
@@ -101,7 +103,6 @@ async function resolvePhotoUrls(
         redirect: "manual",
         signal: AbortSignal.timeout(5000),
       })
-      // La NEW API retourne un 302 vers l'URL CDN publique (lh3.googleusercontent.com)
       const cdnUrl = res.headers.get("location")
       results.push(cdnUrl ?? apiUrl)
     } catch {
@@ -112,7 +113,7 @@ async function resolvePhotoUrls(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1 : Gemini Single-Pass
+// Phase 1 : Gemini "Sniper" — search_query + description + catégorie
 // ---------------------------------------------------------------------------
 
 async function geminiSinglePass(meta: VideoMetadata, geminiKey: string): Promise<GeminiPass> {
@@ -134,17 +135,18 @@ async function geminiSinglePass(meta: VideoMetadata, geminiKey: string): Promise
 
   const context = lines.length > 0 ? lines.join("\n") : "(aucune métadonnée)"
 
-  const prompt = `Tu es un extracteur de données chirurgical. Analyse les métadonnées de cette vidéo pour trouver le lieu exact.
+  const prompt = `Tu es un extracteur de données géographique ultra-précis. Analyse les métadonnées fournies.
 
-RÈGLES VITALES (Même si le texte est très long) :
-- IGNORE totalement les blocs commençant par "Keywords:" ou les résumés générés par l'IA à la fin du texte. Ne te laisse pas distraire par le bruit.
-- IDENTIFIE LE VRAI NOM : Ne confonds pas le concept (ex: "Mini pizzas à volonté") avec le nom du restaurant (ex: "A Braccetto").
-- CHERCHE L'ADRESSE EXACTE : Scanne le texte à la recherche d'emojis comme 📍, ou de mots comme "Rue", "Avenue", "Boulevard". Les créateurs donnent très souvent l'adresse exacte.
-- Rédige une courte description du concept (2 phrases) et choisis STRICTEMENT UNE catégorie parmi : [Café, Restaurant, Bar, Outdoor, Vue, Culture, Shopping].
+RÈGLES VITALES :
+- IGNORE totalement le bruit SEO (blocs "Keywords:", tags répétitifs, résumés générés par l'IA à la fin du texte).
+- IDENTIFIE LE VRAI NOM : Scanne le texte pour trouver le nom réel du lieu (ex: "A Braccetto"), ignore les slogans aguicheurs (ex: "Mini pizzas").
+- CHERCHE L'ADRESSE EXACTE : Scanne pour trouver des emojis comme 📍, ou des mots comme "Rue", "Avenue", "Boulevard", "Code postal".
+- Rédige une description RÉALISTE (2 phrases maximum) de ce qu'on y mange ou fait, basée UNIQUEMENT sur les indices de la vidéo.
+- Choisis STRICTEMENT UNE catégorie parmi cette liste : [Café, Restaurant, Bar, Outdoor, Vue, Culture, Shopping].
 
-CONSTRUIRE LA SEARCH_QUERY (Crucial) :
-- S'il y a une adresse exacte dans le texte, ta search_query DOIT être : "Nom du lieu, Adresse exacte" (ex: "A Braccetto, 19 Rue Soufflot, 75005 Paris").
-- S'il n'y a PAS d'adresse exacte, ta search_query DOIT être : "Nom du lieu, Ville, Pays".
+CONSTRUIRE LA SEARCH_QUERY (Impératif) :
+- S'il y a une adresse exacte : Ta search_query DOIT être : "Nom du lieu, Adresse exacte" (ex: "A Braccetto, 19 Rue Soufflot, 75005 Paris").
+- S'il n'y a pas d'adresse exacte : Ta search_query DOIT être : "Nom du lieu, Ville, Pays".
 
 Métadonnées :
 ${context}
@@ -152,9 +154,8 @@ ${context}
 Renvoie UNIQUEMENT ce JSON :
 {
   "search_query": "Ta requête Google Maps optimisée",
-  "nom_propose": "Vrai nom du lieu",
-  "description": "Ta description réaliste",
-  "categorie": "Catégorie choisie"
+  "description_suggeree": "Ta description",
+  "categorie_suggeree": "Ta catégorie choisie"
 }`
 
   const result = await model.generateContent(prompt)
@@ -166,7 +167,7 @@ Renvoie UNIQUEMENT ce JSON :
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2 : Google Places NEW API
+// Phase 2 : Google Places NEW API — source unique de vérité
 // ---------------------------------------------------------------------------
 
 async function searchGooglePlaces(query: string, placesKey: string): Promise<PlacesResult[]> {
@@ -208,7 +209,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     return { erreur: "Configuration serveur incorrecte (clé Maps manquante)." }
   }
 
-  // ── Phase 1 : Gemini ────────────────────────────────────────────────────
+  // ── Phase 1 : Gemini Sniper ──────────────────────────────────────────────
   let geminiData: GeminiPass
   try {
     geminiData = await geminiSinglePass(meta, geminiKey)
@@ -217,7 +218,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     return { erreur: "L'analyse IA a échoué. Réessaie dans quelques secondes." }
   }
 
-  // ── Phase 2 : Google Places ─────────────────────────────────────────────
+  // ── Phase 2 : Google Places ──────────────────────────────────────────────
   let places: PlacesResult[] = []
   try {
     places = await searchGooglePlaces(geminiData.search_query, placesKey)
@@ -226,7 +227,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     return { erreur: "La recherche Google Maps a échoué. Réessaie dans quelques secondes." }
   }
 
-  // ── Phase 3 : Validation — 404 immédiat si rien trouvé ──────────────────
+  // ── Phase 3 : Validation & Assemblage ───────────────────────────────────
   if (places.length === 0) {
     console.warn("[Phase 3] Aucun résultat Google Maps — retour 404")
     return {
@@ -236,14 +237,19 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   }
 
   const best = places[0]
+
+  // TITRE : nom officiel Google Maps, source unique de vérité
+  const nom_du_lieu = best.displayName?.text ?? ""
+
+  // PHOTOS : URLs CDN résolues côté serveur (clé non exposée au frontend)
   const photos = await resolvePhotoUrls(best.photos, placesKey)
 
-  console.log(`[Phase 3] Lieu retenu : "${best.displayName?.text}" — ${best.formattedAddress}`)
+  console.log(`[Phase 3] "${nom_du_lieu}" — ${best.formattedAddress} — ${photos.length} photo(s)`)
 
   return {
-    nom_du_lieu: best.displayName?.text ?? "",
-    description: geminiData.description,
-    categorie: normalizeCategory(geminiData.categorie),
+    nom_du_lieu,
+    description: geminiData.description_suggeree,
+    categorie: normalizeCategory(geminiData.categorie_suggeree),
     adresse: best.formattedAddress ?? "",
     coordonnees: {
       lat: best.location?.latitude ?? 0,
