@@ -43,6 +43,33 @@ function looksLikeAddress(str: string): boolean {
   return /^\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée|passage|cour|villa|chemin|voie|quai|square|résidence)\b/i.test(str.trim())
 }
 
+/** Supprime les emojis et caractères spéciaux d'un texte */
+function stripEmojis(s: string): string {
+  return s
+    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}\u{FE00}-\u{FEFF}\u{1F900}-\u{1F9FF}]/gu, "")
+    .replace(/[0-9]+[️⃣]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+}
+
+/**
+ * Extrait un nom de lieu à partir d'un texte brut après 📍 ou 📌.
+ * S'arrête dès qu'un autre emoji, une date, un prix ou un mot de description est rencontré.
+ */
+function extractPlaceName(raw: string): string | null {
+  // Retire le marqueur emoji en tête
+  const withoutMarker = raw.replace(/^[📍📌]\s*/u, "").trim()
+  // Supprime tout ce qui est après le premier emoji non-lettre (🅿️, 🗓, etc.)
+  const nameOnly = withoutMarker.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}].*/gu, "").trim()
+  const cleaned = nameOnly.replace(/\s+/g, " ").trim().slice(0, 70)
+  if (cleaned.length < 3) return null
+  // Rejette si commence par un chiffre ou ressemble à une description
+  if (/^\d/.test(cleaned)) return null
+  const descWords = ["floraison","prévue","environ","bouquet","prévoyez","venez","respectez","disponible","gps","point","toutes","infos","conseils","seulement","quelques","semaine"]
+  if (descWords.some(w => cleaned.toLowerCase().includes(w))) return null
+  return cleaned
+}
+
 function usernameToName(handle: string): string {
   return handle.replace(/_/g, " ").replace(/-/g, " ")
     .split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ").trim()
@@ -54,8 +81,13 @@ function parseOGData(rawTitle: string | null, rawDesc: string | null) {
   const usernameMatch = full.match(/@([\w.]+)/)
   const username = usernameMatch?.[1] || null
 
-  const locMatch = full.match(/📍\s*([^"#\n]+)/i)
-  let location = locMatch ? locMatch[1].replace(/["\s]+$/, "").replace(/#\w+/g, "").trim() : null
+  // Cherche 📍 ou 📌, valide que c'est un nom de lieu (pas une description)
+  const pinMatches = [...full.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
+  let location: string | null = null
+  for (const m of pinMatches) {
+    const candidate = extractPlaceName(m[0])
+    if (candidate) { location = candidate; break }
+  }
 
   let title = ""
   if (rawTitle) {
@@ -115,11 +147,15 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
       console.log("[yt-dlp] OK — title:", info.title?.slice(0, 80))
       const uploaderRaw = info.uploader_id || info.uploader || info.channel || null
       const username = uploaderRaw ? uploaderRaw.replace(/^@/, "") : null
-      // Extraire le nom de lieu depuis 📍 dans la description yt-dlp
+      // Extraire le nom de lieu depuis 📍 ou 📌 dans la description yt-dlp
       const desc = info.description || ""
-      const ytPinMatch = desc.match(/📍\s*([^\n#]{3,80})/)
-      const locationHint = ytPinMatch ? ytPinMatch[1].replace(/["\s]+$/, "").trim() : null
-      if (locationHint) console.log("[yt-dlp] 📍 locationHint:", locationHint)
+      const ytPinMatches = [...desc.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
+      let locationHint: string | null = null
+      for (const m of ytPinMatches) {
+        const candidate = extractPlaceName(m[0])
+        if (candidate) { locationHint = candidate; break }
+      }
+      if (locationHint) console.log("[yt-dlp] 📍/📌 locationHint:", locationHint)
       return {
         title: info.title || "",
         description: desc,
@@ -190,7 +226,12 @@ interface WeakSignals {
 const CITY_KEYWORDS = [
   "paris","lyon","marseille","bordeaux","nantes","toulouse","lille","nice","strasbourg",
   "montpellier","rennes","grenoble","rouen","toulon","nancy","metz","reims","brest",
+  "cannes","antibes","annecy","aix","avignon","nimes","arles","perpignan","pau","bayonne",
+  "biarritz","angouleme","poitiers","limoges","caen","tours","orleans","dijon","besancon",
   "london","barcelona","madrid","rome","berlin","amsterdam","brussels","geneva","zurich",
+  // régions et départements FR
+  "provence","vaucluse","alsace","bretagne","normandie","occitanie","languedoc",
+  "dordogne","perigord","bourgogne","auvergne","savoie","vendee","charente",
 ]
 const CATEGORY_KEYWORDS: Record<string, string> = {
   restaurant: "restaurant", resto: "restaurant", food: "restaurant", sushi: "restaurant",
@@ -237,28 +278,26 @@ function extractWeakSignals(meta: VideoMeta): WeakSignals {
     .map(h => h.replace(/_/g, " ").replace(/-/g, " "))
     .slice(0, 5)
 
-  // Adresses et 📍 (dans le texte brut non lowercasé)
+  // Adresses et 📍/📌 (dans le texte brut non lowercasé)
   const addressHints: string[] = []
   const rawFull = [meta.title, meta.description].join(" ")
-  const pinMatch = rawFull.match(/📍\s*([^\n#]{3,80})/g)
-  if (pinMatch) {
-    for (const m of pinMatch) {
-      const val = m.replace("📍", "").trim()
-      if (/^\d/.test(val)) {
-        addressHints.push(val)
-      } else {
-        nameHints.unshift(val)
-      }
+  const pinMatches2 = [...rawFull.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
+  for (const m of pinMatches2) {
+    const val = extractPlaceName(m[0])
+    if (!val) continue
+    if (/^\d/.test(val)) {
+      addressHints.push(val)
+    } else if (!nameHints.includes(val)) {
+      nameHints.unshift(val)
     }
   }
-  // locationHint (déjà extrait et préservé depuis OG/yt-dlp) → priorité absolue
-  if (meta.locationHint && !/^\d/.test(meta.locationHint)) {
-    // Évite doublon si déjà détecté via pinMatch
-    if (!nameHints.includes(meta.locationHint)) {
-      nameHints.unshift(meta.locationHint)
+  // locationHint (déjà extrait depuis OG/yt-dlp) → priorité absolue
+  if (meta.locationHint) {
+    if (/^\d/.test(meta.locationHint)) {
+      if (!addressHints.includes(meta.locationHint)) addressHints.unshift(meta.locationHint)
+    } else {
+      if (!nameHints.includes(meta.locationHint)) nameHints.unshift(meta.locationHint)
     }
-  } else if (meta.locationHint && /^\d/.test(meta.locationHint)) {
-    addressHints.unshift(meta.locationHint)
   }
 
   const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
@@ -726,7 +765,9 @@ export async function GET(request: Request) {
       hypothesis.name = null as unknown as string
     }
 
-    const placeName = hypothesis?.name || usernameAsName || meta.title.split("\n")[0].slice(0, 60) || "Nouveau Spot"
+    // Fallback titre : nettoyer les emojis si meta.title est brut (yt-dlp renvoie parfois toute la légende)
+    const rawTitleFallback = stripEmojis(meta.title.split("\n")[0]).slice(0, 70).trim()
+    const placeName = hypothesis?.name || usernameAsName || (rawTitleFallback.length > 2 ? rawTitleFallback : null) || "Nouveau Spot"
     const placeCity = hypothesis?.city || userCity || null
     console.log(`[Step 2] name="${placeName}" city="${placeCity}" cat="${hypothesis?.category}"`)
 
@@ -870,8 +911,8 @@ export async function GET(request: Request) {
       if (geo) { coordinates = { lat: geo.lat, lng: geo.lng }; resolvedAddress = geo.place_name }
     }
 
-    // Titre final : Place Details > locationHint > placeName LLM
-    const finalTitle = placeDetails?.name || locationHint || placeName
+    // Titre final : Place Details > locationHint > placeName LLM — toujours nettoyé des emojis
+    const finalTitle = stripEmojis(placeDetails?.name || locationHint || placeName).slice(0, 100) || "Nouveau Spot"
 
     return NextResponse.json({
       title: finalTitle,
