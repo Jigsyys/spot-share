@@ -133,13 +133,56 @@ interface VideoMeta {
 
 /** Extrait @username directement depuis l'URL (sans API) */
 function extractUsernameFromUrl(url: string): string | null {
+  // TikTok: tiktok.com/@username/video/...
   const tiktok = url.match(/tiktok\.com\/@([\w.]+)/)?.[1]
-  const instagram = url.match(/instagram\.com\/(?:reel|p|tv)\//) ? null
-    : url.match(/instagram\.com\/([\w.]+)\//)?.[1]
-  const handle = tiktok || instagram || null
-  // Exclure les mots réservés
+  // Instagram: instagram.com/username/reel/... OU instagram.com/username/p/...
+  const igFromPath = url.match(/instagram\.com\/([\w.]+)\/(?:p|reel|tv)\//)?.[1]
+  const handle = tiktok || igFromPath || null
   if (handle && /^(reel|p|tv|explore|accounts|stories|direct|share)$/i.test(handle)) return null
   return handle
+}
+
+/** Instagram — scraping de la page embed (moins bloquée que la page principale) */
+async function tryInstagramEmbed(url: string): Promise<{ title: string; username: string | null; thumbnail: string | null } | null> {
+  if (!url.includes("instagram.com")) return null
+  try {
+    // Construire l'URL embed depuis le shortcode
+    const shortcodeMatch = url.match(/instagram\.com\/(?:p|reel|tv)\/([\w-]+)/)
+    if (!shortcodeMatch) return null
+    const shortcode = shortcodeMatch[1]
+    const embedUrl = `https://www.instagram.com/p/${shortcode}/embed/`
+
+    const res = await fetch(embedUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9",
+      },
+      signal: AbortSignal.timeout(7000),
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+
+    // Extraire le caption depuis les données JSON embarquées dans la page embed
+    const captionMatch = html.match(/"caption"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1]
+    const caption = captionMatch ? captionMatch.replace(/\\n/g, " ").replace(/\\u[\dA-Fa-f]{4}/g, "").replace(/\\(.)/g, "$1").trim() : null
+
+    // Extraire le username
+    const usernameMatch = html.match(/"username"\s*:\s*"([\w.]+)"/) ?? html.match(/instagram\.com\/([\w.]+)/)
+    const username = usernameMatch?.[1] || extractUsernameFromUrl(url)
+
+    // Thumbnail depuis og:image dans le HTML embed
+    const og = extractOG(html)
+    const thumbnail = og.image ? decodeHTML(og.image) : null
+
+    if (!caption && !og.title) return null
+    const title = caption || og.title || ""
+    console.log(`[Instagram embed] title="${title.slice(0, 80)}" username="${username}"`)
+    return { title, username: username || null, thumbnail }
+  } catch (e) {
+    console.warn("[Instagram embed] failed:", (e as Error).message?.slice(0, 60))
+    return null
+  }
 }
 
 /** TikTok oEmbed — API publique qui retourne le titre/caption sans auth */
@@ -166,6 +209,42 @@ async function tryTikTokOEmbed(url: string): Promise<{ title: string; username: 
   }
 }
 
+/** Construit un VideoMeta à partir d'un titre/caption + username + thumbnail */
+function buildMetaFromCaption(
+  caption: string,
+  username: string | null,
+  thumbnail: string | null,
+  source: string,
+): VideoMeta {
+  const pinMatches = [...caption.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
+  let locationHint: string | null = null
+  for (const m of pinMatches) {
+    const candidate = extractPlaceName(m[0])
+    if (candidate) { locationHint = candidate; break }
+  }
+  let titleHint: string | null = null
+  if (!locationHint) {
+    const dashParts = caption.split(/\s+[-–]\s+/)
+    if (dashParts.length >= 2) {
+      const candidate = stripEmojis(dashParts[0]).trim()
+      if (candidate.length >= 3 && candidate.length <= 50 && !/^\d/.test(candidate)) {
+        titleHint = candidate
+        console.log(`[${source}] titleHint:`, titleHint)
+      }
+    }
+  }
+  return {
+    title: caption,
+    description: caption,
+    tags: [],
+    uploader: username ? usernameToName(username) : null,
+    username,
+    ogImage: thumbnail,
+    locationHint,
+    titleHint,
+  }
+}
+
 async function extractMetadata(url: string): Promise<VideoMeta> {
   // Extraction immédiate du username depuis l'URL (fiable, sans API)
   const urlUsername = extractUsernameFromUrl(url)
@@ -174,35 +253,15 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
   if (url.includes("tiktok.com")) {
     const oembed = await tryTikTokOEmbed(url)
     if (oembed?.title) {
-      const username = oembed.username || urlUsername
-      const desc = oembed.title  // oEmbed title = caption complète
-      const ytPinMatches = [...desc.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
-      let locationHint: string | null = null
-      for (const m of ytPinMatches) {
-        const candidate = extractPlaceName(m[0])
-        if (candidate) { locationHint = candidate; break }
-      }
-      let titleHint: string | null = null
-      if (!locationHint) {
-        const dashParts = desc.split(/\s+[-–]\s+/)
-        if (dashParts.length >= 2) {
-          const candidate = stripEmojis(dashParts[0]).trim()
-          if (candidate.length >= 3 && candidate.length <= 50 && !/^\d/.test(candidate)) {
-            titleHint = candidate
-            console.log("[oEmbed] titleHint:", titleHint)
-          }
-        }
-      }
-      return {
-        title: desc,
-        description: desc,
-        tags: [],
-        uploader: username ? usernameToName(username) : null,
-        username,
-        ogImage: oembed.thumbnail,
-        locationHint,
-        titleHint,
-      }
+      return buildMetaFromCaption(oembed.title, oembed.username || urlUsername, oembed.thumbnail, "TikTok oEmbed")
+    }
+  }
+
+  // ── Instagram embed (page /embed/ moins bloquée que la principale) ─────
+  if (url.includes("instagram.com")) {
+    const igEmbed = await tryInstagramEmbed(url)
+    if (igEmbed?.title) {
+      return buildMetaFromCaption(igEmbed.title, igEmbed.username || urlUsername, igEmbed.thumbnail, "Instagram embed")
     }
   }
 
