@@ -185,7 +185,49 @@ async function tryInstagramEmbed(url: string): Promise<{ title: string; username
   }
 }
 
-/** TikTok oEmbed — API publique qui retourne le titre/caption sans auth */
+/** Extrait la description COMPLÈTE d'une page TikTok depuis le JSON embarqué */
+async function tryTikTokFullDescription(url: string): Promise<string | null> {
+  if (!url.includes("tiktok.com")) return null
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+
+    // TikTok embarque les données dans __UNIVERSAL_DATA_FOR_REHYDRATION__ ou SIGI_STATE
+    // Cherche le champ "desc" dans le JSON de la page
+    const descPatterns = [
+      /"desc"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /"description"\s*:\s*"((?:[^"\\]|\\.)*)"/,
+      /<meta\s+(?:name|property)="description"\s+content="([^"]{20,})"/i,
+    ]
+    for (const pattern of descPatterns) {
+      const match = html.match(pattern)?.[1]
+      if (match && match.length > 20) {
+        const decoded = match
+          .replace(/\\n/g, "\n")
+          .replace(/\\u([\dA-Fa-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/\\(.)/g, "$1")
+          .trim()
+        if (decoded.length > 20) {
+          console.log(`[TikTok HTML] description: "${decoded.slice(0, 120)}"`)
+          return decoded
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[TikTok HTML] failed:", (e as Error).message?.slice(0, 60))
+  }
+  return null
+}
+
+/** TikTok oEmbed — retourne le titre partiel + thumbnail + username */
 async function tryTikTokOEmbed(url: string): Promise<{ title: string; username: string | null; thumbnail: string | null } | null> {
   if (!url.includes("tiktok.com")) return null
   try {
@@ -199,7 +241,6 @@ async function tryTikTokOEmbed(url: string): Promise<{ title: string; username: 
     if (!res.ok) return null
     const data = await res.json()
     if (!data?.title) return null
-    // author_url = "https://www.tiktok.com/@localfoodparis"
     const username = data.author_url?.match(/tiktok\.com\/@([\w.]+)/)?.[1] || null
     console.log(`[TikTok oEmbed] title="${data.title.slice(0, 80)}" username="${username}"`)
     return { title: data.title || "", username, thumbnail: data.thumbnail_url || null }
@@ -249,11 +290,19 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
   // Extraction immédiate du username depuis l'URL (fiable, sans API)
   const urlUsername = extractUsernameFromUrl(url)
 
-  // ── TikTok oEmbed (API publique) — priorité avant yt-dlp ──────────────
+  // ── TikTok : oEmbed (titre partiel) + scraping HTML (description complète) ──
   if (url.includes("tiktok.com")) {
-    const oembed = await tryTikTokOEmbed(url)
-    if (oembed?.title) {
-      return buildMetaFromCaption(oembed.title, oembed.username || urlUsername, oembed.thumbnail, "TikTok oEmbed")
+    // Les deux en parallèle pour ne pas perdre de temps
+    const [oembed, fullDesc] = await Promise.all([
+      tryTikTokOEmbed(url),
+      tryTikTokFullDescription(url),
+    ])
+    // Description complète prioritaire sur le titre oEmbed (qui peut être tronqué)
+    const caption = fullDesc || oembed?.title
+    if (caption) {
+      const username = oembed?.username || urlUsername
+      const thumbnail = oembed?.thumbnail || null
+      return buildMetaFromCaption(caption, username, thumbnail, "TikTok")
     }
   }
 
@@ -1160,9 +1209,13 @@ export async function GET(request: Request) {
     const locationHint = meta.locationHint
     const titleHint = meta.titleHint
 
-    // 1. Adresse confirmée par Gemini grounding (la plus précise)
+    // 1. Adresses exactes (rue + code postal) — le plus fiable, toujours en premier
     if (confirmation.address) queries.push(confirmation.address)
-    // 2. Nom confirmé + ville confirmée
+    for (const addr of signals.addressHints) {
+      if (addr !== confirmation.address) queries.push(addr)
+    }
+    if (hypothesis?.address) queries.push(hypothesis.address)
+    // 2. Nom confirmé par Gemini + ville
     if (confirmation.name && confirmation.city) queries.push(`${confirmation.name} ${confirmation.city}`)
     if (confirmation.name) queries.push(confirmation.name)
     // 3. locationHint (📍/📌 explicite)
@@ -1179,11 +1232,9 @@ export async function GET(request: Request) {
       if (bestCity) queries.push(`${hint} ${bestCity}`)
       queries.push(hint)
     }
-    if (hypothesis?.address) queries.push(hypothesis.address)
     if (placeName !== "Nouveau Spot" && placeCity) queries.push(`${placeName} ${placeCity}`)
     if (placeName !== "Nouveau Spot") queries.push(placeName)
     if (usernameAsName && usernameAsName !== placeName && !isFoodBlogger) queries.push(usernameAsName)
-    for (const addr of signals.addressHints) queries.push(addr)
 
     // Catégories Google considérées comme "alimentaire" (pour détecter les faux positifs)
     const FOOD_TYPES = new Set(["restaurant", "food", "cafe", "bar", "bakery", "meal_takeaway", "meal_delivery"])
