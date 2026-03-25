@@ -87,11 +87,28 @@ function normalizeCategory(raw: string | null | undefined): IdentifiedPlace["cat
   return match ?? "Restaurant"
 }
 
-function buildPhotoUrls(photos: PlacesResult["photos"], apiKey: string): string[] {
+/** Résout les URLs photos côté serveur en suivant le redirect → URL CDN directe (sans clé API). */
+async function resolvePhotoUrls(
+  photos: PlacesResult["photos"],
+  apiKey: string
+): Promise<string[]> {
   if (!photos?.length) return []
-  return photos
-    .slice(0, 3)
-    .map((p) => `${PLACES_PHOTO_BASE}/${p.name}/media?key=${apiKey}&maxHeightPx=1000`)
+  const results: string[] = []
+  for (const photo of photos.slice(0, 3)) {
+    const apiUrl = `${PLACES_PHOTO_BASE}/${photo.name}/media?key=${apiKey}&maxHeightPx=1000`
+    try {
+      const res = await fetch(apiUrl, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(5000),
+      })
+      // La NEW API retourne un 302 vers l'URL CDN publique (lh3.googleusercontent.com)
+      const cdnUrl = res.headers.get("location")
+      results.push(cdnUrl ?? apiUrl)
+    } catch {
+      results.push(apiUrl)
+    }
+  }
+  return results
 }
 
 // ---------------------------------------------------------------------------
@@ -219,12 +236,12 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   }
 
   const best = places[0]
-  const photos = buildPhotoUrls(best.photos, placesKey)
+  const photos = await resolvePhotoUrls(best.photos, placesKey)
 
   console.log(`[Phase 3] Lieu retenu : "${best.displayName?.text}" — ${best.formattedAddress}`)
 
   return {
-    nom_du_lieu: best.displayName?.text ?? geminiData.nom_propose,
+    nom_du_lieu: best.displayName?.text ?? "",
     description: geminiData.description,
     categorie: normalizeCategory(geminiData.categorie),
     adresse: best.formattedAddress ?? "",
