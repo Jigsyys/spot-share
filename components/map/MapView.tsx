@@ -1180,11 +1180,13 @@ export default function MapView() {
               <X size={16} />
             </button>
 
-            {/* Photo — hors du scroll, colle aux bords */}
+            {/* Tout le contenu est scrollable, photo incluse */}
+            <div className="flex-1 overflow-y-auto">
+
             {selectedSpot.image_url ? (() => {
               const photos = selectedSpot.image_url!.split(",").map(s => s.trim()).filter(Boolean)
               return (
-                <div className="relative h-60 w-full flex-shrink-0 overflow-hidden rounded-t-[2.5rem] sm:h-72 sm:rounded-t-3xl">
+                <div className="relative h-60 w-full overflow-hidden rounded-t-[2.5rem] sm:h-72 sm:rounded-t-3xl">
                   <div
                     ref={carouselRef}
                     className="relative h-full w-full"
@@ -1246,12 +1248,10 @@ export default function MapView() {
                 </div>
               )
             })() : (
-              /* Espace drag handle quand pas de photo */
-              <div className="h-8 flex-shrink-0" />
+              <div className="h-10" />
             )}
 
-            {/* Contenu scrollable */}
-            <div className="flex-1 overflow-y-auto px-5 pb-6 pt-4">
+            <div className="px-5 pb-6 pt-4">
               <h3 className="line-clamp-2 text-2xl leading-tight font-extrabold">
                 {selectedSpot.title}
               </h3>
@@ -1363,7 +1363,8 @@ export default function MapView() {
                   </a>
                 )}
               </div>
-            </div>
+            </div>{/* fin px-5 pb-6 pt-4 */}
+            </div>{/* fin flex-1 overflow-y-auto */}
           </motion.div>
         )}
       </AnimatePresence>
