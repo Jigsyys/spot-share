@@ -533,6 +533,15 @@ function extractWeakSignals(meta: VideoMeta): WeakSignals {
   const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
   if (streetMatch) addressHints.push(...streetMatch.slice(0, 2))
 
+  // @mentions dans la description = souvent le compte du business tagué
+  const mentionMatches = (meta.description || "").match(/@([\w.]+)/g) || []
+  for (const m of mentionMatches.slice(0, 3)) {
+    const handle = m.slice(1)
+    if (handle === meta.username || handle.length < 4) continue
+    const name = usernameToName(handle)
+    if (name && !nameHints.includes(name)) nameHints.push(name)
+  }
+
   return { cityHints, categoryHints, nameHints, addressHints }
 }
 
@@ -946,11 +955,36 @@ async function reverseGeocode(lat: number, lng: number): Promise<string | null> 
   } catch { return null }
 }
 
-async function geocodeFallback(query: string): Promise<{ lat: number; lng: number; place_name: string } | null> {
+// Correspondance ville → code pays ISO pour restreindre Mapbox
+const CITY_TO_COUNTRY: Record<string, string> = {
+  paris: "fr", lyon: "fr", marseille: "fr", bordeaux: "fr", nantes: "fr",
+  toulouse: "fr", nice: "fr", lille: "fr", strasbourg: "fr", rennes: "fr",
+  grenoble: "fr", montpellier: "fr", tours: "fr", dijon: "fr",
+  london: "gb", berlin: "de", barcelona: "es", madrid: "es",
+  rome: "it", amsterdam: "nl", bruxelles: "be", geneve: "ch", zurich: "ch",
+  montreal: "ca", toronto: "ca", dubai: "ae", lisbon: "pt",
+}
+
+// Coordonnées approximatives des villes pour le bias Google Places sans GPS
+const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  paris: { lat: 48.8566, lng: 2.3522 },
+  lyon: { lat: 45.7640, lng: 4.8357 },
+  marseille: { lat: 43.2965, lng: 5.3698 },
+  bordeaux: { lat: 44.8378, lng: -0.5792 },
+  toulouse: { lat: 43.6047, lng: 1.4442 },
+  nice: { lat: 43.7102, lng: 7.2620 },
+  lille: { lat: 50.6292, lng: 3.0573 },
+  london: { lat: 51.5074, lng: -0.1278 },
+  berlin: { lat: 52.5200, lng: 13.4050 },
+  barcelona: { lat: 41.3851, lng: 2.1734 },
+}
+
+async function geocodeFallback(query: string, countryCode?: string): Promise<{ lat: number; lng: number; place_name: string } | null> {
   if (!MAPBOX_TOKEN || !query) return null
   try {
+    const countryParam = countryCode ? `&country=${countryCode}` : ""
     const res = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr${countryParam}`,
       { signal: AbortSignal.timeout(5000) }
     )
     const data = await res.json()
@@ -960,6 +994,16 @@ async function geocodeFallback(query: string): Promise<{ lat: number; lng: numbe
     }
   } catch { /* */ }
   return null
+}
+
+/** Retourne true si le résultat Mapbox est trop générique (juste la ville/pays) */
+function isGenericGeoResult(query: string, place_name: string): boolean {
+  const STOP_GEO = new Set(["france","paris","lyon","marseille","bordeaux","nantes","toulouse","nice","lille","london","berlin","barcelona","rome","amsterdam","bruxelles","geneve","zurich","montreal","dubai","strasbourg","rennes","grenoble","montpellier"])
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  const qWords = norm(query).split(/[\s,\-'']+/).filter(w => w.length > 2 && !STOP_GEO.has(w))
+  if (qWords.length === 0) return false
+  const rNorm = norm(place_name)
+  return !qWords.some(w => rNorm.includes(w))
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,7 +1052,7 @@ async function confirmPlaceWithGrounding(
     ].filter(Boolean).join("\n")
 
     // Nom le plus probable à rechercher
-    const searchName = meta.locationHint || meta.titleHint || (meta.title ? meta.title.split(/\s+[-–]\s+/)[0].slice(0, 50).trim() : null)
+    const searchName = meta.locationHint || meta.titleHint || signals.nameHints[0] || (meta.title ? meta.title.split(/\s+[-–]\s+/)[0].slice(0, 50).trim() : null)
     const searchQuery = searchName ? `"${searchName}" ${bestCity || ""} adresse` : null
 
     const prompt = `Tu es un expert OSINT. Identifie le lieu exact dans cette vidéo et trouve son adresse.
@@ -1117,291 +1161,41 @@ Réponds UNIQUEMENT avec ce JSON (ou null si non trouvé) :
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const url = searchParams.get("url")
-  const userLatParam = searchParams.get("lat")
-  const userLngParam = searchParams.get("lng")
 
   if (!url || (!url.includes("instagram.com") && !url.includes("tiktok.com"))) {
     return NextResponse.json({ error: "URL invalide. Seuls Instagram et TikTok sont acceptés." }, { status: 400 })
   }
 
   try {
-    const userLatN = userLatParam ? parseFloat(userLatParam) : null
-    const userLngN = userLngParam ? parseFloat(userLngParam) : null
-
-    // ── Ville GPS de l'utilisateur ──────────────────────────────────────
-    let userCity: string | null = null
-    if (userLatN != null && userLngN != null && !isNaN(userLatN) && !isNaN(userLngN)) {
-      userCity = await reverseGeocode(userLatN, userLngN)
-      console.log(`[GPS] ${userLatN},${userLngN} → "${userCity}"`)
-    }
-
-    // ── ÉTAPE 1 : Extraction métadonnées (yt-dlp → OG fallback) ─────────
-    console.log("[Step 1] Extracting metadata...")
+    // ── Étape 1 : Extraction des métadonnées textuelles de la vidéo ──────
+    console.log("[Step 1] Extracting metadata from:", url)
     const meta = await extractMetadata(url)
-    console.log(`[Step 1] title="${meta.title.slice(0, 60)}" desc=${meta.description.length}chars username="${meta.username}"`)
+    console.log(`[Step 1] title="${meta.title.slice(0, 60)}" desc=${meta.description.length}chars`)
 
-    const usernameAsName = meta.username ? usernameToName(meta.username) : null
-    const isFoodBlogger = /food|eat|local|resto|bonne|adresse|paris|plan|spot|secret|hidden|guide|foodies?|gourmand|cuisine|table|chef|meal|bite|yum|tasty/i.test(meta.username || "")
+    // ── Étape 2 : Identification du lieu via le pipeline Single-Pass ─────
+    const { identifyPlace } = await import("@/lib/identify-place")
+    const result = await identifyPlace({
+      title:       meta.title       || null,
+      description: meta.description || null,
+      hashtags:    meta.tags?.length ? meta.tags : null,
+      author:      meta.username    || null,
+    })
 
-    // Signaux faibles (hashtags, 📍, codes postaux, etc.)
-    const signals = extractWeakSignals(meta)
-
-    // Ville : GPS > hypothèse > hashtag > username ("localfoodparis" → "paris")
-    const CITY_FROM_USERNAME = ["paris","lyon","marseille","bordeaux","nantes","toulouse","nice","lille","london","berlin","barcelona","rome","amsterdam","bruxelles","geneve","zurich","montreal","dubai"]
-    const usernameCityHint = (() => {
-      const uLower = (meta.username || "").toLowerCase()
-      return CITY_FROM_USERNAME.find(c => uLower.includes(c.replace(" ", ""))) || null
-    })()
-    const cityFromSignals = signals.cityHints[0] || null
-    const bestCity = userCity || cityFromSignals || usernameCityHint || null
-    if (usernameCityHint && !userCity && !cityFromSignals) {
-      console.log(`[City] Extrait du username "@${meta.username}" → "${usernameCityHint}"`)
+    // Lieu introuvable → 404 propre
+    if ("erreur" in result) {
+      return NextResponse.json({ error: result.erreur }, { status: 404 })
     }
 
-    // ── ÉTAPE 2 : Gemini+grounding — confirmation du lieu AVANT Google Places ──
-    console.log("[Step 2] Gemini grounding confirmation...")
-    const confirmation = await confirmPlaceWithGrounding(meta, signals, bestCity, isFoodBlogger)
-
-    // ── ÉTAPE 2b : Hypothèse LLM classique (fallback si grounding n'a rien trouvé) ──
-    let hypothesis: AiHypothesis | null = null
-    if (!confirmation.name) {
-      console.log("[Step 2b] Grounding gave no result — falling back to classic LLM hypothesis...")
-      hypothesis = await extractHypothesis(url, meta, userCity)
-      if (hypothesis?.name && looksLikeAddress(hypothesis.name)) {
-        if (!hypothesis.address) hypothesis.address = hypothesis.name
-        hypothesis.name = null as unknown as string
-      }
-    }
-
-    const rawTitleFallback = stripEmojis(meta.title.split("\n")[0]).slice(0, 70).trim()
-    // Priorité : confirmation Gemini > hypothèse > titleHint > titre brut
-    const placeName = confirmation.name || hypothesis?.name || meta.titleHint ||
-      (rawTitleFallback.length > 2 ? rawTitleFallback : null) || usernameAsName || "Nouveau Spot"
-    const placeCity = confirmation.city || hypothesis?.city || userCity || bestCity || null
-
-    // Si Gemini a trouvé le nom mais pas l'adresse → forcer une recherche d'adresse
-    if (confirmation.name && !confirmation.address) {
-      console.log(`[Step 2] Name confirmed but no address — forcing address lookup for "${confirmation.name}"`)
-      const addr = await findAddressWithGrounding(confirmation.name, placeCity)
-      if (addr) {
-        confirmation.address = addr
-        console.log(`[Step 2] Address found: "${addr}"`)
-      }
-    }
-
-    console.log(`[Step 2] confirmed="${confirmation.name}" address="${confirmation.address}" hypothesis="${hypothesis?.name}" → placeName="${placeName}" city="${placeCity}"`)
-
-    // ── ÉTAPE 3 : Google Places — Text Search puis Place Details ─────────
-    console.log("[Step 3] Google Places...")
-    let searchResult: PlaceSearchResult | null = null
-
-    // Types Google que l'on refuse (geocodes génériques, pas des établissements)
-    const REJECT_TYPES = new Set(["street_address", "route", "premise", "subpremise", "postal_code", "locality", "country"])
-    const isBusinessResult = (r: PlaceSearchResult) =>
-      r.types.length > 0 && !r.types.every(t => REJECT_TYPES.has(t))
-
-    const queries: string[] = []
-    const locationHint = meta.locationHint
-    const titleHint = meta.titleHint
-
-    // 1. Adresses exactes (rue + code postal) — le plus fiable, toujours en premier
-    if (confirmation.address) queries.push(confirmation.address)
-    for (const addr of signals.addressHints) {
-      if (addr !== confirmation.address) queries.push(addr)
-    }
-    if (hypothesis?.address) queries.push(hypothesis.address)
-    // 2. Nom confirmé par Gemini + ville
-    if (confirmation.name && confirmation.city) queries.push(`${confirmation.name} ${confirmation.city}`)
-    if (confirmation.name) queries.push(confirmation.name)
-    // 3. locationHint (📍/📌 explicite)
-    if (locationHint && bestCity) queries.push(`${locationHint} ${bestCity}`)
-    if (locationHint) queries.push(locationHint)
-    // 4. titleHint (premier segment titre avant " - ")
-    if (titleHint && titleHint !== locationHint && titleHint !== confirmation.name) {
-      if (bestCity) queries.push(`${titleHint} ${bestCity}`)
-      queries.push(titleHint)
-    }
-    // 5. Autres noms depuis signals
-    for (const hint of signals.nameHints.slice(0, 2)) {
-      if ([locationHint, titleHint, confirmation.name].includes(hint)) continue
-      if (bestCity) queries.push(`${hint} ${bestCity}`)
-      queries.push(hint)
-    }
-    if (placeName !== "Nouveau Spot" && placeCity) queries.push(`${placeName} ${placeCity}`)
-    if (placeName !== "Nouveau Spot") queries.push(placeName)
-    if (usernameAsName && usernameAsName !== placeName && !isFoodBlogger) queries.push(usernameAsName)
-
-    // Catégories Google considérées comme "alimentaire" (pour détecter les faux positifs)
-    const FOOD_TYPES = new Set(["restaurant", "food", "cafe", "bar", "bakery", "meal_takeaway", "meal_delivery"])
-    const expectedCat = normalizeCategory(hypothesis?.category)
-
-    // Nom de référence pour la similarité (locationHint > titleHint > placeName)
-    const refName = locationHint || titleHint || placeName
-
-    // Contexte de compte pour enrichir la vérification Gemini
-    const accountHint = meta.username ? `@${meta.username}${bestCity ? ` (compte ${bestCity})` : ""}` : undefined
-
-    // Helper : vérifie aussi la cohérence géographique
-    const isGeoConsistent = (addr: string): boolean => {
-      if (!bestCity) return true
-      const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-      return norm(addr).includes(norm(bestCity))
-    }
-
-    const videoCtx = [meta.title, meta.description.slice(0, 300)].filter(Boolean).join(" ")
-
-    for (const q of [...new Set(queries)]) {
-      const candidates = await searchGooglePlace(q, userLatN, userLngN)
-      if (!candidates.length) continue
-
-      const scored = candidates
-        .filter(c => isBusinessResult(c))
-        .map(c => {
-          const sim = wordOverlap(refName, c.name)
-          const catMismatch =
-            ["outdoor","culture","vue"].includes(expectedCat) &&
-            c.types.some(t => FOOD_TYPES.has(t)) &&
-            !c.types.some(t => ["park","tourist_attraction","natural_feature","place_of_worship","museum","art_gallery","stadium"].includes(t))
-          return { c, score: catMismatch ? sim * 0.3 : sim }
-        })
-        .sort((a, b) => b.score - a.score)
-
-      if (!scored.length) {
-        console.log(`[Step 3] No business result via "${q}"`)
-        continue
-      }
-
-      const best = scored[0]
-      const geoOk = isGeoConsistent(best.c.address)
-      console.log(`[Step 3] Best via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} geo=${geoOk ? "✓" : "✗"} types=${best.c.types.slice(0,3).join(",")}`)
-
-      if (best.score >= 0.5 && geoOk) {
-        // Haute confiance + bonne ville → accepté directement
-        searchResult = best.c
-        console.log(`[Step 3] High-confidence accepted: "${searchResult.name}"`)
-        break
-      } else if (best.score >= 0.2 || (best.score >= 0.5 && !geoOk)) {
-        // Score moyen OU haute confiance mais mauvaise ville → vérification Gemini
-        const ok = await verifyPlaceMatch(best.c.name, best.c.address, refName, videoCtx, accountHint, bestCity || undefined)
-        if (ok) {
-          searchResult = best.c
-          console.log(`[Step 3] Verified and accepted: "${searchResult.name}"`)
-          break
-        } else {
-          console.log(`[Step 3] Verification FAILED for "${best.c.name}" — trying next query`)
-        }
-      } else {
-        console.log(`[Step 3] Rejected (score ${best.score.toFixed(2)}) for "${best.c.name}" — trying next query`)
-      }
-    }
-
-    // Si aucun résultat confirmé → Gemini+grounding pour trouver l'adresse réelle, puis retry Google Places
-    if (!searchResult) {
-      const groundingName = locationHint || titleHint || (hypothesis?.name !== usernameAsName ? hypothesis?.name : null)
-      if (groundingName) {
-        console.log(`[Step 3] Trying Gemini grounding for "${groundingName}"...`)
-        const groundingAddress = await findAddressWithGrounding(groundingName, bestCity)
-        if (groundingAddress) {
-          const candidates = await searchGooglePlace(groundingAddress, userLatN, userLngN)
-          const validCandidate = candidates.find(c => isBusinessResult(c))
-          if (validCandidate) {
-            const ok = await verifyPlaceMatch(validCandidate.name, validCandidate.address, groundingName, videoCtx, accountHint, bestCity || undefined)
-            if (ok) {
-              searchResult = validCandidate
-              console.log(`[Step 3] Grounding fallback accepted: "${searchResult.name}"`)
-            }
-          }
-        }
-      }
-    }
-
-    if (!searchResult) {
-      console.log(`[Step 3] No confident match found — using Mapbox geocoding fallback`)
-    }
-
-    let placeDetails: PlaceDetails | null = null
-    if (searchResult?.placeId) {
-      placeDetails = await getPlaceDetails(searchResult.placeId)
-    }
-
-    // ── ÉTAPE 4 : LLM Pass 2 — Formatage final avec données Maps réelles ─
-    console.log("[Step 4] Final LLM formatting...")
-    let finalDesc = ""
-    let finalCategory = "other"
-
-    if (placeDetails) {
-      const formatted = await formatFinalData(meta, placeDetails)
-      finalDesc = formatted.description
-      // Catégorie : LLM > Google types > hypothesis normalisée
-      finalCategory = normalizeCategory(formatted.category) !== "other"
-        ? normalizeCategory(formatted.category)
-        : googleTypesToCategory(placeDetails.types) || normalizeCategory(hypothesis?.category) || "other"
-    } else {
-      // Aucun lieu Google trouvé : LLM seul pour la description
-      finalCategory = normalizeCategory(hypothesis?.category)
-      if (placeName !== "Nouveau Spot") {
-        finalDesc = await callGemini(
-          `Écris 1-2 phrases factuelles et concises sur le lieu "${placeName}" (${finalCategory}), basées sur ce contexte de post : "${meta.description.slice(0, 200)}". Pas de style commercial, juste l'essentiel.`,
-          100
-        ) || ""
-      }
-    }
-
-    // Coordonnées finales (Place Details > Mapbox fallback)
-    let coordinates: { lat: number; lng: number } | null = null
-    let resolvedAddress: string | null = null
-    let photos: string[] = []
-    let mapsUrl: string | null = null
-    let weekdayDescriptions: string[] = []
-
-    if (placeDetails) {
-      coordinates = { lat: placeDetails.lat, lng: placeDetails.lng }
-      resolvedAddress = placeDetails.address
-      photos = placeDetails.photoUrls
-      mapsUrl = placeDetails.mapsUrl
-      weekdayDescriptions = placeDetails.weekdayDescriptions
-    }
-
-    // Fallback photo : og:image du post si Google Places n'a rien retourné
-    if (photos.length === 0 && meta.ogImage) {
-      console.log("[Photos] Fallback og:image:", meta.ogImage.slice(0, 80))
-      photos = [meta.ogImage]
-    }
-
-    if (!coordinates) {
-      // Priorité : adresse complète (grounding) > locationHint > nom+ville
-      const geoQueries = [
-        confirmation.address,                                          // "4 Rue de la Huchette, 75005 Paris"
-        locationHint && placeCity ? `${locationHint}, ${placeCity}` : locationHint,
-        placeCity ? `${placeName}, ${placeCity}` : null,
-        placeName !== "Nouveau Spot" ? placeName : null,
-      ].filter(Boolean) as string[]
-
-      for (const q of geoQueries) {
-        const geo = await geocodeFallback(q)
-        if (geo) {
-          coordinates = { lat: geo.lat, lng: geo.lng }
-          // Si on a une adresse confirmée par grounding, l'utiliser pour l'affichage
-          resolvedAddress = confirmation.address || geo.place_name
-          console.log(`[Geocode] "${q}" → ${geo.lat},${geo.lng} — "${resolvedAddress}"`)
-          break
-        }
-      }
-    }
-
-    // Titre final : Place Details > locationHint > placeName LLM — toujours nettoyé des emojis
-    const finalTitle = stripEmojis(placeDetails?.name || locationHint || placeName).slice(0, 100) || "Nouveau Spot"
-
+    // ── Étape 3 : Réponse finale ─────────────────────────────────────────
     return NextResponse.json({
-      title: finalTitle,
-      description: finalDesc || null,
-      location: resolvedAddress,
-      category: finalCategory,
-      photos,
-      image_url: photos[0] || null,
-      coordinates,
-      maps_url: mapsUrl,
-      weekday_descriptions: weekdayDescriptions,
+      title:        result.titre,
+      nom_officiel: result.nom_officiel_google,
+      description:  result.description,
+      location:     result.adresse,
+      category:     result.categorie,
+      photos:       result.photos,        // EXCLUSIVEMENT Google Places
+      image_url:    result.photos[0] ?? null,
+      coordinates:  result.coordonnees,
     })
   } catch (e) {
     console.error("[Pipeline error]:", e)
