@@ -21,7 +21,8 @@ export interface VideoMetadata {
 }
 
 export interface IdentifiedPlace {
-  nom_du_lieu: string
+  titre: string
+  nom_officiel_google: string
   description: string
   categorie: "Café" | "Restaurant" | "Bar" | "Outdoor" | "Vue" | "Culture" | "Shopping"
   adresse: string
@@ -41,6 +42,7 @@ export type IdentifyPlaceResult = IdentifiedPlace | IdentifyPlaceError
 
 interface GeminiPass {
   search_query: string
+  titre_explicite: string
   description_suggeree: string
   categorie_suggeree: string
 }
@@ -148,12 +150,18 @@ CONSTRUIRE LA SEARCH_QUERY (Impératif) :
 - S'il y a une adresse exacte : Ta search_query DOIT être : "Nom du lieu, Adresse exacte" (ex: "A Braccetto, 19 Rue Soufflot, 75005 Paris").
 - S'il n'y a pas d'adresse exacte : Ta search_query DOIT être : "Nom du lieu, Ville, Pays".
 
+CRÉATION DU TITRE EXPLICITE :
+Tu dois forger un titre_explicite qui donne immédiatement envie et décrit l'activité réelle + le lieu.
+Règle : Combine l'activité phare avec le nom officiel du lieu.
+Exemples : Au lieu de juste "Atelier des Lumières", écris "Exposition Immersive Van Gogh à l'Atelier des Lumières". Au lieu de "A Braccetto", écris "Mini Pizzas à Volonté chez A Braccetto".
+
 Métadonnées :
 ${context}
 
 Renvoie UNIQUEMENT ce JSON :
 {
-  "search_query": "Ta requête Google Maps optimisée",
+  "search_query": "Requête brute pour Google Maps (ex: A Braccetto, 19 Rue Soufflot)",
+  "titre_explicite": "Ton super titre éditorial (ex: Mini Pizzas à Volonté chez A Braccetto)",
   "description_suggeree": "Ta description",
   "categorie_suggeree": "Ta catégorie choisie"
 }`
@@ -238,18 +246,22 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
 
   const best = places[0]
 
-  // TITRE : nom officiel Google Maps — source unique de vérité, jamais Gemini
-  const nom_du_lieu = best.displayName?.text ?? ""
+  // NOM OFFICIEL : Google Maps, source unique de vérité
+  const nom_officiel_google = best.displayName?.text ?? ""
+
+  // TITRE ÉDITORIAL : généré par Gemini (activité + lieu), donne envie
+  const titre = geminiData.titre_explicite || nom_officiel_google
 
   // PHOTOS : EXCLUSIVEMENT depuis places[0].photos (Google Maps)
   // Aucun fallback sur les métadonnées vidéo, og:image ou miniature de scraping.
   // Si Google Places ne fournit pas de photos → tableau vide, c'est tout.
   const googlePhotosUrls = await resolvePhotoUrls(best.photos ?? [], placesKey)
 
-  console.log(`[Phase 3] "${nom_du_lieu}" — ${best.formattedAddress} — ${googlePhotosUrls.length} photo(s) Google`)
+  console.log(`[Phase 3] titre="${titre}" | officiel="${nom_officiel_google}" | ${best.formattedAddress} | ${googlePhotosUrls.length} photo(s)`)
 
   return {
-    nom_du_lieu,
+    titre,                   // Titre éditorial hybride (Gemini)
+    nom_officiel_google,     // Nom brut Google Maps (utile en BDD)
     description: geminiData.description_suggeree,
     categorie: normalizeCategory(geminiData.categorie_suggeree),
     adresse: best.formattedAddress ?? "",
