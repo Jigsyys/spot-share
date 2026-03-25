@@ -753,6 +753,62 @@ async function geocodeFallback(query: string): Promise<{ lat: number; lng: numbe
 }
 
 // ---------------------------------------------------------------------------
+// Vérification Gemini : le résultat Google Places est-il le bon lieu ?
+// ---------------------------------------------------------------------------
+
+async function verifyPlaceMatch(
+  foundName: string,
+  foundAddress: string,
+  expectedName: string,
+  videoContext: string,
+): Promise<boolean> {
+  if (!process.env.GEMINI_API_KEY) return true  // pas de clé → on accepte
+  const prompt = `Contexte vidéo : "${videoContext.slice(0, 300)}"
+Nom recherché : "${expectedName}"
+Lieu trouvé sur Google Maps : "${foundName}" — ${foundAddress}
+
+Est-ce que "${foundName}" correspond bien au lieu "${expectedName}" mentionné dans la vidéo ?
+Réponds UNIQUEMENT par OUI ou NON.`
+  try {
+    const raw = await callGemini(prompt, 10)
+    const answer = raw?.trim().toUpperCase() || ""
+    console.log(`[Verify] "${foundName}" vs "${expectedName}" → ${answer}`)
+    return answer.startsWith("OUI")
+  } catch { return true }
+}
+
+// ---------------------------------------------------------------------------
+// Recherche Gemini+grounding : trouver l'adresse exacte d'un lieu par son nom
+// ---------------------------------------------------------------------------
+
+async function findAddressWithGrounding(name: string, city: string | null): Promise<string | null> {
+  if (!process.env.GEMINI_API_KEY) return null
+  try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash", tools: [{ googleSearch: {} }] as any })
+    const q = city ? `"${name}" ${city}` : `"${name}"`
+    const prompt = `Recherche Google : ${q}
+Trouve l'adresse postale exacte du lieu nommé "${name}"${city ? ` à ${city}` : ""}.
+Réponds UNIQUEMENT avec ce JSON (ou null si non trouvé) :
+{"name":"Nom exact","address":"Adresse complète avec code postal et ville"}`
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+    const match = text.match(/\{[\s\S]*?\}/)
+    if (match) {
+      const parsed = JSON.parse(match[0])
+      if (parsed.address) {
+        console.log(`[Grounding] "${name}" → "${parsed.address}"`)
+        return parsed.address
+      }
+    }
+  } catch (e) {
+    console.warn("[Grounding place search error]:", (e as Error).message?.slice(0, 80))
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // API Route principale — Pipeline 4 étapes
 // ---------------------------------------------------------------------------
 
@@ -880,19 +936,50 @@ export async function GET(request: Request) {
       const best = scored[0]
       console.log(`[Step 3] Best match via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} types=${best.c.types.slice(0,3).join(",")}`)
 
-      // Accepte seulement si score suffisant — pas de fallback aveugle
-      if (best.score >= 0.2) {
+      if (best.score >= 0.5) {
+        // Score élevé → confiance directe, pas besoin de vérifier
         searchResult = best.c
-        console.log(`[Step 3] Accepted: "${searchResult.name}"`)
+        console.log(`[Step 3] High-confidence accepted: "${searchResult.name}"`)
         break
+      } else if (best.score >= 0.2) {
+        // Score moyen → vérification Gemini avant d'accepter
+        const videoCtx = [meta.title, meta.description.slice(0, 200)].filter(Boolean).join(" ")
+        const ok = await verifyPlaceMatch(best.c.name, best.c.address, refName, videoCtx)
+        if (ok) {
+          searchResult = best.c
+          console.log(`[Step 3] Verified and accepted: "${searchResult.name}"`)
+          break
+        } else {
+          console.log(`[Step 3] Verification FAILED for "${best.c.name}" — trying next query`)
+        }
       } else {
         console.log(`[Step 3] Rejected (score ${best.score.toFixed(2)}) for "${best.c.name}" — trying next query`)
       }
     }
 
-    // Si aucun résultat Google confirmé → on garde placeName/locationHint + Mapbox geocoding
+    // Si aucun résultat confirmé → Gemini+grounding pour trouver l'adresse réelle, puis retry Google Places
     if (!searchResult) {
-      console.log(`[Step 3] No confident Google match found — will use Mapbox geocoding fallback`)
+      const groundingName = locationHint || titleHint || (hypothesis?.name !== usernameAsName ? hypothesis?.name : null)
+      if (groundingName) {
+        console.log(`[Step 3] Trying Gemini grounding for "${groundingName}"...`)
+        const groundingAddress = await findAddressWithGrounding(groundingName, bestCity)
+        if (groundingAddress) {
+          const candidates = await searchGooglePlace(groundingAddress, userLatN, userLngN)
+          const validCandidate = candidates.find(c => isBusinessResult(c))
+          if (validCandidate) {
+            const videoCtx = [meta.title, meta.description.slice(0, 200)].filter(Boolean).join(" ")
+            const ok = await verifyPlaceMatch(validCandidate.name, validCandidate.address, groundingName, videoCtx)
+            if (ok) {
+              searchResult = validCandidate
+              console.log(`[Step 3] Grounding fallback accepted: "${searchResult.name}"`)
+            }
+          }
+        }
+      }
+    }
+
+    if (!searchResult) {
+      console.log(`[Step 3] No confident match found — using Mapbox geocoding fallback`)
     }
 
     let placeDetails: PlaceDetails | null = null
