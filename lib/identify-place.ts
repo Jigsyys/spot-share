@@ -238,13 +238,15 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
 
   const best = places[0]
 
-  // TITRE : nom officiel Google Maps, source unique de vérité
+  // TITRE : nom officiel Google Maps — source unique de vérité, jamais Gemini
   const nom_du_lieu = best.displayName?.text ?? ""
 
-  // PHOTOS : URLs CDN résolues côté serveur (clé non exposée au frontend)
-  const photos = await resolvePhotoUrls(best.photos, placesKey)
+  // PHOTOS : EXCLUSIVEMENT depuis places[0].photos (Google Maps)
+  // Aucun fallback sur les métadonnées vidéo, og:image ou miniature de scraping.
+  // Si Google Places ne fournit pas de photos → tableau vide, c'est tout.
+  const googlePhotosUrls = await resolvePhotoUrls(best.photos ?? [], placesKey)
 
-  console.log(`[Phase 3] "${nom_du_lieu}" — ${best.formattedAddress} — ${photos.length} photo(s)`)
+  console.log(`[Phase 3] "${nom_du_lieu}" — ${best.formattedAddress} — ${googlePhotosUrls.length} photo(s) Google`)
 
   return {
     nom_du_lieu,
@@ -255,6 +257,6 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
       lat: best.location?.latitude ?? 0,
       lng: best.location?.longitude ?? 0,
     },
-    photos,
+    photos: googlePhotosUrls, // EXCLUSIVEMENT Google Places — jamais de fallback vidéo
   }
 }
