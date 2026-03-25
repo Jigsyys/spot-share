@@ -690,6 +690,7 @@ export default function MapView() {
             }
             setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
             setSelectedSpot(realSpot)
+            mapRef.current?.flyTo({ center: [spotData.lng, spotData.lat], zoom: 15, duration: 1200 })
           } else {
             await fetchSpots()
           }
@@ -707,6 +708,7 @@ export default function MapView() {
       }
       setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
       setSelectedSpot(realSpot)
+      mapRef.current?.flyTo({ center: [spotData.lng, spotData.lat], zoom: 15, duration: 1200 })
     } catch (e: unknown) {
       const err = e as { message?: string }
       console.error("Insert error:", err)
