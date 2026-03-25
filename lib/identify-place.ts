@@ -110,29 +110,32 @@ async function geminiSinglePass(meta: VideoMetadata, geminiKey: string): Promise
   })
 
   const lines: string[] = []
-  if (meta.title)       lines.push(`Titre : ${meta.title.slice(0, 200)}`)
-  if (meta.description) lines.push(`Description : ${meta.description.slice(0, 600)}`)
-  if (meta.hashtags?.length) lines.push(`Hashtags : ${meta.hashtags.slice(0, 15).join(" ")}`)
-  if (meta.author)      lines.push(`Nom de l'auteur : ${meta.author}`)
+  if (meta.title)            lines.push(`Titre : ${meta.title.slice(0, 200)}`)
+  if (meta.description)      lines.push(`Description : ${meta.description.slice(0, 1500)}`)
+  if (meta.hashtags?.length) lines.push(`Hashtags : ${meta.hashtags.slice(0, 20).join(" ")}`)
+  if (meta.author)           lines.push(`Nom de l'auteur : ${meta.author}`)
 
   const context = lines.length > 0 ? lines.join("\n") : "(aucune métadonnée)"
 
-  const prompt = `Tu es un curateur de lieux expert. Analyse les métadonnées de cette vidéo (qui parle souvent de food/lieux).
+  const prompt = `Tu es un extracteur de données chirurgical. Analyse les métadonnées de cette vidéo pour trouver le lieu exact.
 
-RÈGLES STRICTES :
-- IGNORE le nom du compte ou de l'auteur (ex: "El Negociateur") pour déduire le concept du lieu. Ne les confonds pas.
-- Identifie le nom réel du lieu (corrige l'orthographe si ça semble être une erreur phonétique).
-- Déduis la Ville et le Pays. Si tu ne les trouves pas, renvoie null dans search_query.
-- Rédige une description (2 phrases) de ce qu'on y mange ou fait, basée UNIQUEMENT sur les indices de la vidéo (ex: si on parle de cookies, parle de cookies).
-- Choisis UNE catégorie parmi : [Café, Restaurant, Bar, Outdoor, Vue, Culture, Shopping].
+RÈGLES VITALES (Même si le texte est très long) :
+- IGNORE totalement les blocs commençant par "Keywords:" ou les résumés générés par l'IA à la fin du texte. Ne te laisse pas distraire par le bruit.
+- IDENTIFIE LE VRAI NOM : Ne confonds pas le concept (ex: "Mini pizzas à volonté") avec le nom du restaurant (ex: "A Braccetto").
+- CHERCHE L'ADRESSE EXACTE : Scanne le texte à la recherche d'emojis comme 📍, ou de mots comme "Rue", "Avenue", "Boulevard". Les créateurs donnent très souvent l'adresse exacte.
+- Rédige une courte description du concept (2 phrases) et choisis STRICTEMENT UNE catégorie parmi : [Café, Restaurant, Bar, Outdoor, Vue, Culture, Shopping].
+
+CONSTRUIRE LA SEARCH_QUERY (Crucial) :
+- S'il y a une adresse exacte dans le texte, ta search_query DOIT être : "Nom du lieu, Adresse exacte" (ex: "A Braccetto, 19 Rue Soufflot, 75005 Paris").
+- S'il n'y a PAS d'adresse exacte, ta search_query DOIT être : "Nom du lieu, Ville, Pays".
 
 Métadonnées :
 ${context}
 
-Renvoie un JSON strict :
+Renvoie UNIQUEMENT ce JSON :
 {
-  "search_query": "Nom corrigé du lieu, Ville, Pays",
-  "nom_propose": "Nom du lieu",
+  "search_query": "Ta requête Google Maps optimisée",
+  "nom_propose": "Vrai nom du lieu",
   "description": "Ta description réaliste",
   "categorie": "Catégorie choisie"
 }`
