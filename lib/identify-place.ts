@@ -182,8 +182,14 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   const geminiKey = process.env.GEMINI_API_KEY
   const placesKey = process.env.GOOGLE_MAPS_API_KEY
 
-  if (!geminiKey) throw new Error("GEMINI_API_KEY manquante")
-  if (!placesKey) throw new Error("GOOGLE_MAPS_API_KEY manquante")
+  if (!geminiKey) {
+    console.error("[identifyPlace] GEMINI_API_KEY manquante")
+    return { erreur: "Configuration serveur incorrecte (clé IA manquante)." }
+  }
+  if (!placesKey) {
+    console.error("[identifyPlace] GOOGLE_MAPS_API_KEY manquante")
+    return { erreur: "Configuration serveur incorrecte (clé Maps manquante)." }
+  }
 
   // ── Phase 1 : Gemini ────────────────────────────────────────────────────
   let geminiData: GeminiPass
@@ -191,7 +197,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     geminiData = await geminiSinglePass(meta, geminiKey)
   } catch (e) {
     console.error("[Phase 1] Erreur Gemini:", (e as Error).message)
-    throw new Error("Erreur lors de l'analyse IA du contenu")
+    return { erreur: "L'analyse IA a échoué. Réessaie dans quelques secondes." }
   }
 
   // ── Phase 2 : Google Places ─────────────────────────────────────────────
@@ -200,7 +206,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     places = await searchGooglePlaces(geminiData.search_query, placesKey)
   } catch (e) {
     console.error("[Phase 2] Erreur Google Places:", (e as Error).message)
-    throw new Error("Erreur lors de la recherche Google Maps")
+    return { erreur: "La recherche Google Maps a échoué. Réessaie dans quelques secondes." }
   }
 
   // ── Phase 3 : Validation — 404 immédiat si rien trouvé ──────────────────
