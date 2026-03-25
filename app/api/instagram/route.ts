@@ -131,7 +131,82 @@ interface VideoMeta {
   titleHint: string | null     // premier segment du titre avant " - " (ex: "A Braccetto")
 }
 
+/** Extrait @username directement depuis l'URL (sans API) */
+function extractUsernameFromUrl(url: string): string | null {
+  const tiktok = url.match(/tiktok\.com\/@([\w.]+)/)?.[1]
+  const instagram = url.match(/instagram\.com\/(?:reel|p|tv)\//) ? null
+    : url.match(/instagram\.com\/([\w.]+)\//)?.[1]
+  const handle = tiktok || instagram || null
+  // Exclure les mots réservés
+  if (handle && /^(reel|p|tv|explore|accounts|stories|direct|share)$/i.test(handle)) return null
+  return handle
+}
+
+/** TikTok oEmbed — API publique qui retourne le titre/caption sans auth */
+async function tryTikTokOEmbed(url: string): Promise<{ title: string; username: string | null; thumbnail: string | null } | null> {
+  if (!url.includes("tiktok.com")) return null
+  try {
+    const res = await fetch(
+      `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" },
+        signal: AbortSignal.timeout(6000),
+      }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!data?.title) return null
+    // author_url = "https://www.tiktok.com/@localfoodparis"
+    const username = data.author_url?.match(/tiktok\.com\/@([\w.]+)/)?.[1] || null
+    console.log(`[TikTok oEmbed] title="${data.title.slice(0, 80)}" username="${username}"`)
+    return { title: data.title || "", username, thumbnail: data.thumbnail_url || null }
+  } catch (e) {
+    console.warn("[TikTok oEmbed] failed:", (e as Error).message?.slice(0, 60))
+    return null
+  }
+}
+
 async function extractMetadata(url: string): Promise<VideoMeta> {
+  // Extraction immédiate du username depuis l'URL (fiable, sans API)
+  const urlUsername = extractUsernameFromUrl(url)
+
+  // ── TikTok oEmbed (API publique) — priorité avant yt-dlp ──────────────
+  if (url.includes("tiktok.com")) {
+    const oembed = await tryTikTokOEmbed(url)
+    if (oembed?.title) {
+      const username = oembed.username || urlUsername
+      const desc = oembed.title  // oEmbed title = caption complète
+      const ytPinMatches = [...desc.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
+      let locationHint: string | null = null
+      for (const m of ytPinMatches) {
+        const candidate = extractPlaceName(m[0])
+        if (candidate) { locationHint = candidate; break }
+      }
+      let titleHint: string | null = null
+      if (!locationHint) {
+        const dashParts = desc.split(/\s+[-–]\s+/)
+        if (dashParts.length >= 2) {
+          const candidate = stripEmojis(dashParts[0]).trim()
+          if (candidate.length >= 3 && candidate.length <= 50 && !/^\d/.test(candidate)) {
+            titleHint = candidate
+            console.log("[oEmbed] titleHint:", titleHint)
+          }
+        }
+      }
+      return {
+        title: desc,
+        description: desc,
+        tags: [],
+        uploader: username ? usernameToName(username) : null,
+        username,
+        ogImage: oembed.thumbnail,
+        locationHint,
+        titleHint,
+      }
+    }
+  }
+
+  // ── yt-dlp ─────────────────────────────────────────────────────────────
   // Tentative yt-dlp (extrait les vraies métadonnées : titre, description, hashtags)
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -182,7 +257,7 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         description: desc,
         tags: info.tags || [],
         uploader: info.uploader || null,
-        username,
+        username: username || urlUsername,  // fallback sur username de l'URL
         ogImage: null,
         locationHint,
         titleHint,
@@ -192,13 +267,14 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
     console.warn("[yt-dlp] failed:", (e as Error).message?.slice(0, 100))
   }
 
-  // Fallback : scraping OG tags
+  // Fallback : scraping OG tags avec User-Agent navigateur réel
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
       },
       signal: AbortSignal.timeout(8000),
     })
@@ -208,20 +284,39 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
       const ogTitle = og.title ? decodeHTML(og.title) : null
       const ogDesc = og.description ? decodeHTML(og.description) : null
       const parsed = parseOGData(ogTitle, ogDesc)
+      const finalUsername = parsed.username || urlUsername
+      // titleHint depuis OG title aussi
+      let ogTitleHint: string | null = null
+      const ogRawTitle = parsed.title || ogTitle || ""
+      if (!parsed.location && ogRawTitle) {
+        const dashParts = ogRawTitle.split(/\s+[-–]\s+/)
+        if (dashParts.length >= 2) {
+          const candidate = stripEmojis(dashParts[0]).trim()
+          if (candidate.length >= 3 && candidate.length <= 50 && !/^\d/.test(candidate)) {
+            ogTitleHint = candidate
+            console.log("[OG] titleHint:", ogTitleHint)
+          }
+        }
+      }
       return {
-        title: parsed.title || ogTitle || "",
+        title: ogRawTitle,
         description: parsed.rawText,
         tags: [],
-        uploader: parsed.username ? usernameToName(parsed.username) : null,
-        username: parsed.username,
+        uploader: finalUsername ? usernameToName(finalUsername) : null,
+        username: finalUsername,
         ogImage: og.image ? decodeHTML(og.image) : null,
         locationHint: parsed.location,
-        titleHint: null,
+        titleHint: ogTitleHint,
       }
     }
   } catch { /* bloqué */ }
 
-  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null, locationHint: null, titleHint: null }
+  // Dernier recours : on a au moins le username depuis l'URL
+  return {
+    title: "", description: "", tags: [], uploader: null,
+    username: urlUsername,
+    ogImage: null, locationHint: null, titleHint: null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -684,17 +779,24 @@ async function formatFinalData(
     videoMeta.tags.slice(0, 8).join(" "),
   ].filter(Boolean).join(" | ").trim()
 
-  const prompt = `Tu es un curateur local expert. Je te fournis des données officielles de Google Maps concernant un lieu identifié dans une vidéo.
+  const videoInfo = videoCtx
+    ? `Contexte de la vidéo : "${videoCtx}"`
+    : `Aucun contexte vidéo disponible — base-toi uniquement sur les données Google Maps ci-dessous.`
 
-Contexte de la vidéo : "${videoCtx || "non disponible"}"
+  const prompt = `Tu es un curateur local expert. Rédige une description courte et factuelle du lieu suivant.
+
+${videoInfo}
 Données Google Maps :
 - Nom officiel : ${placeDetails.name}
 - Adresse : ${placeDetails.address}
 - Types Google : ${placeDetails.types.join(", ")}
 
-Règles strictes :
-1. Rédige un résumé court et factuel (1-2 phrases max) basé UNIQUEMENT sur les informations concrètes de la légende de la vidéo. Pas de style commercial ni de "incontournable". Juste l'essentiel : type d'expérience, spécialité ou particularité du lieu (ex: "Brunch de luxe à la carte, situé près de la Place Vendôme."). INTERDIT : ne mentionne jamais "Instagram", "TikTok", "publication", "post", "selon", "d'après", ni l'adresse postale du lieu.
-2. Choisis UNE catégorie parmi : cafe, restaurant, bar, outdoor, vue, culture, shopping, other.
+Règles ABSOLUES :
+1. Si tu as le contexte vidéo : utilise-le pour une description concrète (ex: "Pizzas à volonté à 29€, formule all-you-can-eat en Paris 5e.").
+   Si tu n'as PAS de contexte : décris le lieu factuellemement d'après son nom et ses types Google (ex: "Boulangerie artisanale spécialisée dans le Kouign Amann.").
+2. 1-2 phrases max. Pas de style commercial. Pas de "incontournable".
+3. INTERDIT : "Instagram", "TikTok", "publication", "post", "selon", "d'après", "Veuillez", ni l'adresse postale.
+4. Choisis UNE catégorie parmi : cafe, restaurant, bar, outdoor, vue, culture, shopping, other.
    ${CATEGORY_GUIDE}
 
 Réponds UNIQUEMENT avec ce JSON valide :
