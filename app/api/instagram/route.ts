@@ -1007,30 +1007,25 @@ async function confirmPlaceWithGrounding(
         : "",
     ].filter(Boolean).join("\n")
 
-    const prompt = `Tu es un détective expert en identification de lieux depuis des vidéos sociales.
+    // Nom le plus probable à rechercher
+    const searchName = meta.locationHint || meta.titleHint || (meta.title ? meta.title.split(/\s+[-–]\s+/)[0].slice(0, 50).trim() : null)
+    const searchQuery = searchName ? `"${searchName}" ${bestCity || ""} adresse` : null
 
-Données extraites de la vidéo :
+    const prompt = `Tu es un expert OSINT. Identifie le lieu exact dans cette vidéo et trouve son adresse.
+
+Données :
 ${ctx}
 
-MISSION EN 3 ÉTAPES OBLIGATOIRES :
+${searchQuery ? `RECHERCHE OBLIGATOIRE : Fais une recherche Google pour : ${searchQuery}
+Tu DOIS trouver l'adresse exacte avec numéro de rue et code postal.` : ""}
 
-ÉTAPE 1 — Identifie le nom du lieu :
-- Utilise le signal le plus fiable : 📍 explicite > nom dans le titre > description > hashtags
-- Si le compte est un blog (ex: @localfoodparis), le lieu est FORCÉMENT dans la ville "${bestCity || "du blog"}"
+Règles :
+- "name" = nom commercial uniquement (ex: "A Braccetto"), jamais une adresse
+- "address" = adresse complète obligatoire : numéro + rue + code postal + ville (ex: "19 Rue Soufflot, 75005 Paris, France")
+- Si impossible à identifier → name:null
 
-ÉTAPE 2 — Cherche l'adresse COMPLÈTE sur Google :
-- Recherche "[nom du lieu] [ville] adresse" sur Google
-- Tu DOIS trouver : numéro de rue + nom de rue + code postal + ville
-- Exemple de format correct : "4 Rue de la Huchette, 75005 Paris, France"
-- Si plusieurs résultats : prends celui dans la bonne ville
-
-ÉTAPE 3 — Retourne le JSON :
-- "name" = NOM COMMERCIAL uniquement (ex: "A Braccetto"), jamais une adresse
-- "address" = adresse COMPLÈTE avec code postal OBLIGATOIRE (pas juste la ville)
-- Si impossible à identifier avec certitude → name:null
-
-Réponds UNIQUEMENT avec ce JSON valide :
-{"name":"Nom exact ou null","city":"Ville, Pays","address":"Numéro Rue, Code postal Ville, Pays","confidence":"high|medium|low"}`
+Réponds UNIQUEMENT avec ce JSON :
+{"name":"Nom ou null","city":"Ville, Pays","address":"Adresse complète ou null","confidence":"high|medium|low"}`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()

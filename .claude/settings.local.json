@@ -10,7 +10,8 @@
       "Bash(git --version)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(npm run:*)",
-      "Bash(ls \"c:/Users/maxen/OneDrive/Bureau/FriendSpot/.env\"*)"
+      "Bash(ls \"c:/Users/maxen/OneDrive/Bureau/FriendSpot/.env\"*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
