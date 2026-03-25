@@ -365,24 +365,30 @@ export default function MapView() {
         .not("last_lng", "is", null)
         .eq("is_ghost_mode", false)
       if (data) {
+        const TEN_MIN = 10 * 60 * 1000
+        const now = Date.now()
         setFriendLocations(
-          data.map(
-            (p: {
-              id: string
-              username: string | null
-              avatar_url: string | null
-              last_lat: number
-              last_lng: number
-              last_active_at: string
-            }) => ({
-              id: p.id,
-              username: p.username,
-              avatar_url: p.avatar_url,
-              lat: p.last_lat,
-              lng: p.last_lng,
-              last_active_at: p.last_active_at,
-            })
-          )
+          data
+            .filter((p: { last_active_at: string | null }) =>
+              p.last_active_at && now - new Date(p.last_active_at).getTime() < TEN_MIN
+            )
+            .map(
+              (p: {
+                id: string
+                username: string | null
+                avatar_url: string | null
+                last_lat: number
+                last_lng: number
+                last_active_at: string
+              }) => ({
+                id: p.id,
+                username: p.username,
+                avatar_url: p.avatar_url,
+                lat: p.last_lat,
+                lng: p.last_lng,
+                last_active_at: p.last_active_at,
+              })
+            )
         )
       }
     } catch {

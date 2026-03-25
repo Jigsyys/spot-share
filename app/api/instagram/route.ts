@@ -91,16 +91,21 @@ function parseOGData(rawTitle: string | null, rawDesc: string | null) {
 
   let title = ""
   if (rawTitle) {
-    const quoteMatch = rawTitle.match(/(?:sur|on) Instagram\s*:\s*"(.+?)"/i)
+    // TikTok OG: "username (@handle) on TikTok: <caption>"
+    const tiktokMatch = rawTitle.match(/on TikTok\s*:\s*(.+)/i)
+    if (tiktokMatch) {
+      title = tiktokMatch[1].replace(/📍\s*/g, "").replace(/#\w+/g, "").trim().slice(0, 80)
+    }
+    const quoteMatch = !title && rawTitle.match(/(?:sur|on) Instagram\s*:\s*"(.+?)"/i)
     if (quoteMatch) {
       const extracted = quoteMatch[1].replace(/📍\s*/g, "").replace(/#\w+/g, "").trim()
       title = extracted.split(",")[0].trim()
       if (!location && extracted.includes(",")) location = extracted.trim()
-    } else {
-      title = rawTitle.replace(/\s*(on|sur)\s*Instagram.*$/i, "").replace(/📍\s*/g, "").replace(/#\w+/g, "").trim()
+    } else if (!title) {
+      title = rawTitle.replace(/\s*(on|sur)\s*(Instagram|TikTok).*$/i, "").replace(/📍\s*/g, "").replace(/#\w+/g, "").trim()
     }
     title = title.replace(/^[A-Za-zÀ-ÿ\s]+\(@[\w.]+\)\s*$/i, "").trim()
-    if (!title || title.toLowerCase().includes("instagram") || title.length < 2 || title.length > 50) title = ""
+    if (!title || title.toLowerCase().includes("instagram") || title.toLowerCase().includes("tiktok") || title.length < 2 || title.length > 80) title = ""
   }
 
   const rawText = full
@@ -121,8 +126,9 @@ interface VideoMeta {
   tags: string[]
   uploader: string | null
   username: string | null
-  ogImage: string | null   // og:image extrait du scraping HTML
-  locationHint: string | null  // nom de lieu explicite extrait du 📍
+  ogImage: string | null       // og:image extrait du scraping HTML
+  locationHint: string | null  // nom de lieu explicite extrait du 📍/📌
+  titleHint: string | null     // premier segment du titre avant " - " (ex: "A Braccetto")
 }
 
 async function extractMetadata(url: string): Promise<VideoMeta> {
@@ -156,6 +162,21 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         if (candidate) { locationHint = candidate; break }
       }
       if (locationHint) console.log("[yt-dlp] 📍/📌 locationHint:", locationHint)
+
+      // TikTok/Insta : souvent "NOM DU LIEU - description..." dans le titre
+      // Si pas de locationHint, extraire la partie avant " - " comme hint candidat
+      let titleHint: string | null = null
+      if (!locationHint && info.title) {
+        const dashParts = info.title.split(/\s+[-–]\s+/)
+        if (dashParts.length >= 2) {
+          const candidate = stripEmojis(dashParts[0]).trim()
+          if (candidate.length >= 3 && candidate.length <= 50 && !/^\d/.test(candidate)) {
+            titleHint = candidate
+            console.log("[yt-dlp] titleHint depuis titre:", titleHint)
+          }
+        }
+      }
+
       return {
         title: info.title || "",
         description: desc,
@@ -164,6 +185,7 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         username,
         ogImage: null,
         locationHint,
+        titleHint,
       }
     }
   } catch (e) {
@@ -193,12 +215,13 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
         uploader: parsed.username ? usernameToName(parsed.username) : null,
         username: parsed.username,
         ogImage: og.image ? decodeHTML(og.image) : null,
-        locationHint: parsed.location,  // nom de lieu explicite du 📍 (avant suppression du rawText)
+        locationHint: parsed.location,
+        titleHint: null,
       }
     }
   } catch { /* bloqué */ }
 
-  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null, locationHint: null }
+  return { title: "", description: "", tags: [], uploader: null, username: null, ogImage: null, locationHint: null, titleHint: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -291,13 +314,17 @@ function extractWeakSignals(meta: VideoMeta): WeakSignals {
       nameHints.unshift(val)
     }
   }
-  // locationHint (déjà extrait depuis OG/yt-dlp) → priorité absolue
+  // locationHint (📍/📌) → priorité absolue
   if (meta.locationHint) {
     if (/^\d/.test(meta.locationHint)) {
       if (!addressHints.includes(meta.locationHint)) addressHints.unshift(meta.locationHint)
     } else {
       if (!nameHints.includes(meta.locationHint)) nameHints.unshift(meta.locationHint)
     }
+  }
+  // titleHint (premier segment du titre avant " - ") → deuxième priorité
+  if (meta.titleHint && !nameHints.includes(meta.titleHint) && meta.titleHint !== meta.locationHint) {
+    nameHints.splice(meta.locationHint ? 1 : 0, 0, meta.titleHint)
   }
 
   const streetMatch = rawFull.match(/\d+[\s,]+(?:rue|avenue|boulevard|place|impasse|allée)\s+[^\n#,]{3,40}/gi)
@@ -348,8 +375,9 @@ async function extractHypothesis(
   const noContext = !meta.title && !meta.description && !meta.tags.length
   const weakContext = meta.title.length < 5 && meta.description.length < 20
 
-  // Utilise Gemini grounding si : aucun contexte OU contexte trop faible ET username dispo
-  if ((noContext || weakContext) && meta.username) {
+  // Grounding uniquement si contexte faible ET le compte ressemble à un établissement (pas un food blog)
+  const isFoodBlogger = /food|eat|local|resto|bonne|adresse|paris|plan|spot|secret|hidden|guide|foodies?|gourmand|cuisine|table|chef|meal|bite|yum|tasty/i.test(meta.username || "")
+  if ((noContext || weakContext) && meta.username && !isFoodBlogger) {
     try {
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -412,6 +440,7 @@ Si compte personnel sans lieu : {"name":null}`
   const ctx = [
     // ⚠️ locationHint en premier avec label explicite — info la plus fiable
     meta.locationHint ? `⚠️ LIEU EXPLICITEMENT MENTIONNÉ (📍 dans la légende): "${meta.locationHint}" — utilise ce nom en priorité absolue` : "",
+    (!meta.locationHint && meta.titleHint) ? `⚠️ NOM PROBABLE (extrait du titre de la vidéo): "${meta.titleHint}" — très probablement le nom du lieu` : "",
     `URL: ${postUrl}`,
     meta.username ? `Compte: @${meta.username} (nom: "${usernameToName(meta.username)}")` : "",
     meta.title ? `Titre: "${meta.title}"` : "",
@@ -775,6 +804,8 @@ export async function GET(request: Request) {
     console.log("[Step 3] Google Places...")
     let searchResult: PlaceSearchResult | null = null
 
+    const isFoodBlogger = /food|eat|local|resto|bonne|adresse|paris|plan|spot|secret|hidden|guide|foodies?|gourmand|cuisine|table|chef|meal|bite|yum|tasty/i.test(meta.username || "")
+
     // Signaux faibles pour enrichir les requêtes
     const signals = extractWeakSignals(meta)
     const bestCity = placeCity || signals.cityHints[0] || null
@@ -789,12 +820,21 @@ export async function GET(request: Request) {
 
     // locationHint = nom 📍 extrait directement (OG ou yt-dlp) → priorité absolue
     const locationHint = meta.locationHint
+    const titleHint = meta.titleHint
+
+    // 1. locationHint (📍/📌) — priorité maximale
     if (locationHint && bestCity) queries.push(`${locationHint} ${bestCity}`)
     if (locationHint) queries.push(locationHint)
 
-    // Autres noms depuis nameHints (📍 in-text + hashtags)
+    // 2. titleHint (premier segment du titre "NOM - description") — priorité haute
+    if (titleHint && titleHint !== locationHint) {
+      if (bestCity) queries.push(`${titleHint} ${bestCity}`)
+      queries.push(titleHint)
+    }
+
+    // 3. Autres noms depuis nameHints (📍 in-text + hashtags)
     for (const hint of signals.nameHints.slice(0, 2)) {
-      if (hint === locationHint) continue
+      if (hint === locationHint || hint === titleHint) continue
       if (bestCity) queries.push(`${hint} ${bestCity}`)
       queries.push(hint)
     }
@@ -803,7 +843,8 @@ export async function GET(request: Request) {
     if (placeName && placeName !== "Nouveau Spot" && bestCity) queries.push(`${placeName} ${bestCity}`)
     if (usernameAsName && bestCity && usernameAsName !== placeName) queries.push(`${usernameAsName} ${bestCity}`)
     if (placeName && placeName !== "Nouveau Spot") queries.push(placeName)
-    if (usernameAsName && usernameAsName !== placeName) queries.push(usernameAsName)
+    // Ne jamais chercher juste par username food blogger
+    if (usernameAsName && usernameAsName !== placeName && !isFoodBlogger) queries.push(usernameAsName)
     // Adresses détectées directement dans le texte
     for (const addr of signals.addressHints) queries.push(addr)
 
@@ -811,8 +852,8 @@ export async function GET(request: Request) {
     const FOOD_TYPES = new Set(["restaurant", "food", "cafe", "bar", "bakery", "meal_takeaway", "meal_delivery"])
     const expectedCat = normalizeCategory(hypothesis?.category)
 
-    // Nom de référence pour la similarité (locationHint > placeName)
-    const refName = locationHint || placeName
+    // Nom de référence pour la similarité (locationHint > titleHint > placeName)
+    const refName = locationHint || titleHint || placeName
 
     for (const q of [...new Set(queries)]) {
       const candidates = await searchGooglePlace(q, userLatN, userLngN)
