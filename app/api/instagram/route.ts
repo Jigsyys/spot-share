@@ -958,23 +958,30 @@ async function confirmPlaceWithGrounding(
         : "",
     ].filter(Boolean).join("\n")
 
-    const prompt = `Tu es un expert OSINT spécialisé dans l'identification de lieux depuis des vidéos sociales.
+    const prompt = `Tu es un détective expert en identification de lieux depuis des vidéos sociales.
 
-Voici toutes les données extraites d'une vidéo :
+Données extraites de la vidéo :
 ${ctx}
 
-MISSION : Identifie le lieu exact montré dans cette vidéo, puis confirme avec une recherche Google.
+MISSION EN 3 ÉTAPES OBLIGATOIRES :
 
-RÈGLES STRICTES :
-1. Commence par le signal le plus fiable : 📍 explicite > nom dans le titre > hashtags.
-2. Si le compte est un blog (ex: @localfoodparis), le lieu est dans la ville du blog — JAMAIS dans une autre ville.
-3. Recherche le nom du lieu sur Google pour trouver son adresse exacte.
-4. Si l'adresse trouvée est dans une ville différente de la ville attendue, cherche la version dans la bonne ville.
-5. "name" = NOM COMMERCIAL uniquement (ex: "Café de Flore"), jamais une adresse.
-6. Si tu n'es pas certain à au moins 70% → mets name:null.
+ÉTAPE 1 — Identifie le nom du lieu :
+- Utilise le signal le plus fiable : 📍 explicite > nom dans le titre > description > hashtags
+- Si le compte est un blog (ex: @localfoodparis), le lieu est FORCÉMENT dans la ville "${bestCity || "du blog"}"
+
+ÉTAPE 2 — Cherche l'adresse COMPLÈTE sur Google :
+- Recherche "[nom du lieu] [ville] adresse" sur Google
+- Tu DOIS trouver : numéro de rue + nom de rue + code postal + ville
+- Exemple de format correct : "4 Rue de la Huchette, 75005 Paris, France"
+- Si plusieurs résultats : prends celui dans la bonne ville
+
+ÉTAPE 3 — Retourne le JSON :
+- "name" = NOM COMMERCIAL uniquement (ex: "A Braccetto"), jamais une adresse
+- "address" = adresse COMPLÈTE avec code postal OBLIGATOIRE (pas juste la ville)
+- Si impossible à identifier avec certitude → name:null
 
 Réponds UNIQUEMENT avec ce JSON valide :
-{"name":"Nom exact ou null","city":"Ville, Pays","address":"Adresse complète avec code postal ou null","confidence":"high|medium|low"}`
+{"name":"Nom exact ou null","city":"Ville, Pays","address":"Numéro Rue, Code postal Ville, Pays","confidence":"high|medium|low"}`
 
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
@@ -1127,7 +1134,18 @@ export async function GET(request: Request) {
     const placeName = confirmation.name || hypothesis?.name || meta.titleHint ||
       (rawTitleFallback.length > 2 ? rawTitleFallback : null) || usernameAsName || "Nouveau Spot"
     const placeCity = confirmation.city || hypothesis?.city || userCity || bestCity || null
-    console.log(`[Step 2] confirmed="${confirmation.name}" hypothesis="${hypothesis?.name}" → placeName="${placeName}" city="${placeCity}"`)
+
+    // Si Gemini a trouvé le nom mais pas l'adresse → forcer une recherche d'adresse
+    if (confirmation.name && !confirmation.address) {
+      console.log(`[Step 2] Name confirmed but no address — forcing address lookup for "${confirmation.name}"`)
+      const addr = await findAddressWithGrounding(confirmation.name, placeCity)
+      if (addr) {
+        confirmation.address = addr
+        console.log(`[Step 2] Address found: "${addr}"`)
+      }
+    }
+
+    console.log(`[Step 2] confirmed="${confirmation.name}" address="${confirmation.address}" hypothesis="${hypothesis?.name}" → placeName="${placeName}" city="${placeCity}"`)
 
     // ── ÉTAPE 3 : Google Places — Text Search puis Place Details ─────────
     console.log("[Step 3] Google Places...")
@@ -1305,11 +1323,24 @@ export async function GET(request: Request) {
     }
 
     if (!coordinates) {
-      // Préférer locationHint (plus fiable que placeName issu du LLM)
-      const geoName = locationHint || placeName
-      const fallbackQ = placeCity ? `${geoName}, ${placeCity}` : geoName
-      const geo = await geocodeFallback(fallbackQ)
-      if (geo) { coordinates = { lat: geo.lat, lng: geo.lng }; resolvedAddress = geo.place_name }
+      // Priorité : adresse complète (grounding) > locationHint > nom+ville
+      const geoQueries = [
+        confirmation.address,                                          // "4 Rue de la Huchette, 75005 Paris"
+        locationHint && placeCity ? `${locationHint}, ${placeCity}` : locationHint,
+        placeCity ? `${placeName}, ${placeCity}` : null,
+        placeName !== "Nouveau Spot" ? placeName : null,
+      ].filter(Boolean) as string[]
+
+      for (const q of geoQueries) {
+        const geo = await geocodeFallback(q)
+        if (geo) {
+          coordinates = { lat: geo.lat, lng: geo.lng }
+          // Si on a une adresse confirmée par grounding, l'utiliser pour l'affichage
+          resolvedAddress = confirmation.address || geo.place_name
+          console.log(`[Geocode] "${q}" → ${geo.lat},${geo.lng} — "${resolvedAddress}"`)
+          break
+        }
+      }
     }
 
     // Titre final : Place Details > locationHint > placeName LLM — toujours nettoyé des emojis
