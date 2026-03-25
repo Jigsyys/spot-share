@@ -761,18 +761,25 @@ async function verifyPlaceMatch(
   foundAddress: string,
   expectedName: string,
   videoContext: string,
+  accountHint?: string,   // ex: "@localfoodparis → compte parisien"
+  expectedCity?: string,  // ville attendue pour détecter les erreurs géographiques
 ): Promise<boolean> {
-  if (!process.env.GEMINI_API_KEY) return true  // pas de clé → on accepte
-  const prompt = `Contexte vidéo : "${videoContext.slice(0, 300)}"
+  if (!process.env.GEMINI_API_KEY) return true
+  const geoWarning = expectedCity
+    ? `\nATTENTION : La vidéo est liée à la ville "${expectedCity}". Si l'adresse trouvée est dans une autre ville/région, c'est probablement un mauvais résultat.`
+    : ""
+  const accountLine = accountHint ? `\nCompte source : ${accountHint}` : ""
+  const prompt = `Contexte vidéo : "${videoContext.slice(0, 300)}"${accountLine}
 Nom recherché : "${expectedName}"
-Lieu trouvé sur Google Maps : "${foundName}" — ${foundAddress}
+Lieu trouvé sur Google Maps : "${foundName}" — ${foundAddress}${geoWarning}
 
-Est-ce que "${foundName}" correspond bien au lieu "${expectedName}" mentionné dans la vidéo ?
+Est-ce que "${foundName}" à cette adresse correspond VRAIMENT au lieu montré dans la vidéo ?
+Tiens compte de la ville attendue et du contexte du compte.
 Réponds UNIQUEMENT par OUI ou NON.`
   try {
     const raw = await callGemini(prompt, 10)
     const answer = raw?.trim().toUpperCase() || ""
-    console.log(`[Verify] "${foundName}" vs "${expectedName}" → ${answer}`)
+    console.log(`[Verify] "${foundName}" (${foundAddress}) vs "${expectedName}" → ${answer}`)
     return answer.startsWith("OUI")
   } catch { return true }
 }
@@ -864,7 +871,18 @@ export async function GET(request: Request) {
 
     // Signaux faibles pour enrichir les requêtes
     const signals = extractWeakSignals(meta)
-    const bestCity = placeCity || signals.cityHints[0] || null
+
+    // Extraire la ville depuis le username si non trouvée ailleurs (ex: "localfoodparis" → "paris")
+    const CITY_FROM_USERNAME = ["paris","lyon","marseille","bordeaux","nantes","toulouse","nice","lille","london","berlin","barcelona","rome","amsterdam","bruxelles","geneve","zurich","montreal","new york","dubai"]
+    const usernameCityHint = (() => {
+      const uLower = (meta.username || "").toLowerCase()
+      return CITY_FROM_USERNAME.find(c => uLower.includes(c.replace(" ", ""))) || null
+    })()
+
+    const bestCity = placeCity || signals.cityHints[0] || usernameCityHint || null
+    if (usernameCityHint && !placeCity && !signals.cityHints[0]) {
+      console.log(`[City] Extrait du username "@${meta.username}" → "${usernameCityHint}"`)
+    }
 
     // Types Google que l'on refuse (geocodes génériques, pas des établissements)
     const REJECT_TYPES = new Set(["street_address", "route", "premise", "subpremise", "postal_code", "locality", "country"])
@@ -911,6 +929,18 @@ export async function GET(request: Request) {
     // Nom de référence pour la similarité (locationHint > titleHint > placeName)
     const refName = locationHint || titleHint || placeName
 
+    // Contexte de compte pour enrichir la vérification Gemini
+    const accountHint = meta.username ? `@${meta.username}${bestCity ? ` (compte ${bestCity})` : ""}` : undefined
+
+    // Helper : vérifie aussi la cohérence géographique
+    const isGeoConsistent = (addr: string): boolean => {
+      if (!bestCity) return true
+      const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      return norm(addr).includes(norm(bestCity))
+    }
+
+    const videoCtx = [meta.title, meta.description.slice(0, 300)].filter(Boolean).join(" ")
+
     for (const q of [...new Set(queries)]) {
       const candidates = await searchGooglePlace(q, userLatN, userLngN)
       if (!candidates.length) continue
@@ -918,7 +948,6 @@ export async function GET(request: Request) {
       const scored = candidates
         .filter(c => isBusinessResult(c))
         .map(c => {
-          // Similarité calculée par rapport au nom de référence, pas la query
           const sim = wordOverlap(refName, c.name)
           const catMismatch =
             ["outdoor","culture","vue"].includes(expectedCat) &&
@@ -934,17 +963,17 @@ export async function GET(request: Request) {
       }
 
       const best = scored[0]
-      console.log(`[Step 3] Best match via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} types=${best.c.types.slice(0,3).join(",")}`)
+      const geoOk = isGeoConsistent(best.c.address)
+      console.log(`[Step 3] Best via "${q}": "${best.c.name}" score=${best.score.toFixed(2)} geo=${geoOk ? "✓" : "✗"} types=${best.c.types.slice(0,3).join(",")}`)
 
-      if (best.score >= 0.5) {
-        // Score élevé → confiance directe, pas besoin de vérifier
+      if (best.score >= 0.5 && geoOk) {
+        // Haute confiance + bonne ville → accepté directement
         searchResult = best.c
         console.log(`[Step 3] High-confidence accepted: "${searchResult.name}"`)
         break
-      } else if (best.score >= 0.2) {
-        // Score moyen → vérification Gemini avant d'accepter
-        const videoCtx = [meta.title, meta.description.slice(0, 200)].filter(Boolean).join(" ")
-        const ok = await verifyPlaceMatch(best.c.name, best.c.address, refName, videoCtx)
+      } else if (best.score >= 0.2 || (best.score >= 0.5 && !geoOk)) {
+        // Score moyen OU haute confiance mais mauvaise ville → vérification Gemini
+        const ok = await verifyPlaceMatch(best.c.name, best.c.address, refName, videoCtx, accountHint, bestCity || undefined)
         if (ok) {
           searchResult = best.c
           console.log(`[Step 3] Verified and accepted: "${searchResult.name}"`)
@@ -967,8 +996,7 @@ export async function GET(request: Request) {
           const candidates = await searchGooglePlace(groundingAddress, userLatN, userLngN)
           const validCandidate = candidates.find(c => isBusinessResult(c))
           if (validCandidate) {
-            const videoCtx = [meta.title, meta.description.slice(0, 200)].filter(Boolean).join(" ")
-            const ok = await verifyPlaceMatch(validCandidate.name, validCandidate.address, groundingName, videoCtx)
+            const ok = await verifyPlaceMatch(validCandidate.name, validCandidate.address, groundingName, videoCtx, accountHint, bestCity || undefined)
             if (ok) {
               searchResult = validCandidate
               console.log(`[Step 3] Grounding fallback accepted: "${searchResult.name}"`)
