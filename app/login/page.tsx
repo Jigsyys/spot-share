@@ -83,7 +83,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-950">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gray-50 dark:bg-zinc-950">
       {/* Map Background */}
       <div className="pointer-events-none absolute inset-0 z-0 opacity-30 transition-opacity duration-1000">
         {mounted && (
@@ -127,7 +127,7 @@ export default function LoginPage() {
         className="relative z-10 mx-4 w-full max-w-md"
       >
         {/* Card */}
-        <div className="rounded-3xl border border-white/10 bg-zinc-900/70 p-8 shadow-2xl shadow-black/40 backdrop-blur-xl">
+        <div className="rounded-3xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/70 p-8 shadow-2xl shadow-black/10 dark:shadow-black/40 backdrop-blur-xl">
           {/* Logo & Branding */}
           <div className="mb-8 text-center">
             <motion.div
@@ -143,10 +143,10 @@ export default function LoginPage() {
             >
               <MapPin size={28} className="text-white" />
             </motion.div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
               FriendSpot
             </h1>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
               {mode === "login"
                 ? "Content de te revoir 👋"
                 : "Rejoins la communauté 🌍"}
@@ -179,7 +179,7 @@ export default function LoginPage() {
             <div className="group relative">
               <Mail
                 size={16}
-                className="absolute top-1/2 left-3.5 -translate-y-1/2 text-zinc-500 transition-colors group-focus-within:text-indigo-400"
+                className="absolute top-1/2 left-3.5 -translate-y-1/2 text-gray-400 dark:text-zinc-500 transition-colors group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400"
               />
               <input
                 id="email-input"
@@ -188,7 +188,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full rounded-xl border border-white/10 bg-zinc-800/60 py-3 pr-4 pl-10 text-sm text-white transition-all outline-none placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/60 py-3 pr-4 pl-10 text-sm text-gray-900 dark:text-white transition-all outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
 
@@ -196,7 +196,7 @@ export default function LoginPage() {
             <div className="group relative">
               <Lock
                 size={16}
-                className="absolute top-1/2 left-3.5 -translate-y-1/2 text-zinc-500 transition-colors group-focus-within:text-indigo-400"
+                className="absolute top-1/2 left-3.5 -translate-y-1/2 text-gray-400 dark:text-zinc-500 transition-colors group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400"
               />
               <input
                 id="password-input"
@@ -206,12 +206,12 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full rounded-xl border border-white/10 bg-zinc-800/60 py-3 pr-12 pl-10 text-sm text-white transition-all outline-none placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/60 py-3 pr-12 pl-10 text-sm text-gray-900 dark:text-white transition-all outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
-                className="absolute top-1/2 right-3.5 -translate-y-1/2 text-zinc-500 transition-colors hover:text-zinc-300"
+                className="absolute top-1/2 right-3.5 -translate-y-1/2 text-gray-400 dark:text-zinc-500 transition-colors hover:text-gray-600 dark:hover:text-zinc-300"
                 aria-label="Toggle password visibility"
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -239,9 +239,9 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-white/10" />
-            <span className="text-xs text-zinc-500">ou continuer avec</span>
-            <div className="h-px flex-1 bg-white/10" />
+            <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
+            <span className="text-xs text-gray-500 dark:text-zinc-500">ou continuer avec</span>
+            <div className="h-px flex-1 bg-gray-200 dark:bg-white/10" />
           </div>
 
           {/* OAuth buttons */}
@@ -249,7 +249,7 @@ export default function LoginPage() {
             <button
               onClick={() => handleOAuth("google")}
               id="google-oauth-button"
-              className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-800/60 py-2.5 text-sm font-medium text-zinc-300 transition-all hover:border-white/20 hover:bg-zinc-700/60"
+              className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/60 py-2.5 text-sm font-medium text-gray-600 dark:text-zinc-300 transition-all hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-100 dark:hover:bg-zinc-700/60"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
@@ -282,19 +282,19 @@ export default function LoginPage() {
                 setSuccess(null)
               }}
               id="toggle-mode-button"
-              className="text-sm text-zinc-400 transition-colors hover:text-white"
+              className="text-sm text-gray-500 dark:text-zinc-400 transition-colors hover:text-gray-900 dark:hover:text-white"
             >
               {mode === "login" ? (
                 <>
                   Pas encore de compte ?{" "}
-                  <span className="font-medium text-indigo-400">
+                  <span className="font-medium text-indigo-600 dark:text-indigo-400">
                     Inscris-toi
                   </span>
                 </>
               ) : (
                 <>
                   Déjà un compte ?{" "}
-                  <span className="font-medium text-indigo-400">
+                  <span className="font-medium text-indigo-600 dark:text-indigo-400">
                     Connecte-toi
                   </span>
                 </>
@@ -304,7 +304,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-zinc-600">
+        <p className="mt-6 text-center text-xs text-gray-400 dark:text-zinc-600">
           En continuant, tu acceptes nos conditions d&apos;utilisation
         </p>
       </motion.div>

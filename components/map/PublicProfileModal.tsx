@@ -105,14 +105,14 @@ export default function PublicProfileModal({
             }}
             className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-white/10 bg-zinc-950 text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-zinc-900">
-              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-zinc-700/50 sm:hidden" />
+            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
+              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               <div className="flex flex-shrink-0 items-center justify-between p-5 pt-3 pb-4 sm:pt-5">
                 <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <User size={18} className="text-indigo-400" /> Profil
+                  <User size={18} className="text-indigo-600 dark:text-indigo-400" /> Profil
                 </h2>
-                <button onClick={onClose} className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-white/10">
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
                   <X size={18} />
                 </button>
               </div>
@@ -134,31 +134,31 @@ export default function PublicProfileModal({
                             <span>{(profile?.username || "?")?.charAt(0).toUpperCase()}</span>
                           )}
                         </div>
-                        <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-500"}`} />
+                        <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-white dark:border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-500"}`} />
                       </div>
                       <p className="text-lg font-bold">@{profile?.username || "utilisateur"}</p>
                     </div>
 
-                    <div className="flex items-center justify-center gap-6 rounded-2xl border border-white/5 bg-zinc-800/50 py-4">
+                    <div className="flex items-center justify-center gap-6 rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/50 py-4">
                       <div className="flex flex-col items-center gap-1">
                         <span className="text-xl font-bold">{spots.length}</span>
-                        <div className="flex items-center justify-center gap-1 text-xs text-zinc-400">
+                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
                           <MapPin size={12} /> Lieux
                         </div>
                       </div>
-                      <div className="h-8 w-px bg-white/10" />
+                      <div className="h-8 w-px bg-gray-200 dark:bg-white/10" />
                       <div className="flex flex-col items-center gap-1">
                         <span className="text-xl font-bold">{followers}</span>
-                        <div className="flex items-center justify-center gap-1 text-xs text-zinc-400">
+                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
                           <Users size={12} /> Abonnés
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <h3 className="mb-3 text-sm font-bold text-white">Ses Spots ({spots.length})</h3>
+                      <h3 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Ses Spots ({spots.length})</h3>
                       {spots.length === 0 ? (
-                        <p className="p-4 text-center text-sm text-zinc-500">Aucun spot ajouté.</p>
+                        <p className="p-4 text-center text-sm text-gray-500 dark:text-zinc-500">Aucun spot ajouté.</p>
                       ) : (
                         <div className="grid grid-cols-2 gap-2">
                           {spots.map((spot) => {
@@ -167,9 +167,9 @@ export default function PublicProfileModal({
                               <button
                                 key={spot.id}
                                 onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                                className="flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-zinc-800/60 text-left transition-colors hover:bg-zinc-800"
+                                className="flex flex-col overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
                               >
-                                <div className="aspect-square w-full overflow-hidden bg-zinc-900/60">
+                                <div className="aspect-square w-full overflow-hidden bg-gray-200 dark:bg-zinc-900/60">
                                   {imageUrl && (
                                     /* eslint-disable-next-line @next/next/no-img-element */
                                     <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />

@@ -317,7 +317,7 @@ export default function AddSpotModal({
   }
 
   const inputCls =
-    "w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all bg-zinc-800/60 border-white/10 text-white placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
+    "w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all bg-gray-50 dark:bg-zinc-800/60 border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
 
   return (
     <AnimatePresence>
@@ -344,21 +344,21 @@ export default function AddSpotModal({
             }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex max-h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-white/10 bg-zinc-950 text-white shadow-2xl sm:rounded-3xl sm:bg-zinc-900">
+            <div className="flex max-h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
               {/* Drag Handle Mobile */}
-              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-zinc-700/50 sm:hidden" />
+              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
               <div className="flex items-center justify-between p-5 pt-3 pb-3 sm:pt-5">
                 <div>
                   <h2 className="text-lg font-bold">Ajouter un spot</h2>
-                  <p className="mt-0.5 text-xs text-zinc-400">
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
                     Partage un lieu avec tes amis
                   </p>
                 </div>
                 <button
                   onClick={onClose}
-                  className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-white/10"
+                  className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10"
                 >
                   <X size={18} />
                 </button>
@@ -366,7 +366,7 @@ export default function AddSpotModal({
 
               {/* Tabs */}
               <div className="px-5 pb-3">
-                <div className="flex rounded-xl bg-zinc-800/80 p-1">
+                <div className="flex rounded-xl bg-gray-100 dark:bg-zinc-800/80 p-1">
                   {[
                     {
                       key: "instagram" as Tab,
@@ -386,7 +386,7 @@ export default function AddSpotModal({
                         "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-all",
                         tab === key
                           ? "bg-indigo-500 text-white shadow-sm"
-                          : "text-zinc-400 hover:text-zinc-200"
+                          : "text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200"
                       )}
                     >
                       {icon} {label}
@@ -400,7 +400,7 @@ export default function AddSpotModal({
                 {tab === "instagram" && (
                   <div className="flex flex-col gap-4">
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                         Lien Instagram / TikTok
                       </label>
                       <div className="relative">
@@ -459,7 +459,7 @@ export default function AddSpotModal({
                       <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploadingImage}
-                        className="group relative flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/20 bg-zinc-800/50 p-3 transition-colors hover:border-indigo-500/50"
+                        className="group relative flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-zinc-800/50 p-3 transition-colors hover:border-indigo-500/50"
                       >
                         {uploadingImage ? (
                           <div className="flex flex-col items-center gap-1.5 py-1 text-indigo-400">
@@ -474,10 +474,10 @@ export default function AddSpotModal({
                               <UploadCloud size={16} />
                             </div>
                             <div className="text-left">
-                              <p className="text-[13px] font-semibold text-zinc-200">
+                              <p className="text-[13px] font-semibold text-gray-700 dark:text-zinc-200">
                                 Ajouter des photos
                               </p>
-                              <p className="text-[10px] text-zinc-500">
+                              <p className="text-[10px] text-gray-400 dark:text-zinc-500">
                                 Formats acceptés : JPG, PNG, WebP
                               </p>
                             </div>
@@ -489,7 +489,7 @@ export default function AddSpotModal({
 
                   {imageUrl && imageUrl.trim() !== "" ? (
                     <div
-                      className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-white/10"
+                      className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10"
                       style={{ scrollbarWidth: "none" }}
                     >
                       {imageUrl
@@ -498,7 +498,7 @@ export default function AddSpotModal({
                         .map((url, i, arr) => (
                           <div
                             key={i}
-                            className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-zinc-800"
+                            className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800"
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
@@ -520,8 +520,8 @@ export default function AddSpotModal({
                     </div>
                   ) : (
                     tab === "instagram" && (
-                      <div className="flex h-24 items-center justify-center rounded-xl border border-white/10 bg-zinc-800/30">
-                        <p className="flex items-center gap-2 text-xs text-zinc-500">
+                      <div className="flex h-24 items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/30">
+                        <p className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
                           <Instagram size={14} /> La photo apparaîtra ici
                         </p>
                       </div>
@@ -530,10 +530,10 @@ export default function AddSpotModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                     Titre{" "}
                     {tab === "instagram" && (
-                      <span className="text-zinc-600">
+                      <span className="text-gray-400 dark:text-zinc-600">
                         (optionnel si auto-rempli)
                       </span>
                     )}
@@ -548,9 +548,9 @@ export default function AddSpotModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                     Description{" "}
-                    <span className="text-zinc-600">(optionnel)</span>
+                    <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
                   </label>
                   <textarea
                     placeholder="Décris ce lieu..."
@@ -562,7 +562,7 @@ export default function AddSpotModal({
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-xs font-medium text-zinc-400">
+                  <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                     Catégorie
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -574,7 +574,7 @@ export default function AddSpotModal({
                           "flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
                           category === cat.key
                             ? "bg-indigo-500 text-white shadow-sm"
-                            : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                            : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
                         )}
                       >
                         <span>{cat.emoji}</span> {cat.label}
@@ -584,7 +584,7 @@ export default function AddSpotModal({
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                     📍 Rechercher le lieu
                   </label>
                   <div className="relative">
@@ -610,7 +610,7 @@ export default function AddSpotModal({
                     )}
                   </div>
                   {placeResults.length > 0 && !selectedPlace && (
-                    <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-zinc-800/90">
+                    <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/90">
                       {placeResults.map((place) => (
                         <button
                           key={place.id}
@@ -619,7 +619,7 @@ export default function AddSpotModal({
                             setPlaceQuery(place.place_name)
                             setPlaceResults([])
                           }}
-                          className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left text-sm text-zinc-200 transition-colors hover:bg-white/10"
+                          className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 dark:text-zinc-200 transition-colors hover:bg-gray-50 dark:hover:bg-white/10"
                         >
                           <MapPin
                             size={14}

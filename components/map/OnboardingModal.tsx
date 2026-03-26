@@ -58,20 +58,20 @@ export default function OnboardingModal({ isOpen, user, onComplete }: Onboarding
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="fixed inset-0 z-[61] flex items-center justify-center p-6"
           >
-            <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-900 p-8 text-white shadow-2xl">
+            <div className="w-full max-w-sm rounded-3xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-8 text-gray-900 dark:text-white shadow-2xl">
               <div className="mb-6 flex flex-col items-center gap-3 text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30">
                   <Sparkles size={28} className="text-white" />
                 </div>
                 <h2 className="text-xl font-bold">Bienvenue sur FriendSpot !</h2>
-                <p className="text-sm text-zinc-400">
+                <p className="text-sm text-gray-500 dark:text-zinc-400">
                   Choisis le nom que tu veux utiliser sur l&apos;app.
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+                  <label className="mb-1.5 block text-xs font-semibold tracking-wider text-gray-500 dark:text-zinc-500 uppercase">
                     Ton pseudo
                   </label>
                   <input
@@ -81,7 +81,7 @@ export default function OnboardingModal({ isOpen, user, onComplete }: Onboarding
                     onChange={(e) => setUsername(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handleSubmit() }}
                     placeholder="Ex : Maxence"
-                    className="w-full rounded-xl border border-white/10 bg-zinc-800/80 px-4 py-3 text-[16px] text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-indigo-500/50 sm:text-sm"
+                    className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-zinc-800/80 px-4 py-3 text-[16px] text-gray-900 dark:text-white outline-none transition-colors placeholder:text-gray-400 dark:placeholder:text-zinc-600 focus:border-indigo-500/50 sm:text-sm"
                   />
                 </div>
 
