@@ -1175,10 +1175,11 @@ export async function GET(request: Request) {
     // ── Étape 2 : Identification du lieu via le pipeline Single-Pass ─────
     const { identifyPlace } = await import("@/lib/identify-place")
     const result = await identifyPlace({
-      title:       meta.title       || null,
-      description: meta.description || null,
-      hashtags:    meta.tags?.length ? meta.tags : null,
-      author:      meta.username    || null,
+      title:        meta.title          || null,
+      description:  meta.description    || null,
+      hashtags:     meta.tags?.length   ? meta.tags : null,
+      author:       meta.username       || null,
+      locationHint: meta.locationHint   || null,
     })
 
     // Lieu introuvable → 404 propre
