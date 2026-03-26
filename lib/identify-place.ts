@@ -248,8 +248,6 @@ Renvoie UNIQUEMENT ce JSON :
 
 async function geminiWriteDescription(
   place: PlacesResult,
-  videoTitle: string | null | undefined,
-  videoDesc: string | null | undefined,
   geminiKey: string
 ): Promise<string> {
   const genAI = new GoogleGenerativeAI(geminiKey)
@@ -266,26 +264,23 @@ async function geminiWriteDescription(
   const nom = place.displayName?.text ?? ""
   const type = place.primaryTypeDisplayName?.text ?? ""
   const editorial = place.editorialSummary?.text ?? ""
-  const rating = place.rating ? `${place.rating}/5 (${place.userRatingCount?.toLocaleString("fr-FR") ?? "?"} avis)` : null
   const price = place.priceLevel ? PRICE_LABELS[place.priceLevel] ?? null : null
 
   const contextLines: string[] = []
   if (editorial) contextLines.push(`Résumé Google : ${editorial}`)
-  if (rating) contextLines.push(`Note : ${rating}`)
-  if (price) contextLines.push(`Prix : ${price}`)
-  if (videoTitle) contextLines.push(`Titre vidéo : ${videoTitle.slice(0, 150)}`)
-  if (videoDesc) contextLines.push(`Contexte vidéo : ${videoDesc.slice(0, 400)}`)
+  if (price) contextLines.push(`Niveau de prix : ${price}`)
 
-  const prompt = `Rédige une description courte (2-3 phrases max) et utile pour un utilisateur qui découvre "${nom}" (${type || "lieu"}).
+  const prompt = `Rédige une description courte (2-3 phrases max) et pratique pour un utilisateur qui découvre "${nom}" (${type || "lieu"}).
 
 Données disponibles :
 ${contextLines.join("\n")}
 
 Règles :
-- Commence par ce qui rend l'endroit unique ou spécial.
-- Inclure le niveau de prix si disponible (€, €€, etc.).
-- Inclure la note Google si elle est ≥ 4.0 et pertinente.
-- Intègre les détails concrets de la vidéo si utiles (plat phare, format, ambiance).
+- Concentre-toi sur ce qui est concret et utile : spécialité maison, plat signature, produit phare, ambiance, environnement, format de visite, etc.
+- Si c'est un lieu en extérieur ou un panorama, décris l'environnement (vue, nature, atmosphère).
+- Si un niveau de prix est disponible, mentionne-le naturellement dans le contexte (ex : "comptez €€ pour un repas").
+- NE PAS mentionner de note ni de nombre d'avis.
+- NE PAS parler du contexte d'une vidéo ou d'un post.
 - Ton naturel, en français, sans marketing excessif.
 - NE PAS commencer par le nom du lieu.`
 
@@ -385,7 +380,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   // ── Phase 3 : Photos + Description en parallèle ─────────────────────────
   const [googlePhotosUrls, description] = await Promise.all([
     resolvePhotoUrls(best.photos ?? [], placesKey),
-    geminiWriteDescription(best, meta.title, meta.description, geminiKey),
+    geminiWriteDescription(best, geminiKey),
   ])
 
   // ── Phase 4 : Catégorie + Assemblage ────────────────────────────────────
