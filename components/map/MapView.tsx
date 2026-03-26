@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Pencil,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -28,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useTheme } from "next-themes"
 import UserMenu from "./UserMenu"
 import AddSpotModal from "./AddSpotModal"
+import EditSpotModal from "./EditSpotModal"
 import FriendsModal from "./FriendsModal"
 import PublicProfileModal from "./PublicProfileModal"
 import ProfileModal from "./ProfileModal"
@@ -211,12 +213,13 @@ function OpeningHoursBlock({
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
   const { user, loading: authLoading, signOut } = useAuth()
-  const { theme } = useTheme()
+  const { resolvedTheme } = useTheme()
 
   const [filter, setFilter] = useState<FilterMode>("mine")
   const [activeCategory, setActiveCategory] = useState<string>("all")
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
+  const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
   const carouselRef = useRef<HTMLDivElement>(null)
   const filterMenuRef = useRef<HTMLDivElement>(null)
@@ -741,6 +744,11 @@ export default function MapView() {
     }
   }
 
+  const handleUpdateSpot = (updatedSpot: Spot) => {
+    setSpots((prev) => prev.map((s) => s.id === updatedSpot.id ? updatedSpot : s))
+    if (selectedSpot?.id === updatedSpot.id) setSelectedSpot(updatedSpot)
+  }
+
   const filterButtons: {
     key: FilterMode
     label: string
@@ -794,7 +802,7 @@ export default function MapView() {
             pitch: 50,
             bearing: -10,
           }}
-          mapStyle={theme === "light" ? LIGHT_STYLE : DARK_STYLE}
+          mapStyle={resolvedTheme === "light" ? LIGHT_STYLE : DARK_STYLE}
           attributionControl={false}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onError={(e: any) => setMapError(e.error?.message || "Erreur carte")}
@@ -1169,9 +1177,9 @@ export default function MapView() {
             exit={{ y: 200, opacity: 0 }}
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
+            dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={(_e, info) => {
-              if (info.offset.y > 80) setSelectedSpot(null)
+              if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
             className="absolute right-2 bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[82vh] cursor-grab flex-col overflow-hidden rounded-[2.5rem] border border-white/10 bg-zinc-950/95 text-white shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
@@ -1312,21 +1320,30 @@ export default function MapView() {
                   <Share size={16} /> Partager
                 </button>
                 {selectedSpot.user_id === user?.id && (
-                  <button
-                    onClick={() => {
-                      if (window.confirm("Es-tu sûr de vouloir supprimer ce lieu ?")) {
-                        toast.promise(handleDeleteSpot(selectedSpot.id), {
-                          loading: "Suppression du spot...",
-                          success: "Adieu petit spot ! Supprimé avec succès.",
-                          error: "Erreur lors de la suppression.",
-                        })
-                      }
-                    }}
-                    className="flex items-center justify-center rounded-2xl bg-red-500/10 p-3 text-red-500 transition-colors hover:bg-red-500/20"
-                    title="Supprimer ce spot"
-                  >
-                    <X size={18} />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => setEditingSpot(selectedSpot)}
+                      className="flex items-center justify-center rounded-2xl bg-white/10 p-3 text-zinc-300 transition-colors hover:bg-white/20"
+                      title="Modifier ce spot"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Es-tu sûr de vouloir supprimer ce lieu ?")) {
+                          toast.promise(handleDeleteSpot(selectedSpot.id), {
+                            loading: "Suppression du spot...",
+                            success: "Adieu petit spot ! Supprimé avec succès.",
+                            error: "Erreur lors de la suppression.",
+                          })
+                        }
+                      }}
+                      className="flex items-center justify-center rounded-2xl bg-red-500/10 p-3 text-red-500 transition-colors hover:bg-red-500/20"
+                      title="Supprimer ce spot"
+                    >
+                      <X size={18} />
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -1473,6 +1490,14 @@ export default function MapView() {
           </button>
         </div>
       </div>
+
+      {editingSpot && (
+        <EditSpotModal
+          spot={editingSpot}
+          onClose={() => setEditingSpot(null)}
+          onUpdate={handleUpdateSpot}
+        />
+      )}
 
       <AddSpotModal
         isOpen={showAddModal}
