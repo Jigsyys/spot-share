@@ -269,6 +269,7 @@ export default function MapView() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
+  const [descExpanded, setDescExpanded] = useState(false)
   const carouselRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number | null>(null)
   const [isLocating, setIsLocating] = useState(false)
@@ -622,9 +623,10 @@ export default function MapView() {
     }
   }, [])
 
-  // Reset carousel index when a new spot is selected
+  // Reset carousel index and description state when a new spot is selected
   useEffect(() => {
     setCarouselIdx(0)
+    setDescExpanded(false)
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
@@ -1325,9 +1327,19 @@ export default function MapView() {
 
               {selectedSpot.description && cleanDescription(selectedSpot.description) && (
                 <div className="mt-4 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
-                  <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-zinc-300">
+                  <p className={cn(
+                    "text-[15px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-zinc-300",
+                    !descExpanded && "line-clamp-2"
+                  )}>
                     {cleanDescription(selectedSpot.description)}
                   </p>
+                  <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => setDescExpanded((v) => !v)}
+                    className="mt-2 text-xs font-semibold text-blue-600 dark:text-indigo-400 hover:underline"
+                  >
+                    {descExpanded ? "Voir moins" : "Voir plus"}
+                  </button>
                 </div>
               )}
 
