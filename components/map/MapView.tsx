@@ -215,12 +215,12 @@ function OpeningHoursBlock({
         )}
       >
         <div className={cn("h-2 w-2 flex-shrink-0 rounded-full", status.color)} />
-        <span className="text-sm font-medium text-zinc-300">{status.text}</span>
+        <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">{status.text}</span>
         {canExpand && (
           <ChevronDown
             size={13}
             className={cn(
-              "text-zinc-500 transition-transform duration-200",
+              "text-gray-400 dark:text-zinc-500 transition-transform duration-200",
               expanded && "rotate-180"
             )}
           />
@@ -244,8 +244,8 @@ function OpeningHoursBlock({
                   className={cn(
                     "text-xs leading-relaxed",
                     i === todayIdx
-                      ? "font-semibold text-white"
-                      : "text-zinc-400"
+                      ? "font-semibold text-blue-600 dark:text-white"
+                      : "text-gray-500 dark:text-zinc-400"
                   )}
                 >
                   {day}

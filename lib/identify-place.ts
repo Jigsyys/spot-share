@@ -183,7 +183,7 @@ async function searchGooglePlaces(query: string, placesKey: string): Promise<Pla
       "X-Goog-Api-Key": placesKey,
       "X-Goog-FieldMask": PLACES_FIELD_MASK,
     },
-    body: JSON.stringify({ textQuery: query }),
+    body: JSON.stringify({ textQuery: query, languageCode: "fr" }),
     signal: AbortSignal.timeout(8000),
   })
 
