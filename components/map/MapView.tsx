@@ -18,7 +18,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Filter,
   Pencil,
   CheckCircle2,
 } from "lucide-react"
@@ -40,7 +39,7 @@ import type { Spot, FilterMode } from "@/lib/types"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
-const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
+const LIGHT_STYLE = "mapbox://styles/mapbox/streets-v12"
 
 const CATEGORIES = [
   { key: "café", label: "Café", emoji: "☕" },
@@ -267,13 +266,10 @@ export default function MapView() {
   const { resolvedTheme } = useTheme()
 
   const [filter, setFilter] = useState<FilterMode>("mine")
-  const [activeCategory, setActiveCategory] = useState<string>("all")
-  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
   const carouselRef = useRef<HTMLDivElement>(null)
-  const filterMenuRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -548,21 +544,14 @@ export default function MapView() {
   }, [user, checkIncomingRequests])
 
   const visibleSpots = useMemo(() => {
-    let filtered =
-      filter === "mine"
-        ? spots.filter((s) => s.user_id === user?.id)
-        : filter === "friends"
-          ? spots.filter((s) => visibleFriendIds.includes(s.user_id))
-          : spots.filter(
-              (s) =>
-                s.user_id === user?.id ||
-                visibleFriendIds.includes(s.user_id)
-            )
-    if (activeCategory !== "all") {
-      filtered = filtered.filter((s) => s.category === activeCategory)
-    }
-    return filtered
-  }, [spots, filter, user?.id, visibleFriendIds, activeCategory])
+    return filter === "mine"
+      ? spots.filter((s) => s.user_id === user?.id)
+      : filter === "friends"
+        ? spots.filter((s) => visibleFriendIds.includes(s.user_id))
+        : spots.filter(
+            (s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id)
+          )
+  }, [spots, filter, user?.id, visibleFriendIds])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -639,17 +628,6 @@ export default function MapView() {
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
-  // Close filter menu on outside click
-  useEffect(() => {
-    if (!isCategoryMenuOpen) return
-    function handleOutside(e: MouseEvent) {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(e.target as Node)) {
-        setIsCategoryMenuOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleOutside)
-    return () => document.removeEventListener("mousedown", handleOutside)
-  }, [isCategoryMenuOpen])
 
   const handleOpenAddSpot = async () => {
     let pastedUrl = ""
@@ -1120,66 +1098,7 @@ export default function MapView() {
       )}
 
       {/* Top Bar */}
-      <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 left-0 z-30 mt-4 flex items-start justify-between px-4">
-        <div className="pointer-events-auto relative" ref={filterMenuRef}>
-          <button
-            onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
-          >
-            {activeCategory === "all" ? (
-              <Filter size={18} />
-            ) : (
-              <span className="text-xl leading-none">
-                {CATEGORIES.find((c) => c.key === activeCategory)?.emoji}
-              </span>
-            )}
-          </button>
-
-          <AnimatePresence>
-            {isCategoryMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="absolute left-0 top-[calc(100%+0.5rem)] w-48 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 shadow-2xl backdrop-blur-xl"
-              >
-                <div className="no-scrollbar max-h-[60vh] overflow-y-auto py-1">
-                  <button
-                    onClick={() => {
-                      setActiveCategory("all")
-                      setIsCategoryMenuOpen(false)
-                    }}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
-                      activeCategory === "all"
-                        ? "bg-blue-600/10 dark:bg-indigo-500/10 text-blue-600 dark:text-indigo-400"
-                        : "text-zinc-300"
-                    )}
-                  >
-                    <span>🌎</span> Toutes
-                  </button>
-                  {CATEGORIES.map((cat) => (
-                    <button
-                      key={cat.key}
-                      onClick={() => {
-                        setActiveCategory(cat.key)
-                        setIsCategoryMenuOpen(false)
-                      }}
-                      className={cn(
-                        "flex w-full items-center gap-3 border-t border-gray-100 dark:border-white/5 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
-                        activeCategory === cat.key
-                          ? "bg-blue-600/10 dark:bg-indigo-500/10 text-blue-600 dark:text-indigo-400"
-                          : "text-zinc-300"
-                      )}
-                    >
-                      <span>{cat.emoji}</span> {cat.label}
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+      <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 left-0 z-30 mt-4 flex items-start justify-end px-4">
         <div className="pointer-events-auto hidden sm:block">
           <UserMenu
             user={user}
@@ -1777,7 +1696,6 @@ export default function MapView() {
         onLocateSpot={(spotId, lat, lng) => {
           setShowProfileModal(false)
           setFilter("mine")
-          setActiveCategory("all")
           const spot = spots.find((s) => s.id === spotId)
           if (spot) setSelectedSpot(spot)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1200 })
@@ -1800,7 +1718,6 @@ export default function MapView() {
               setVisibleFriendIds((prev) => [...prev, publicProfileUserId])
             }
           }
-          setActiveCategory("all")
           const spot = spots.find((s) => s.id === spotId)
           if (spot) setSelectedSpot(spot)
           mapRef.current?.flyTo({
