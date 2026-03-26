@@ -629,23 +629,8 @@ export default function MapView() {
   }, [selectedSpot?.id])
 
 
-  const handleOpenAddSpot = async () => {
-    let pastedUrl = ""
-    try {
-      if (navigator.clipboard?.readText) {
-        const text = await navigator.clipboard.readText()
-        if (
-          text &&
-          (text.includes("instagram.com") || text.includes("instagr.am") || text.includes("tiktok.com"))
-        ) {
-          pastedUrl = text.trim()
-          toast.success("✨ Lien récupéré automatiquement !")
-        }
-      }
-    } catch {
-      // Échec silencieux (permission refusée ou non supporté sans action)
-    }
-    setInitialAddUrl(pastedUrl)
+  const handleOpenAddSpot = () => {
+    setInitialAddUrl("")
     setShowAddModal(true)
   }
 
@@ -1612,7 +1597,7 @@ export default function MapView() {
       <ExploreModal
         isOpen={showExploreModal}
         onClose={() => setShowExploreModal(false)}
-        spots={visibleSpots}
+        spots={spots}
         userLocation={userLocation}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
