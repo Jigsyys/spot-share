@@ -326,6 +326,8 @@ export default function MapView() {
           layer.id.includes("poi") ||
           layer.id.includes("transit-label") ||
           layer.id.includes("airport-label") ||
+          layer.id.includes("motorway") ||
+          layer.id.includes("trunk") ||
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (layer as any)["source-layer"] === "poi"
         ) {
