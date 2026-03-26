@@ -1627,8 +1627,9 @@ export default function MapView() {
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1200 })
         }}
         onSignOut={signOut}
+        onSelectUser={(id) => { setShowProfileModal(false); setPublicProfileUserId(id) }}
       />
-      
+
       <PublicProfileModal
         isOpen={!!publicProfileUserId}
         onClose={() => setPublicProfileUserId(null)}

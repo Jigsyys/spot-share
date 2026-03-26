@@ -118,7 +118,15 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          drag="y"
+          dragConstraints={{ top: 0, bottom: 0 }}
+          dragElastic={{ top: 0, bottom: 0.5 }}
+          dragMomentum={false}
+          onDragEnd={(_e, { offset, velocity }) => {
+            if (offset.y > 100 || velocity.y > 400) onClose()
+          }}
         >
+          <div className="mx-auto mt-3 mb-0 h-1.5 w-12 rounded-full bg-white/20 sm:hidden" />
           {/* Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-zinc-950 px-5 py-4">
             <h2 className="flex items-center gap-2 text-lg font-bold">

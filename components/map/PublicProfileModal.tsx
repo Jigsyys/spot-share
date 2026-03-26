@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, User, MapPin, Users, LoaderCircle, Navigation } from "lucide-react"
+import { X, User, MapPin, Users, LoaderCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 interface Spot {
@@ -10,6 +10,7 @@ interface Spot {
   title: string
   category?: string
   address?: string | null
+  image_url?: string | null
   lat: number
   lng: number
 }
@@ -51,7 +52,7 @@ export default function PublicProfileModal({
 
       const { data: sData } = await supabaseRef.current
         .from("spots")
-        .select("id, title, category, address, lat, lng")
+        .select("id, title, category, address, image_url, lat, lng")
         .eq("user_id", userId)
       if (sData) setSpots(sData as Spot[])
 
@@ -155,27 +156,31 @@ export default function PublicProfileModal({
                     </div>
 
                     <div>
-                      <h3 className="mb-3 text-sm font-bold text-white">Ses Spots</h3>
+                      <h3 className="mb-3 text-sm font-bold text-white">Ses Spots ({spots.length})</h3>
                       {spots.length === 0 ? (
                         <p className="p-4 text-center text-sm text-zinc-500">Aucun spot ajouté.</p>
                       ) : (
-                        <div className="space-y-2">
-                          {spots.map((spot) => (
-                            <button
-                              key={spot.id}
-                              onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                              className="flex w-full items-center gap-3 rounded-2xl border border-white/5 bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-zinc-800"
-                            >
-                              <span className="text-lg">{CATEGORY_EMOJIS[spot.category || "other"] || "📍"}</span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold">{spot.title}</p>
-                                {spot.address && <p className="truncate text-[11px] text-zinc-500">{spot.address}</p>}
-                              </div>
-                              <div className="rounded-xl p-2 text-indigo-400 opacity-80 group-hover:opacity-100">
-                                <Navigation size={14} />
-                              </div>
-                            </button>
-                          ))}
+                        <div className="grid grid-cols-2 gap-2">
+                          {spots.map((spot) => {
+                            const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+                            return (
+                              <button
+                                key={spot.id}
+                                onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
+                                className="flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-zinc-800/60 text-left transition-colors hover:bg-zinc-800"
+                              >
+                                <div className="aspect-square w-full overflow-hidden bg-zinc-900/60">
+                                  {imageUrl && (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+                                  )}
+                                </div>
+                                <div className="px-2.5 py-2">
+                                  <p className="line-clamp-2 text-xs font-semibold leading-tight">{spot.title}</p>
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>

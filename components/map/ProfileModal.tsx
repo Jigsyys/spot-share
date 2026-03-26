@@ -52,6 +52,7 @@ interface ProfileModalProps {
   onUnfollow?: (id: string) => void
   onLocateSpot?: (id: string, lat: number, lng: number) => void
   onSignOut?: () => void
+  onSelectUser?: (id: string) => void
 }
 
 type SubView = null | "spots" | "followers" | "following"
@@ -68,6 +69,7 @@ export default function ProfileModal({
   onUnfollow,
   onLocateSpot,
   onSignOut,
+  onSelectUser,
 }: ProfileModalProps) {
   const [username, setUsername] = useState("")
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -476,7 +478,11 @@ export default function ProfileModal({
                     ) : (
                       <div className="space-y-2">
                         {followingList.map((p) => (
-                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
+                          <div
+                            key={p.id}
+                            className="flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
+                            onClick={() => { onSelectUser?.(p.id); onClose() }}
+                          >
                             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -487,7 +493,7 @@ export default function ProfileModal({
                             </div>
                             <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
-                              onClick={() => handleUnfollowUser(p.id)}
+                              onClick={(e) => { e.stopPropagation(); handleUnfollowUser(p.id) }}
                               className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />

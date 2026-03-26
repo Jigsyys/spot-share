@@ -8,8 +8,6 @@ import {
   UserPlus,
   LoaderCircle,
   Users,
-  Eye,
-  EyeOff,
   MapPin,
   Clock,
   Check,
@@ -736,12 +734,12 @@ function UserRow({
     profile.last_lng
 
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:bg-white/5">
+    <div
+      className="flex cursor-pointer items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:bg-white/5"
+      onClick={onSelectUser}
+    >
       {/* Avatar */}
-      <div
-        className="relative flex-shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95"
-        onClick={onSelectUser}
-      >
+      <div className="relative flex-shrink-0">
         <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
           {profile.avatar_url ? (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -789,19 +787,6 @@ function UserRow({
             className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
           >
             <MapPin size={15} />
-          </button>
-        )}
-        {isFollowing && onToggleVisibility && (
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleVisibility()
-            }}
-            title={isVisible ? "Masquer ses spots" : "Afficher ses spots"}
-            className={`rounded-xl p-2 transition-all ${isVisible ? "bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20" : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300"}`}
-          >
-            {isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
           </button>
         )}
 
