@@ -313,6 +313,35 @@ export default function MapView() {
   const [zoom, setZoom] = useState(12.5)
 
   const supabaseRef = useRef(createClient())
+  const themeRef = useRef(resolvedTheme)
+  useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
+
+  const hidePOIs = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || themeRef.current !== "light") return
+    try {
+      const layers = map.getStyle()?.layers ?? []
+      layers.forEach((layer) => {
+        if (
+          layer.id.includes("poi") ||
+          layer.id.includes("transit-label") ||
+          layer.id.includes("airport-label") ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (layer as any)["source-layer"] === "poi"
+        ) {
+          try { map.setLayoutProperty(layer.id, "visibility", "none") } catch { /* layer might not support visibility */ }
+        }
+      })
+    } catch { /* style not loaded yet */ }
+  }, [])
+
+  // Re-apply after theme switch (style reloads = needs ~500ms)
+  useEffect(() => {
+    if (resolvedTheme !== "light") return
+    const t1 = setTimeout(hidePOIs, 300)
+    const t2 = setTimeout(hidePOIs, 800)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [resolvedTheme, hidePOIs])
 
   const fetchSpots = useCallback(async () => {
     try {
@@ -906,6 +935,7 @@ export default function MapView() {
               const b = mapRef.current.getBounds()?.toArray().flat()
               if (b) setBounds(b as [number, number, number, number])
               setZoom(mapRef.current.getZoom())
+              hidePOIs()
             }
           }}
           onMove={() => {
@@ -1609,7 +1639,7 @@ export default function MapView() {
       <ExploreModal
         isOpen={showExploreModal}
         onClose={() => setShowExploreModal(false)}
-        spots={spots}
+        spots={visibleSpots}
         userLocation={userLocation}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
