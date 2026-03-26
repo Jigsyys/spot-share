@@ -221,8 +221,10 @@ export default function ProfileModal({
       setAvatarUrl(publicUrl)
       onProfileUpdate?.(username, publicUrl)
       toast.success("Photo mise à jour !")
-    } catch {
-      setSaveError("Erreur lors de l'upload de la photo.")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : JSON.stringify(err)
+      console.error("[Avatar upload error]:", msg)
+      setSaveError(`Erreur upload: ${msg}`)
     } finally {
       setUploadingAvatar(false)
     }
