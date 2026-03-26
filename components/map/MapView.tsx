@@ -39,9 +39,12 @@ import type { Spot, FilterMode } from "@/lib/types"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
-const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
+const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
 
+// Couches à masquer complètement (géométrie autoroutes + POIs)
 const LIGHT_HIDDEN_LAYERS = ["motorway", "trunk", "poi", "landmark", "monument", "tourism", "transit-label", "airport-label"]
+// Classes de route à exclure des labels (numéros A1, A4…)
+const LIGHT_HIDDEN_ROAD_CLASSES = ["motorway", "motorway_link", "trunk", "trunk_link"]
 
 const CATEGORIES = [
   { key: "café", label: "Café", emoji: "☕" },
@@ -323,11 +326,21 @@ export default function MapView() {
     const map = mapRef.current?.getMap()
     if (!map || themeRef.current !== "light") return
     try {
-      ;(map.getStyle()?.layers ?? []).forEach((layer) => {
+      const layers = map.getStyle()?.layers ?? []
+      layers.forEach((layer) => {
         if (LIGHT_HIDDEN_LAYERS.some((k) => layer.id.includes(k))) {
           try { map.setLayoutProperty(layer.id, "visibility", "none") } catch { /* ignore */ }
         }
       })
+      // Retire les numéros d'autoroutes (A1, A4…) de la couche road-label
+      if (layers.some((l) => l.id === "road-label")) {
+        try {
+          map.setFilter("road-label", [
+            "!",
+            ["in", ["get", "class"], ["literal", LIGHT_HIDDEN_ROAD_CLASSES]],
+          ])
+        } catch { /* ignore */ }
+      }
     } catch { /* style not ready */ }
   }, [])
 
