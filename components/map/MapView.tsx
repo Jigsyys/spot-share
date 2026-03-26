@@ -826,7 +826,7 @@ export default function MapView() {
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-2xl shadow-indigo-500/30"
+          className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 shadow-2xl shadow-blue-600/30 dark:shadow-indigo-500/30"
         >
           <MapPin size={28} className="text-white" />
         </motion.div>
@@ -885,7 +885,7 @@ export default function MapView() {
                   longitude={longitude}
                 >
                   <div
-                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
+                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-gray-900/70 dark:border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
                     onClick={(e) => {
                       e.stopPropagation()
                       if (!supercluster) return
@@ -939,7 +939,7 @@ export default function MapView() {
                     background: color,
                     boxShadow: `0 4px 16px ${color}55`,
                   }}
-                  className="flex h-10 w-10 -rotate-45 cursor-pointer items-center justify-center rounded-[50%_50%_50%_0] border-2 border-white/90 transition-transform hover:scale-110"
+                  className="flex h-10 w-10 -rotate-45 cursor-pointer items-center justify-center rounded-[50%_50%_50%_0] border-2 border-gray-900/70 dark:border-white/90 transition-transform hover:scale-110"
                 >
                   <div className="rotate-45 text-base leading-none">
                     {emoji}
@@ -957,7 +957,7 @@ export default function MapView() {
               anchor="bottom"
             >
               <div className="group relative flex cursor-pointer flex-col items-center transition-transform hover:scale-110">
-                <div className="relative z-10 flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border-4 border-indigo-500 bg-gradient-to-br from-indigo-500 to-purple-600 text-lg font-bold text-white shadow-[0_0_20px_rgba(99,102,241,0.6)]">
+                <div className="relative z-10 flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border-4 border-blue-600 dark:border-indigo-500 bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-lg font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.6)] dark:shadow-[0_0_20px_rgba(99,102,241,0.6)]">
                   {userProfile?.avatar_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -973,7 +973,7 @@ export default function MapView() {
                   )}
                 </div>
                 {/* Petit triangle pointeur */}
-                <div className="z-0 -mt-2 h-3 w-3 rotate-45 bg-indigo-500 shadow-sm" />
+                <div className="z-0 -mt-2 h-3 w-3 rotate-45 bg-blue-600 dark:bg-indigo-500 shadow-sm" />
                 <span className="absolute -bottom-6 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
                   Ma position
                 </span>
@@ -1072,7 +1072,7 @@ export default function MapView() {
                     className={cn(
                       "flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
                       activeCategory === "all"
-                        ? "bg-indigo-500/10 text-indigo-400"
+                        ? "bg-blue-600/10 dark:bg-indigo-500/10 text-blue-600 dark:text-indigo-400"
                         : "text-zinc-300"
                     )}
                   >
@@ -1088,7 +1088,7 @@ export default function MapView() {
                       className={cn(
                         "flex w-full items-center gap-3 border-t border-gray-100 dark:border-white/5 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
                         activeCategory === cat.key
-                          ? "bg-indigo-500/10 text-indigo-400"
+                          ? "bg-blue-600/10 dark:bg-indigo-500/10 text-blue-600 dark:text-indigo-400"
                           : "text-zinc-300"
                       )}
                     >
@@ -1124,7 +1124,7 @@ export default function MapView() {
               className={cn(
                 "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
                 filter === key
-                  ? "bg-indigo-500 text-white shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
+                  ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
                   : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
               )}
               whileTap={{ scale: 0.95 }}
@@ -1161,7 +1161,7 @@ export default function MapView() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={handleSurprise}
-          className="group pointer-events-auto relative hidden overflow-hidden rounded-2xl border border-white/20 bg-gradient-to-br from-indigo-600/90 to-purple-600/90 p-3 text-white shadow-lg backdrop-blur-md transition-all hover:from-indigo-500 hover:to-purple-500 sm:flex"
+          className="group pointer-events-auto relative hidden overflow-hidden rounded-2xl border border-white/20 bg-gradient-to-br from-blue-700/90 dark:from-indigo-600/90 to-sky-600/90 dark:to-purple-600/90 p-3 text-white shadow-lg backdrop-blur-md transition-all hover:from-blue-600 dark:hover:from-indigo-500 hover:to-sky-500 dark:hover:to-purple-500 sm:flex"
           title="Surprends-moi !"
         >
           <div className="absolute inset-0 bg-white/20 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
@@ -1182,9 +1182,9 @@ export default function MapView() {
           whileTap={{ scale: 0.93 }}
           onClick={handleOpenAddSpot}
           className={cn(
-            "pointer-events-auto hidden items-center gap-2 rounded-2xl bg-indigo-500 px-5 py-3.5 text-sm font-semibold text-white shadow-xl shadow-indigo-500/30 transition-all hover:bg-indigo-400 sm:flex",
+            "pointer-events-auto hidden items-center gap-2 rounded-2xl bg-blue-600 dark:bg-indigo-500 px-5 py-3.5 text-sm font-semibold text-white shadow-xl shadow-blue-600/30 dark:shadow-indigo-500/30 transition-all hover:bg-blue-500 dark:hover:bg-indigo-400 sm:flex",
             visibleSpots.length === 0 &&
-              "animate-pulse ring-4 ring-indigo-500/20"
+              "animate-pulse ring-4 ring-blue-600/20 dark:ring-indigo-500/20"
           )}
         >
           <Plus size={18} /> Ajouter un spot
@@ -1207,7 +1207,7 @@ export default function MapView() {
           className={cn(
             "pointer-events-auto rounded-2xl border p-3 shadow-lg backdrop-blur-md transition-all",
             is3D
-              ? "border-indigo-400/50 bg-indigo-500/90 text-white shadow-indigo-500/30"
+              ? "border-blue-500/50 dark:border-indigo-400/50 bg-blue-600/90 dark:bg-indigo-500/90 text-white shadow-blue-600/30 dark:shadow-indigo-500/30"
               : "border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
           )}
           title={is3D ? "Passer en 2D" : "Passer en 3D"}
@@ -1322,7 +1322,7 @@ export default function MapView() {
               </h3>
               {selectedSpot.address && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-zinc-400">
-                  <MapPin size={14} className="text-indigo-400" />{" "}
+                  <MapPin size={14} className="text-blue-600 dark:text-indigo-400" />{" "}
                   {selectedSpot.address}
                 </p>
               )}
@@ -1345,7 +1345,7 @@ export default function MapView() {
                   href={selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-500 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.02] hover:bg-indigo-400"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 dark:bg-indigo-500 py-3 text-sm font-bold text-white transition-transform hover:scale-[1.02] hover:bg-blue-500 dark:hover:bg-indigo-400"
                 >
                   <Navigation size={16} /> S&apos;y rendre
                 </a>
@@ -1459,7 +1459,7 @@ export default function MapView() {
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
                !showProfileModal && !showFriendsModal && !showAddModal
-                 ? "text-indigo-400"
+                 ? "text-blue-600 dark:text-indigo-400"
                  : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
@@ -1467,7 +1467,7 @@ export default function MapView() {
               size={22}
               className={
                 !selectedSpot && !showProfileModal && !showFriendsModal && !showAddModal
-                  ? "drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
+                  ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
                   : ""
               }
             />
@@ -1483,11 +1483,11 @@ export default function MapView() {
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showFriendsModal ? "text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+               showFriendsModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <div className="relative">
-              <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+              <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
               {incomingCount > 0 && (
                 <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {incomingCount}
@@ -1504,7 +1504,7 @@ export default function MapView() {
                 setShowFriendsModal(false)
                 handleOpenAddSpot()
               }}
-              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
+              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
             >
               <Plus size={24} strokeWidth={3} />
             </button>
@@ -1531,10 +1531,10 @@ export default function MapView() {
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showProfileModal ? "text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+               showProfileModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
-            <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+            <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
             <span className="text-[10px] font-medium">Profil</span>
           </button>
         </div>

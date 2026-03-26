@@ -370,7 +370,7 @@ export default function ProfileModal({
                   </button>
                 ) : (
                   <h2 className="flex items-center gap-2 text-lg font-bold">
-                    <User size={18} className="text-indigo-400" /> Mon profil
+                    <User size={18} className="text-blue-600 dark:text-indigo-400" /> Mon profil
                   </h2>
                 )}
                 <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
@@ -412,7 +412,7 @@ export default function ProfileModal({
                               >
                                 <Trash2 size={14} />
                               </button>
-                              <div className="rounded-xl p-2 text-indigo-400 opacity-80 group-hover:opacity-100">
+                              <div className="rounded-xl p-2 text-blue-600 dark:text-indigo-400 opacity-80 group-hover:opacity-100">
                                 <Navigation size={14} />
                               </div>
                             </div>
@@ -432,14 +432,14 @@ export default function ProfileModal({
                       Abonnés ({followersCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-400" /></div>
+                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
                     ) : followersList.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonné.</p>
                     ) : (
                       <div className="space-y-2">
                         {followersList.map((p) => (
                           <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
-                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -470,14 +470,14 @@ export default function ProfileModal({
                       Abonnements ({followingCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-400" /></div>
+                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
                     ) : followingList.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonnement.</p>
                     ) : (
                       <div className="space-y-2">
                         {followingList.map((p) => (
                           <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
-                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -509,7 +509,7 @@ export default function ProfileModal({
                     <div className="group relative flex flex-col items-center gap-3 py-2">
                       <div
                         onClick={() => fileInputRef.current?.click()}
-                        className="relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-indigo-500/50 bg-gradient-to-br from-indigo-500 to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/25"
+                        className="relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-blue-600/50 dark:border-indigo-500/50 bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/25"
                       >
                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
                         {uploadingAvatar ? (
@@ -535,12 +535,12 @@ export default function ProfileModal({
                               value={nameInput}
                               onChange={(e) => setNameInput(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") saveName() }}
-                              className="w-40 rounded-lg border border-indigo-500/50 bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 text-center text-sm text-gray-900 dark:text-white outline-none"
+                              className="w-40 rounded-lg border border-blue-600/50 dark:border-indigo-500/50 bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 text-center text-sm text-gray-900 dark:text-white outline-none"
                             />
                             <button
                               onClick={saveName}
                               disabled={saving}
-                              className="rounded-lg bg-indigo-500 p-1.5 text-white hover:bg-indigo-400 disabled:opacity-50"
+                              className="rounded-lg bg-blue-600 dark:bg-indigo-500 p-1.5 text-white hover:bg-blue-500 dark:hover:bg-indigo-400 disabled:opacity-50"
                             >
                               {saving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
                             </button>
@@ -550,7 +550,7 @@ export default function ProfileModal({
                           </div>
                         ) : (
                           <button onClick={() => { setNameInput(username); setEditingName(true) }} className="group/name">
-                            <p className="text-base font-semibold transition-colors group-hover/name:text-indigo-400">
+                            <p className="text-base font-semibold transition-colors group-hover/name:text-blue-600 dark:group-hover/name:text-indigo-400">
                               @{username || "…"}
                             </p>
                             <p className="text-[10px] text-gray-400 dark:text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
@@ -566,18 +566,18 @@ export default function ProfileModal({
 
                     {/* Stats (clickable) */}
                     <div className="grid grid-cols-3 gap-3">
-                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
-                        <span className="text-indigo-400"><MapPin size={14} /></span>
+                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
                         <span className="text-lg font-bold">{spotsCount}</span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
                       </button>
-                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
-                        <span className="text-indigo-400"><Users size={14} /></span>
+                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
                         <span className="text-lg font-bold">{followersCount}</span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnés</span>
                       </button>
-                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
-                        <span className="text-indigo-400"><Users size={14} /></span>
+                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
                         <span className="text-lg font-bold">{followingCount}</span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnements</span>
                       </button>
@@ -598,7 +598,7 @@ export default function ProfileModal({
                         </div>
                         <button
                           onClick={toggleGhostMode}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
                         >
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isGhostMode ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
@@ -619,7 +619,7 @@ export default function ProfileModal({
                         </div>
                         <button
                           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === "light" ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === "light" ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
                         >
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${theme === "light" ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
