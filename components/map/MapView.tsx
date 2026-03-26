@@ -39,7 +39,9 @@ import type { Spot, FilterMode } from "@/lib/types"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
-const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
+const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
+
+const LIGHT_HIDDEN_LAYERS = ["motorway", "trunk", "poi", "landmark", "monument", "tourism", "transit-label", "airport-label"]
 
 const CATEGORIES = [
   { key: "café", label: "Café", emoji: "☕" },
@@ -314,27 +316,20 @@ export default function MapView() {
 
   const supabaseRef = useRef(createClient())
 
-  const hideMotorways = useCallback(() => {
+  const themeRef = useRef(resolvedTheme)
+  useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
+
+  const applyLightFilters = useCallback(() => {
     const map = mapRef.current?.getMap()
     if (!map || themeRef.current !== "light") return
     try {
-      (map.getStyle()?.layers ?? []).forEach((layer) => {
-        if (layer.id.includes("motorway") || layer.id.includes("trunk")) {
+      ;(map.getStyle()?.layers ?? []).forEach((layer) => {
+        if (LIGHT_HIDDEN_LAYERS.some((k) => layer.id.includes(k))) {
           try { map.setLayoutProperty(layer.id, "visibility", "none") } catch { /* ignore */ }
         }
       })
     } catch { /* style not ready */ }
   }, [])
-
-  const themeRef = useRef(resolvedTheme)
-  useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
-
-  useEffect(() => {
-    if (resolvedTheme !== "light") return
-    const t1 = setTimeout(hideMotorways, 300)
-    const t2 = setTimeout(hideMotorways, 900)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
-  }, [resolvedTheme, hideMotorways])
 
   const fetchSpots = useCallback(async () => {
     try {
@@ -928,7 +923,9 @@ export default function MapView() {
               const b = mapRef.current.getBounds()?.toArray().flat()
               if (b) setBounds(b as [number, number, number, number])
               setZoom(mapRef.current.getZoom())
-              hideMotorways()
+              const map = mapRef.current.getMap()
+              applyLightFilters()
+              map.on("style.load", applyLightFilters)
             }
           }}
           onMove={() => {
