@@ -140,7 +140,7 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
             </button>
           </div>
 
-          <div className="space-y-5 px-5 py-5">
+          <div className="space-y-5 px-5 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
             {/* Photos */}
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-400">Photos</label>
