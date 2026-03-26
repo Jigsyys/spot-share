@@ -216,15 +216,15 @@ export default function ProfileModal({
         .getPublicUrl(filePath)
       const { error: updateError } = await supabaseRef.current
         .from("profiles")
-        .upsert({ id: user.id, avatar_url: publicUrl })
+        .update({ avatar_url: publicUrl })
+        .eq("id", user.id)
       if (updateError) throw updateError
       setAvatarUrl(publicUrl)
       onProfileUpdate?.(username, publicUrl)
       toast.success("Photo mise à jour !")
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : JSON.stringify(err)
-      console.error("[Avatar upload error]:", msg)
-      setSaveError(`Erreur upload: ${msg}`)
+    } catch (err) {
+      console.error("[Avatar upload error]:", err)
+      setSaveError("Erreur lors de l'upload de la photo.")
     } finally {
       setUploadingAvatar(false)
     }
