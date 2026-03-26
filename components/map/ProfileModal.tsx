@@ -359,13 +359,13 @@ export default function ProfileModal({
             }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-white/10 bg-zinc-950 text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-zinc-900">
-              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-zinc-700/50 sm:hidden" />
+            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
+              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
               <div className="flex flex-shrink-0 items-center justify-between p-5 pt-3 pb-4 sm:pt-5">
                 {subView ? (
-                  <button onClick={() => setSubView(null)} className="flex items-center gap-2 text-sm font-bold text-zinc-300 hover:text-white">
+                  <button onClick={() => setSubView(null)} className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-zinc-300 hover:text-white">
                     <ArrowLeft size={16} /> Retour
                   </button>
                 ) : (
@@ -373,7 +373,7 @@ export default function ProfileModal({
                     <User size={18} className="text-indigo-400" /> Mon profil
                   </h2>
                 )}
-                <button onClick={onClose} className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-white/10">
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
                   <X size={18} />
                 </button>
               </div>
@@ -384,23 +384,23 @@ export default function ProfileModal({
                 {/* ============================================ */}
                 {subView === "spots" && (
                   <div className="space-y-5">
-                    <p className="mb-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Mes spots ({userSpots.length})
                     </p>
                     {userSpots.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-zinc-500">Aucun spot ajouté pour l&apos;instant.</p>
+                      <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun spot ajouté pour l&apos;instant.</p>
                     ) : (
                       <div className="space-y-2">
                         {userSpots.map((spot) => (
                           <button
                             key={spot.id}
                             onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                            className="flex w-full items-center gap-3 rounded-2xl border border-white/5 bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-zinc-800 group"
+                            className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800 group"
                           >
                             <span className="text-lg">{CATEGORY_EMOJIS[spot.category || "other"] || "📍"}</span>
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-sm font-semibold">{spot.title}</p>
-                              {spot.address && <p className="truncate text-[11px] text-zinc-500">{spot.address}</p>}
+                              {spot.address && <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">{spot.address}</p>}
                             </div>
                             <div className="flex items-center gap-1">
                               <button
@@ -408,7 +408,7 @@ export default function ProfileModal({
                                   e.stopPropagation()
                                   handleDeleteUserSpot(spot.id)
                                 }}
-                                className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
+                                className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -428,17 +428,17 @@ export default function ProfileModal({
                 {/* ============================================ */}
                 {subView === "followers" && (
                   <div className="space-y-5">
-                    <p className="mb-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Abonnés ({followersCount})
                     </p>
                     {loadingList ? (
                       <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-400" /></div>
                     ) : followersList.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-zinc-500">Aucun abonné.</p>
+                      <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonné.</p>
                     ) : (
                       <div className="space-y-2">
                         {followersList.map((p) => (
-                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-zinc-800/60 px-4 py-3">
+                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
                             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -450,7 +450,7 @@ export default function ProfileModal({
                             <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
                               onClick={() => handleRemoveFollowerUser(p.id)}
-                              className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
+                              className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />
                             </button>
@@ -466,17 +466,17 @@ export default function ProfileModal({
                 {/* ============================================ */}
                 {subView === "following" && (
                   <div className="space-y-5">
-                    <p className="mb-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Abonnements ({followingCount})
                     </p>
                     {loadingList ? (
                       <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-400" /></div>
                     ) : followingList.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-zinc-500">Aucun abonnement.</p>
+                      <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonnement.</p>
                     ) : (
                       <div className="space-y-2">
                         {followingList.map((p) => (
-                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-zinc-800/60 px-4 py-3">
+                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
                             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -488,7 +488,7 @@ export default function ProfileModal({
                             <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
                               onClick={() => handleUnfollowUser(p.id)}
-                              className="rounded-xl p-2 text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
+                              className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />
                             </button>
@@ -535,7 +535,7 @@ export default function ProfileModal({
                               value={nameInput}
                               onChange={(e) => setNameInput(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Enter") saveName() }}
-                              className="w-40 rounded-lg border border-indigo-500/50 bg-zinc-800 px-3 py-1.5 text-center text-sm text-white outline-none"
+                              className="w-40 rounded-lg border border-indigo-500/50 bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 text-center text-sm text-gray-900 dark:text-white outline-none"
                             />
                             <button
                               onClick={saveName}
@@ -544,7 +544,7 @@ export default function ProfileModal({
                             >
                               {saving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
                             </button>
-                            <button onClick={() => setEditingName(false)} className="rounded-lg bg-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-600">
+                            <button onClick={() => setEditingName(false)} className="rounded-lg bg-gray-200 dark:bg-zinc-700 p-1.5 text-gray-600 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-600">
                               <X size={14} />
                             </button>
                           </div>
@@ -553,12 +553,12 @@ export default function ProfileModal({
                             <p className="text-base font-semibold transition-colors group-hover/name:text-indigo-400">
                               @{username || "…"}
                             </p>
-                            <p className="text-[10px] text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
+                            <p className="text-[10px] text-gray-400 dark:text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
                               Cliquer pour modifier
                             </p>
                           </button>
                         )}
-                        <p className="mt-1 flex items-center justify-center gap-1 text-xs text-zinc-500">
+                        <p className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-400 dark:text-zinc-500">
                           <Mail size={11} /> {user?.email}
                         </p>
                       </div>
@@ -566,39 +566,39 @@ export default function ProfileModal({
 
                     {/* Stats (clickable) */}
                     <div className="grid grid-cols-3 gap-3">
-                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-white/5 bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
+                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
                         <span className="text-indigo-400"><MapPin size={14} /></span>
                         <span className="text-lg font-bold">{spotsCount}</span>
-                        <span className="text-xs text-zinc-500">Spots</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
                       </button>
-                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-white/5 bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
+                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
                         <span className="text-indigo-400"><Users size={14} /></span>
                         <span className="text-lg font-bold">{followersCount}</span>
-                        <span className="text-xs text-zinc-500">Abonnés</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnés</span>
                       </button>
-                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-white/5 bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
+                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-500/5">
                         <span className="text-indigo-400"><Users size={14} /></span>
                         <span className="text-lg font-bold">{followingCount}</span>
-                        <span className="text-xs text-zinc-500">Abonnements</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnements</span>
                       </button>
                     </div>
 
                     {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
 
                     {/* Ghost Mode */}
-                    <div className="border-t border-white/10 pt-5">
+                    <div className="border-t border-gray-200 dark:border-white/10 pt-5">
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="flex items-center gap-2 text-sm font-semibold">
-                            <Ghost size={14} className="text-zinc-400" /> Mode Fantôme
+                            <Ghost size={14} className="text-gray-500 dark:text-zinc-400" /> Mode Fantôme
                           </h3>
-                          <p className="mt-1 max-w-[250px] text-[11px] text-zinc-500">
+                          <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
                             Cache ta position sur la carte pour les autres.
                           </p>
                         </div>
                         <button
                           onClick={toggleGhostMode}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-indigo-500" : "bg-zinc-700"}`}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
                         >
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isGhostMode ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
@@ -606,20 +606,20 @@ export default function ProfileModal({
                     </div>
 
                     {/* Theme Toggle */}
-                    <div className="border-t border-white/10 pt-5">
+                    <div className="border-t border-gray-200 dark:border-white/10 pt-5">
                       <div className="flex items-center justify-between">
                         <div>
                           <h3 className="flex items-center gap-2 text-sm font-semibold">
-                            {theme === "dark" ? <Moon size={14} className="text-zinc-400" /> : <Sun size={14} className="text-amber-400" />}
+                            {theme === "dark" ? <Moon size={14} className="text-gray-500 dark:text-zinc-400" /> : <Sun size={14} className="text-amber-400" />}
                             Thème clair
                           </h3>
-                          <p className="mt-1 max-w-[250px] text-[11px] text-zinc-500">
+                          <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
                             Passe du mode sombre au mode clair
                           </p>
                         </div>
                         <button
                           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === "light" ? "bg-indigo-500" : "bg-zinc-700"}`}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === "light" ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
                         >
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${theme === "light" ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
@@ -635,7 +635,7 @@ export default function ProfileModal({
                            onSignOut?.()
                            onClose()
                          }}
-                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-800/50 border border-white/5 px-4 py-3 text-sm font-semibold text-zinc-300 transition-colors hover:bg-zinc-800"
+                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 dark:bg-zinc-800/50 border border-gray-200 dark:border-white/5 px-4 py-3 text-sm font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-200 dark:hover:bg-zinc-800"
                        >
                          <LogOut size={16} />
                          Se déconnecter
@@ -652,7 +652,7 @@ export default function ProfileModal({
                         {deletingAccount ? <LoaderCircle size={16} className="animate-spin" /> : <Trash2 size={16} />}
                         Supprimer mon compte
                       </button>
-                      <p className="mt-2 text-center text-[10px] text-zinc-600">
+                      <p className="mt-2 text-center text-[10px] text-gray-400 dark:text-zinc-600">
                         Action irréversible.
                       </p>
                     </div>

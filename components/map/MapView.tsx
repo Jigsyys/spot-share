@@ -51,7 +51,7 @@ const CATEGORIES = [
   { key: "other", label: "Autre", emoji: "📍" },
 ]
 
-// Couche fill-extrusion pour les bâtiments 3D
+// Couche fill-extrusion pour les bâtiments 3D — thème sombre
 const BUILDINGS_LAYER = {
   id: "3d-buildings",
   source: "composite",
@@ -98,7 +98,56 @@ const BUILDINGS_LAYER = {
     "fill-extrusion-ambient-occlusion-radius": 3,
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any // Kept as any because mapbox-gl layer types are notoriously difficult with complex expressions
+} as any
+
+// Couche fill-extrusion pour les bâtiments 3D — thème clair
+const BUILDINGS_LAYER_LIGHT = {
+  id: "3d-buildings",
+  source: "composite",
+  "source-layer": "building",
+  filter: ["==", "extrude", "true"],
+  type: "fill-extrusion",
+  minzoom: 10,
+  paint: {
+    "fill-extrusion-color": [
+      "interpolate",
+      ["linear"],
+      ["get", "height"],
+      0,
+      "#e2e8f0",
+      50,
+      "#cbd5e1",
+      100,
+      "#94a3b8",
+      200,
+      "#64748b",
+      400,
+      "#475569",
+    ],
+    "fill-extrusion-height": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      10,
+      0,
+      10.05,
+      ["get", "height"],
+    ],
+    "fill-extrusion-base": [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      10,
+      0,
+      10.05,
+      ["get", "min_height"],
+    ],
+    "fill-extrusion-opacity": 0.65,
+    "fill-extrusion-ambient-occlusion-intensity": 0.3,
+    "fill-extrusion-ambient-occlusion-radius": 3,
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as any
 
 const CATEGORY_COLORS: Record<string, string> = {
   café: "#F59E0B",
@@ -188,7 +237,7 @@ function OpeningHoursBlock({
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
-            <div className="mt-2 space-y-1 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-2.5">
+            <div className="mt-2 space-y-1 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-900/60 px-3 py-2.5">
               {weekdays.map((day, i) => (
                 <p
                   key={i}
@@ -773,7 +822,7 @@ export default function MapView() {
 
   if (authLoading) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-zinc-950">
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-gray-50 dark:bg-zinc-950">
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
@@ -781,7 +830,7 @@ export default function MapView() {
         >
           <MapPin size={28} className="text-white" />
         </motion.div>
-        <p className="text-sm font-medium tracking-wide text-zinc-400">
+        <p className="text-sm font-medium tracking-wide text-gray-500 dark:text-zinc-400">
           Chargement...
         </p>
       </div>
@@ -789,7 +838,7 @@ export default function MapView() {
   }
 
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-zinc-950">
+    <div className="relative h-screen w-full overflow-hidden bg-gray-50 dark:bg-zinc-950">
       {/* Map Layer */}
       <div className="absolute inset-0 h-full w-full">
         <Map
@@ -962,7 +1011,7 @@ export default function MapView() {
                         initials
                       )}
                     </div>
-                    <div className={`absolute -right-0.5 -bottom-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-zinc-950 ${friendOnline ? "bg-green-500" : "bg-red-500"}`} />
+                    <div className={`absolute -right-0.5 -bottom-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-zinc-950 ${friendOnline ? "bg-green-500" : "bg-red-500"}`} />
                   </div>
                   <div className="z-0 -mt-1.5 h-2.5 w-2.5 rotate-45 bg-purple-400" />
                   <span className="absolute -bottom-6 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
@@ -974,14 +1023,14 @@ export default function MapView() {
           })}
 
           {/* 3D Buildings Layer */}
-          {is3D && <Layer {...BUILDINGS_LAYER} />}
+          {is3D && <Layer {...(resolvedTheme === "light" ? BUILDINGS_LAYER_LIGHT : BUILDINGS_LAYER)} />}
         </Map>
       </div>
 
       {/* Map Error Overlay */}
       {mapError && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-          <div className="max-w-md rounded-3xl border border-white/10 bg-zinc-900 p-8 text-center">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm">
+          <div className="max-w-md rounded-3xl border border-gray-200 dark:border-white/10 bg-zinc-900 p-8 text-center">
             <p className="mb-2 text-lg font-semibold text-red-400">
               ⚠️ Erreur carte
             </p>
@@ -995,7 +1044,7 @@ export default function MapView() {
         <div className="pointer-events-auto relative" ref={filterMenuRef}>
           <button
             onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-zinc-900/80 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-zinc-800"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
           >
             {activeCategory === "all" ? (
               <Filter size={18} />
@@ -1012,7 +1061,7 @@ export default function MapView() {
                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="absolute left-0 top-[calc(100%+0.5rem)] w-48 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 shadow-2xl backdrop-blur-xl"
+                className="absolute left-0 top-[calc(100%+0.5rem)] w-48 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-900/95 shadow-2xl backdrop-blur-xl"
               >
                 <div className="no-scrollbar max-h-[60vh] overflow-y-auto py-1">
                   <button
@@ -1021,7 +1070,7 @@ export default function MapView() {
                       setIsCategoryMenuOpen(false)
                     }}
                     className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-white/5",
+                      "flex w-full items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
                       activeCategory === "all"
                         ? "bg-indigo-500/10 text-indigo-400"
                         : "text-zinc-300"
@@ -1037,7 +1086,7 @@ export default function MapView() {
                         setIsCategoryMenuOpen(false)
                       }}
                       className={cn(
-                        "flex w-full items-center gap-3 border-t border-white/5 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-white/5",
+                        "flex w-full items-center gap-3 border-t border-gray-100 dark:border-white/5 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5",
                         activeCategory === cat.key
                           ? "bg-indigo-500/10 text-indigo-400"
                           : "text-zinc-300"
@@ -1067,7 +1116,7 @@ export default function MapView() {
       </div>
 
       <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
-        <div className="flex items-center gap-1 rounded-full border border-white/10 bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
+        <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
           {filterButtons.map(({ key, label, icon }) => (
             <motion.button
               key={key}
@@ -1076,7 +1125,7 @@ export default function MapView() {
                 "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
                 filter === key
                   ? "bg-indigo-500 text-white shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
-                  : "text-zinc-400 hover:text-white"
+                  : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
               )}
               whileTap={{ scale: 0.95 }}
             >
@@ -1094,12 +1143,12 @@ export default function MapView() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="mt-4 w-full max-w-xs rounded-2xl border border-white/10 bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
+              className="mt-4 w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
             >
-              <p className="mb-1 text-sm font-semibold text-white">
+              <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
                 C&apos;est un peu vide par ici...
               </p>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
                 Ajoute ton premier lieu favori ou recherche des amis !
               </p>
             </motion.div>
@@ -1122,7 +1171,7 @@ export default function MapView() {
           whileTap={{ scale: 0.92 }}
           onClick={locateUser}
           className={cn(
-            "pointer-events-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-3 text-white shadow-lg backdrop-blur-md transition-all hover:bg-zinc-800",
+            "pointer-events-auto rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-3 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800",
             isLocating && "animate-pulse"
           )}
         >
@@ -1159,7 +1208,7 @@ export default function MapView() {
             "pointer-events-auto rounded-2xl border p-3 shadow-lg backdrop-blur-md transition-all",
             is3D
               ? "border-indigo-400/50 bg-indigo-500/90 text-white shadow-indigo-500/30"
-              : "border-white/10 bg-zinc-900/90 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              : "border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
           )}
           title={is3D ? "Passer en 2D" : "Passer en 3D"}
         >
@@ -1182,7 +1231,7 @@ export default function MapView() {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[82vh] cursor-grab flex-col overflow-hidden rounded-[2.5rem] border border-white/10 bg-zinc-950/95 text-white shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 bottom-[calc(4rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[82vh] cursor-grab flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
             {/* Drag Handle Mobile — au-dessus de la photo */}
             <div className="absolute top-3 left-1/2 z-30 -translate-x-1/2 sm:hidden">
@@ -1190,7 +1239,7 @@ export default function MapView() {
             </div>
 
             <button
-              className="absolute top-4 right-4 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-zinc-300 backdrop-blur-md transition-colors hover:text-white"
+              className="absolute top-4 right-4 z-30 flex h-8 w-8 items-center justify-center rounded-full bg-gray-200/80 dark:bg-black/60 text-gray-600 dark:text-zinc-300 backdrop-blur-md transition-colors hover:text-gray-900 dark:hover:text-white"
               onClick={() => setSelectedSpot(null)}
             >
               <X size={16} />
@@ -1233,7 +1282,7 @@ export default function MapView() {
                       <button
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={() => setCarouselIdx(i => Math.max(0, i - 1))}
-                        className="absolute left-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-30"
+                        className="absolute left-3 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm disabled:opacity-30"
                         disabled={carouselIdx === 0}
                       >
                         <ChevronLeft size={18} />
@@ -1284,8 +1333,8 @@ export default function MapView() {
               />
 
               {selectedSpot.description && cleanDescription(selectedSpot.description) && (
-                <div className="mt-4 rounded-2xl border border-white/5 bg-zinc-900/60 p-4">
-                  <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-300">
+                <div className="mt-4 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
+                  <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-zinc-300">
                     {cleanDescription(selectedSpot.description)}
                   </p>
                 </div>
@@ -1315,7 +1364,7 @@ export default function MapView() {
                       toast.success("Lien copié dans le presse-papier !")
                     }
                   }}
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-white/10 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-white/20"
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 dark:bg-white/10 px-5 py-3 text-sm font-bold text-gray-700 dark:text-white transition-colors hover:bg-gray-200 dark:hover:bg-white/20"
                 >
                   <Share size={16} /> Partager
                 </button>
@@ -1323,7 +1372,7 @@ export default function MapView() {
                   <>
                     <button
                       onClick={() => setEditingSpot(selectedSpot)}
-                      className="flex items-center justify-center rounded-2xl bg-white/10 p-3 text-zinc-300 transition-colors hover:bg-white/20"
+                      className="flex items-center justify-center rounded-2xl bg-gray-100 dark:bg-white/10 p-3 text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-200 dark:hover:bg-white/20"
                       title="Modifier ce spot"
                     >
                       <Pencil size={18} />
@@ -1347,7 +1396,7 @@ export default function MapView() {
                 )}
               </div>
 
-              <div className="mt-5 flex items-center justify-between border-t border-white/5 pt-4">
+              <div className="mt-5 flex items-center justify-between border-t border-gray-100 dark:border-white/5 pt-4 text-gray-500 dark:text-zinc-500">
                 <div
                   className={cn(
                     "flex items-center gap-2",
@@ -1361,7 +1410,7 @@ export default function MapView() {
                     }
                   }}
                 >
-                  <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-zinc-800 text-xs font-bold text-indigo-400">
+                  <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800 text-xs font-bold text-indigo-500 dark:text-indigo-400">
                     {selectedSpot.profiles?.avatar_url ? (
                        <img src={selectedSpot.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
                     ) : (
@@ -1372,7 +1421,7 @@ export default function MapView() {
                     <p className="text-xs leading-none text-zinc-500">
                       Ajouté par
                     </p>
-                    <span className="text-sm font-semibold text-zinc-300 group-hover:underline">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-zinc-300 group-hover:underline">
                       @{selectedSpot.profiles?.username ?? "inconnu"}
                     </span>
                   </div>
@@ -1396,7 +1445,7 @@ export default function MapView() {
 
       {/* Mobile Bottom Navigation Bar */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[60] border-t border-white/10 bg-zinc-950/90 backdrop-blur-xl sm:hidden"
+        className="fixed right-0 bottom-0 left-0 z-[60] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">
@@ -1411,7 +1460,7 @@ export default function MapView() {
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
                !showProfileModal && !showFriendsModal && !showAddModal
                  ? "text-indigo-400"
-                 : "text-zinc-500 hover:text-zinc-300"
+                 : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <MapPin
@@ -1434,13 +1483,13 @@ export default function MapView() {
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showFriendsModal ? "text-indigo-400" : "text-zinc-500 hover:text-zinc-300"
+               showFriendsModal ? "text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <div className="relative">
               <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
               {incomingCount > 0 && (
-                <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
+                <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {incomingCount}
                 </div>
               )}
@@ -1455,7 +1504,7 @@ export default function MapView() {
                 setShowFriendsModal(false)
                 handleOpenAddSpot()
               }}
-              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-zinc-950 bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
+              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
             >
               <Plus size={24} strokeWidth={3} />
             </button>
@@ -1468,7 +1517,7 @@ export default function MapView() {
               setShowAddModal(false)
               handleSurprise()
             }}
-            className="flex w-16 flex-col items-center gap-1 p-2 text-zinc-500 hover:text-zinc-300"
+            className="flex w-16 flex-col items-center gap-1 p-2 text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
           >
             <Compass size={22} />
             <span className="text-[10px] font-medium">Surprise</span>
@@ -1482,7 +1531,7 @@ export default function MapView() {
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showProfileModal ? "text-indigo-400" : "text-zinc-500 hover:text-zinc-300"
+               showProfileModal ? "text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
