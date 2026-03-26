@@ -124,10 +124,10 @@ async function geminiExtractQueries(meta: VideoMetadata, geminiKey: string): Pro
     model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.1,
-      maxOutputTokens: 512,
-      // @ts-ignore
-      thinkingConfig: { thinkingBudget: 0 },
+      temperature: 0,
+      maxOutputTokens: 2048,
+      // @ts-ignore — thinkingConfig valide pour les modèles 2.5
+      thinkingConfig: { thinkingBudget: 512 },
     },
   })
 
@@ -178,9 +178,9 @@ Renvoie UNIQUEMENT ce JSON (queries = tableau de 1 à 3 requêtes) :
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()
   const parsed = JSON.parse(cleaned) as GeminiPass
 
-  // Normaliser : s'assurer que queries est bien un tableau non-vide
-  if (!Array.isArray(parsed.queries) || parsed.queries.length === 0) {
-    throw new Error("Gemini n'a retourné aucune requête valide")
+  // Normaliser : s'assurer que queries est un tableau (peut être vide si aucun signal)
+  if (!Array.isArray(parsed.queries)) {
+    parsed.queries = []
   }
 
   return parsed
@@ -235,14 +235,33 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     geminiData = await geminiExtractQueries(meta, geminiKey)
   } catch (e) {
     console.error("[Phase 1] Erreur Gemini:", (e as Error).message)
-    return { erreur: "L'analyse IA a échoué. Réessaie dans quelques secondes." }
+    geminiData = { queries: [], description_suggeree: "", categorie_suggeree: "" }
   }
 
   // ── Phase 2 : Google Places — cascade ──────────────────────────────────
+  // Construction de la cascade de requêtes :
+  // - Si locationHint contient un nom (commence par une lettre) → priorité absolue
+  // - Si locationHint est une adresse pure (commence par un chiffre) → fallback après Gemini
+  //   car l'adresse seule retournerait la rue, pas le commerce
+  const allQueries: string[] = []
+  const hint = meta.locationHint?.trim() ?? null
+  const hintIsAddress = hint ? /^\d/.test(hint) : false
+
+  if (hint && !hintIsAddress) allQueries.push(hint)          // nom connu → premier
+  for (const q of geminiData.queries) {
+    if (q?.trim() && !allQueries.includes(q.trim())) allQueries.push(q.trim())
+  }
+  if (hint && hintIsAddress && !allQueries.includes(hint)) allQueries.push(hint) // adresse pure → dernier recours
+
+  if (allQueries.length === 0) {
+    console.warn("[Phase 2] Aucune requête disponible — retour 404")
+    return { erreur: "Lieu introuvable : aucun signal géographique détecté dans la vidéo." }
+  }
+
   let places: PlacesResult[] = []
   let usedQuery = ""
 
-  for (const query of geminiData.queries) {
+  for (const query of allQueries) {
     if (!query?.trim()) continue
     try {
       const results = await searchGooglePlaces(query.trim(), placesKey)

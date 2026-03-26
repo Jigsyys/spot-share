@@ -54,20 +54,33 @@ function stripEmojis(s: string): string {
 
 /**
  * Extrait un nom de lieu à partir d'un texte brut après 📍 ou 📌.
- * S'arrête dès qu'un autre emoji, une date, un prix ou un mot de description est rencontré.
+ * Version stricte pour les titres/noms (rejette les chiffres en début).
  */
 function extractPlaceName(raw: string): string | null {
-  // Retire le marqueur emoji en tête
   const withoutMarker = raw.replace(/^[📍📌]\s*/u, "").trim()
-  // Supprime tout ce qui est après le premier emoji non-lettre (🅿️, 🗓, etc.)
   const nameOnly = withoutMarker.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}].*/gu, "").trim()
   const cleaned = nameOnly.replace(/\s+/g, " ").trim().slice(0, 70)
   if (cleaned.length < 3) return null
-  // Rejette si commence par un chiffre ou ressemble à une description
   if (/^\d/.test(cleaned)) return null
   const descWords = ["floraison","prévue","environ","bouquet","prévoyez","venez","respectez","disponible","gps","point","toutes","infos","conseils","seulement","quelques","semaine"]
   if (descWords.some(w => cleaned.toLowerCase().includes(w))) return null
   return cleaned
+}
+
+/**
+ * Extrait le locationHint complet depuis un 📍/📌 — accepte les adresses numériques.
+ * "📍 19 Rue Soufflot, 75005 Paris" → "19 Rue Soufflot, 75005 Paris" ✓
+ * "📍 A Braccetto, 19 Rue Soufflot" → "A Braccetto, 19 Rue Soufflot" ✓
+ */
+function extractLocationHint(text: string): string | null {
+  const match = text.match(/[📍📌]\s*([^\n#]{3,120})/u)
+  if (!match) return null
+  // Arrête au premier emoji non-alphanumérique (sauf virgule, tiret, parenthèse)
+  const raw = match[1].replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2700}-\u{27BF}].*/gu, "").replace(/\s+/g, " ").trim().slice(0, 120)
+  if (raw.length < 3) return null
+  const descWords = ["floraison","prévue","environ","prévoyez","venez","respectez","disponible","infos","conseils","semaine"]
+  if (descWords.some(w => raw.toLowerCase().includes(w))) return null
+  return raw
 }
 
 function usernameToName(handle: string): string {
@@ -257,12 +270,8 @@ function buildMetaFromCaption(
   thumbnail: string | null,
   source: string,
 ): VideoMeta {
-  const pinMatches = [...caption.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
-  let locationHint: string | null = null
-  for (const m of pinMatches) {
-    const candidate = extractPlaceName(m[0])
-    if (candidate) { locationHint = candidate; break }
-  }
+  // Cherche le premier 📍/📌 — extrait nom OU adresse (accepte chiffres en début)
+  const locationHint = extractLocationHint(caption)
   let titleHint: string | null = null
   if (!locationHint) {
     const dashParts = caption.split(/\s+[-–]\s+/)
@@ -336,14 +345,9 @@ async function extractMetadata(url: string): Promise<VideoMeta> {
       console.log("[yt-dlp] OK — title:", info.title?.slice(0, 80))
       const uploaderRaw = info.uploader_id || info.uploader || info.channel || null
       const username = uploaderRaw ? uploaderRaw.replace(/^@/, "") : null
-      // Extraire le nom de lieu depuis 📍 ou 📌 dans la description yt-dlp
+      // Extraire le locationHint depuis 📍/📌 dans la description yt-dlp (accepte adresses)
       const desc = info.description || ""
-      const ytPinMatches = [...desc.matchAll(/[📍📌]\s*[^\n#]{3,80}/gu)]
-      let locationHint: string | null = null
-      for (const m of ytPinMatches) {
-        const candidate = extractPlaceName(m[0])
-        if (candidate) { locationHint = candidate; break }
-      }
+      const locationHint = extractLocationHint(desc)
       if (locationHint) console.log("[yt-dlp] 📍/📌 locationHint:", locationHint)
 
       // TikTok/Insta : souvent "NOM DU LIEU - description..." dans le titre
