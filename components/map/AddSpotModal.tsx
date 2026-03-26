@@ -414,7 +414,7 @@ export default function AddSpotModal({
                           placeholder="Lien Instagram ou TikTok..."
                           value={instagramUrl}
                           onChange={(e) => setInstagramUrl(e.target.value)}
-                          className={cn(inputCls, "!pl-10", autoFillLoading || autoFillDone ? "!pr-10" : instagramUrl ? "!pr-4" : "!pr-20")}
+                          className={cn(inputCls, "!pl-10", autoFillLoading || autoFillDone ? "!pr-10" : "!pr-20")}
                         />
                         {autoFillLoading && (
                           <LoaderCircle
@@ -428,19 +428,15 @@ export default function AddSpotModal({
                             className="absolute top-1/2 right-3 -translate-y-1/2 text-emerald-400"
                           />
                         )}
-                        {!instagramUrl && !autoFillLoading && !autoFillDone && (
+                        {!autoFillLoading && !autoFillDone && (
                           <button
                             type="button"
                             onClick={async () => {
                               try {
                                 const text = await navigator.clipboard.readText()
-                                if (text && (text.includes("instagram.com") || text.includes("instagr.am") || text.includes("tiktok.com"))) {
-                                  setInstagramUrl(text.trim())
-                                } else {
-                                  toast.error("Pas de lien Instagram/TikTok dans le presse-papier")
-                                }
+                                if (text?.trim()) setInstagramUrl(text.trim())
                               } catch {
-                                toast.error("Autorise l'accès au presse-papier")
+                                /* permission refusée — silencieux */
                               }
                             }}
                             className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center gap-1 rounded-lg bg-gray-200 dark:bg-zinc-700 px-2 py-1 text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-300 dark:hover:bg-zinc-600"
