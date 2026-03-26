@@ -869,13 +869,22 @@ export default function MapView() {
     }
   }, [user, selectedSpot, visits, userProfile])
 
-  // Fetch visits when a spot is selected
+  // Fetch visits + realtime subscription when a spot is selected
   useEffect(() => {
-    if (selectedSpot) {
-      fetchVisits(selectedSpot.id)
-    } else {
+    if (!selectedSpot) {
       setVisits([])
+      return
     }
+    fetchVisits(selectedSpot.id)
+    const channel = supabaseRef.current
+      .channel(`spot-visits-${selectedSpot.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "spot_visits", filter: `spot_id=eq.${selectedSpot.id}` },
+        () => fetchVisits(selectedSpot.id)
+      )
+      .subscribe()
+    return () => { supabaseRef.current.removeChannel(channel) }
   }, [selectedSpot?.id, fetchVisits])
 
   const points = visibleSpots.map((spot) => ({

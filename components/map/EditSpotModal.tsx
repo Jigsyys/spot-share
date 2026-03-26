@@ -162,25 +162,25 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
                       {/* Delete */}
                       <button
                         onClick={() => handlePhotoDelete(idx)}
-                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white"
                       >
                         <X size={12} />
                       </button>
-                      {/* Reorder arrows */}
-                      <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      {/* Reorder arrows — toujours visibles (mobile friendly) */}
+                      <div className="absolute bottom-1 left-0 right-0 flex justify-center gap-1">
                         <button
                           onClick={() => handlePhotoMove(idx, -1)}
                           disabled={idx === 0}
-                          className="flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-30"
+                          className="flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-30"
                         >
-                          <ChevronLeft size={10} />
+                          <ChevronLeft size={11} />
                         </button>
                         <button
                           onClick={() => handlePhotoMove(idx, 1)}
                           disabled={idx === photos.length - 1}
-                          className="flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-30"
+                          className="flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white disabled:opacity-30"
                         >
-                          <ChevronRight size={10} />
+                          <ChevronRight size={11} />
                         </button>
                       </div>
                     </div>

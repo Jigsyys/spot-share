@@ -13,6 +13,7 @@ import {
   PenLine,
   Sparkles,
   UploadCloud,
+  Clipboard,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -413,7 +414,7 @@ export default function AddSpotModal({
                           placeholder="Lien Instagram ou TikTok..."
                           value={instagramUrl}
                           onChange={(e) => setInstagramUrl(e.target.value)}
-                          className={cn(inputCls, "!pr-10 !pl-10")}
+                          className={cn(inputCls, "!pl-10", autoFillLoading || autoFillDone ? "!pr-10" : instagramUrl ? "!pr-4" : "!pr-20")}
                         />
                         {autoFillLoading && (
                           <LoaderCircle
@@ -426,6 +427,26 @@ export default function AddSpotModal({
                             size={15}
                             className="absolute top-1/2 right-3 -translate-y-1/2 text-emerald-400"
                           />
+                        )}
+                        {!instagramUrl && !autoFillLoading && !autoFillDone && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const text = await navigator.clipboard.readText()
+                                if (text && (text.includes("instagram.com") || text.includes("instagr.am") || text.includes("tiktok.com"))) {
+                                  setInstagramUrl(text.trim())
+                                } else {
+                                  toast.error("Pas de lien Instagram/TikTok dans le presse-papier")
+                                }
+                              } catch {
+                                toast.error("Autorise l'accès au presse-papier")
+                              }
+                            }}
+                            className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center gap-1 rounded-lg bg-gray-200 dark:bg-zinc-700 px-2 py-1 text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-300 dark:hover:bg-zinc-600"
+                          >
+                            <Clipboard size={11} /> Coller
+                          </button>
                         )}
                       </div>
                       {autoFillDone && (
