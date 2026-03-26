@@ -57,6 +57,7 @@ interface PlacesResult {
   regularOpeningHours?: { weekdayDescriptions?: string[] }
   primaryType?: string
   primaryTypeDisplayName?: { text: string }
+  types?: string[]
   editorialSummary?: { text: string }
   rating?: number
   userRatingCount?: number
@@ -81,6 +82,7 @@ const PLACES_FIELD_MASK = [
   "places.regularOpeningHours",
   "places.primaryType",
   "places.primaryTypeDisplayName",
+  "places.types",
   "places.editorialSummary",
   "places.rating",
   "places.userRatingCount",
@@ -90,8 +92,7 @@ const PLACES_FIELD_MASK = [
 /** Mapping Google Places primaryType → nos catégories */
 const PRIMARY_TYPE_TO_CATEGORY: Record<string, IdentifiedPlace["categorie"]> = {
   // Café
-  coffee_shop: "Café", cafe: "Café", bakery: "Café", tea_house: "Café",
-  dessert_shop: "Café", ice_cream_shop: "Café", juice_shop: "Café",
+  coffee_shop: "Café", cafe: "Café", tea_house: "Café",
   // Restaurant
   restaurant: "Restaurant", fast_food_restaurant: "Restaurant",
   pizza_restaurant: "Restaurant", hamburger_restaurant: "Restaurant",
@@ -122,13 +123,28 @@ const PRIMARY_TYPE_TO_CATEGORY: Record<string, IdentifiedPlace["categorie"]> = {
   tourist_attraction: "Culture", historic_site: "Culture",
   monument: "Culture", aquarium: "Culture", zoo: "Culture",
   amusement_park: "Culture", planetarium: "Culture",
-  // Shopping
-  shopping_mall: "Shopping", clothing_store: "Shopping",
-  shoe_store: "Shopping", jewelry_store: "Shopping",
+  // Shopping — couvre les boutiques food-retail et non-food
+  shopping_mall: "Shopping", department_store: "Shopping",
+  clothing_store: "Shopping", shoe_store: "Shopping",
+  jewelry_store: "Shopping", accessory_store: "Shopping",
   beauty_salon: "Shopping", hair_salon: "Shopping", spa: "Shopping",
-  market: "Shopping", florist: "Shopping", book_store: "Shopping",
-  department_store: "Shopping", electronics_store: "Shopping",
-  gift_shop: "Shopping", cosmetics_store: "Shopping",
+  cosmetics_store: "Shopping", perfume_store: "Shopping",
+  market: "Shopping", grocery_store: "Shopping", supermarket: "Shopping",
+  florist: "Shopping", book_store: "Shopping",
+  electronics_store: "Shopping", home_goods_store: "Shopping",
+  furniture_store: "Shopping", hardware_store: "Shopping",
+  pet_store: "Shopping", toy_store: "Shopping",
+  sporting_goods_store: "Shopping", bicycle_store: "Shopping",
+  gift_shop: "Shopping", souvenir_shop: "Shopping",
+  stationery_store: "Shopping", art_supply_store: "Shopping",
+  antique_store: "Shopping", second_hand_store: "Shopping",
+  candy_store: "Shopping", chocolate_factory: "Shopping",
+  wine_shop: "Shopping", liquor_store: "Shopping",
+  // Boulangeries/pâtisseries/épiceries : Café si consommation sur place,
+  // Shopping si c'est avant tout une boutique à emporter — résolu via types secondaires
+  bakery: "Café", pastry_shop: "Café",
+  dessert_shop: "Café", ice_cream_shop: "Café",
+  juice_shop: "Café", smoothie_bar: "Café",
 }
 
 const PRICE_LABELS: Record<string, string> = {
@@ -143,14 +159,56 @@ const PRICE_LABELS: Record<string, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Types secondaires Google qui indiquent clairement une boutique.
+ * Si présents, ils prennent le dessus sur un primaryType ambigu (bakery → Café).
+ */
+const SHOPPING_SECONDARY_TYPES = new Set([
+  "store", "shop", "shopping_mall", "department_store",
+  "clothing_store", "shoe_store", "jewelry_store", "accessory_store",
+  "beauty_salon", "hair_salon", "spa", "cosmetics_store", "perfume_store",
+  "grocery_store", "supermarket", "market",
+  "book_store", "electronics_store", "home_goods_store",
+  "furniture_store", "hardware_store", "pet_store", "toy_store",
+  "sporting_goods_store", "bicycle_store",
+  "gift_shop", "souvenir_shop", "stationery_store", "art_supply_store",
+  "antique_store", "second_hand_store",
+  "candy_store", "chocolate_factory", "wine_shop", "liquor_store",
+  "florist",
+])
+
+/** Types secondaires indiquant un lieu de consommation sur place (Café/Restaurant). */
+const CAFE_RESTAURANT_SECONDARY_TYPES = new Set([
+  "cafe", "coffee_shop", "restaurant", "food", "meal_takeaway",
+  "meal_delivery", "bar",
+])
+
 function categoryFromPlaces(place: PlacesResult, geminiCategory: string): IdentifiedPlace["categorie"] {
-  // 1. primaryType Google → le plus fiable
-  if (place.primaryType && PRIMARY_TYPE_TO_CATEGORY[place.primaryType]) {
-    return PRIMARY_TYPE_TO_CATEGORY[place.primaryType]
+  const allTypes = [
+    ...(place.primaryType ? [place.primaryType] : []),
+    ...(place.types ?? []),
+  ]
+
+  // 1. primaryType → référence principale
+  const primaryCat = place.primaryType ? PRIMARY_TYPE_TO_CATEGORY[place.primaryType] : undefined
+
+  // 2. Si le primaryType donne Café mais qu'un type secondaire indique clairement
+  //    une boutique (pas de consommation sur place), on passe en Shopping.
+  if (primaryCat === "Café") {
+    const hasShoppingSignal = allTypes.some(t => SHOPPING_SECONDARY_TYPES.has(t))
+    const hasCafeSignal = allTypes.some(t => CAFE_RESTAURANT_SECONDARY_TYPES.has(t))
+    if (hasShoppingSignal && !hasCafeSignal) return "Shopping"
   }
-  // 2. Types secondaires
-  // (pas exposés dans l'interface — primaryType suffit dans 95% des cas)
-  // 3. Fallback : suggestion Gemini (basée sur le texte vidéo)
+
+  if (primaryCat) return primaryCat
+
+  // 3. Aucun primaryType connu → parcourir les types secondaires par ordre de priorité
+  for (const t of allTypes) {
+    const cat = PRIMARY_TYPE_TO_CATEGORY[t]
+    if (cat) return cat
+  }
+
+  // 4. Fallback Gemini
   const trimmed = geminiCategory?.trim() ?? ""
   if ((VALID_CATEGORIES as readonly string[]).includes(trimmed)) {
     return trimmed as IdentifiedPlace["categorie"]
