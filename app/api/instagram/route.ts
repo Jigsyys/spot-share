@@ -1188,14 +1188,15 @@ export async function GET(request: Request) {
 
     // ── Étape 3 : Réponse finale ─────────────────────────────────────────
     return NextResponse.json({
-      title:        result.titre,
-      nom_officiel: result.nom_officiel_google,
-      description:  result.description,
-      location:     result.adresse,
-      category:     result.categorie,
-      photos:       result.photos,        // EXCLUSIVEMENT Google Places
-      image_url:    result.photos[0] ?? null,
-      coordinates:  result.coordonnees,
+      title:                result.titre,
+      nom_officiel:         result.nom_officiel_google,
+      description:          result.description,
+      location:             result.adresse,
+      category:             result.categorie,
+      photos:               result.photos,
+      image_url:            result.photos[0] ?? null,
+      coordinates:          result.coordonnees,
+      weekday_descriptions: result.horaires.length > 0 ? result.horaires : null,
     })
   } catch (e) {
     console.error("[Pipeline error]:", e)

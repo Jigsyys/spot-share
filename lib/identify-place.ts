@@ -28,6 +28,7 @@ export interface IdentifiedPlace {
   adresse: string
   coordonnees: { lat: number; lng: number }
   photos: string[]
+  horaires: string[]
 }
 
 export interface IdentifyPlaceError {
@@ -42,7 +43,6 @@ export type IdentifyPlaceResult = IdentifiedPlace | IdentifyPlaceError
 
 interface GeminiPass {
   search_query: string
-  titre_explicite: string
   description_suggeree: string
   categorie_suggeree: string
 }
@@ -52,6 +52,7 @@ interface PlacesResult {
   formattedAddress?: string
   location?: { latitude: number; longitude: number }
   photos?: Array<{ name: string }>
+  regularOpeningHours?: { weekdayDescriptions?: string[] }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ const VALID_CATEGORIES = [
 const PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 const PLACES_PHOTO_BASE = "https://places.googleapis.com/v1"
 const PLACES_FIELD_MASK =
-  "places.displayName,places.formattedAddress,places.location,places.photos"
+  "places.displayName,places.formattedAddress,places.location,places.photos,places.regularOpeningHours"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,18 +153,12 @@ CONSTRUIRE LA SEARCH_QUERY (Impératif) :
 - S'il y a une adresse exacte : Ta search_query DOIT être : "Nom du lieu, Adresse exacte" (ex: "A Braccetto, 19 Rue Soufflot, 75005 Paris").
 - S'il n'y a pas d'adresse exacte : Ta search_query DOIT être : "Nom du lieu, Ville, Pays".
 
-CRÉATION DU TITRE EXPLICITE :
-Tu dois forger un titre_explicite qui donne immédiatement envie et décrit l'activité réelle + le lieu.
-Règle : Combine l'activité phare avec le nom officiel du lieu.
-Exemples : Au lieu de juste "Atelier des Lumières", écris "Exposition Immersive Van Gogh à l'Atelier des Lumières". Au lieu de "A Braccetto", écris "Mini Pizzas à Volonté chez A Braccetto".
-
 Métadonnées :
 ${context}
 
 Renvoie UNIQUEMENT ce JSON :
 {
   "search_query": "Requête brute pour Google Maps (ex: A Braccetto, 19 Rue Soufflot)",
-  "titre_explicite": "Ton super titre éditorial (ex: Mini Pizzas à Volonté chez A Braccetto)",
   "description_suggeree": "Ta description",
   "categorie_suggeree": "Ta catégorie choisie"
 }`
@@ -248,22 +243,21 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
 
   const best = places[0]
 
-  // NOM OFFICIEL : Google Maps, source unique de vérité
+  // TITRE : nom officiel Google Maps — simple et représentatif
   const nom_officiel_google = best.displayName?.text ?? ""
+  const titre = nom_officiel_google
 
-  // TITRE ÉDITORIAL : généré par Gemini (activité + lieu), donne envie
-  const titre = geminiData.titre_explicite || nom_officiel_google
+  // HORAIRES : depuis regularOpeningHours (Google Places)
+  const horaires = best.regularOpeningHours?.weekdayDescriptions ?? []
 
   // PHOTOS : EXCLUSIVEMENT depuis places[0].photos (Google Maps)
-  // Aucun fallback sur les métadonnées vidéo, og:image ou miniature de scraping.
-  // Si Google Places ne fournit pas de photos → tableau vide, c'est tout.
   const googlePhotosUrls = await resolvePhotoUrls(best.photos ?? [], placesKey)
 
-  console.log(`[Phase 3] titre="${titre}" | officiel="${nom_officiel_google}" | ${best.formattedAddress} | ${googlePhotosUrls.length} photo(s)`)
+  console.log(`[Phase 3] titre="${titre}" | ${best.formattedAddress} | ${googlePhotosUrls.length} photo(s) | ${horaires.length} horaires`)
 
   return {
-    titre,                   // Titre éditorial hybride (Gemini)
-    nom_officiel_google,     // Nom brut Google Maps (utile en BDD)
+    titre,
+    nom_officiel_google,
     description: geminiData.description_suggeree,
     categorie: normalizeCategory(geminiData.categorie_suggeree),
     adresse: best.formattedAddress ?? "",
@@ -271,6 +265,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
       lat: best.location?.latitude ?? 0,
       lng: best.location?.longitude ?? 0,
     },
-    photos: googlePhotosUrls, // EXCLUSIVEMENT Google Places — jamais de fallback vidéo
+    photos: googlePhotosUrls,
+    horaires,
   }
 }
