@@ -23,7 +23,6 @@ export interface Spot {
   profiles?: Profile
 }
 
-export type FilterMode = "all" | "friends" | "mine"
 
 export interface GeocodingResult {
   id: string
