@@ -1277,6 +1277,16 @@ export default function MapView() {
                     ))}
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
+                  {selectedSpot.user_id === user?.id && (
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => setEditingSpot(selectedSpot)}
+                      className="absolute bottom-3 right-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
+                      title="Modifier ce spot"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
                   {photos.length > 1 && (
                     <>
                       <button
@@ -1371,13 +1381,6 @@ export default function MapView() {
                 {selectedSpot.user_id === user?.id && (
                   <>
                     <button
-                      onClick={() => setEditingSpot(selectedSpot)}
-                      className="flex items-center justify-center rounded-2xl bg-gray-100 dark:bg-white/10 p-3 text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-200 dark:hover:bg-white/20"
-                      title="Modifier ce spot"
-                    >
-                      <Pencil size={18} />
-                    </button>
-                    <button
                       onClick={() => {
                         if (window.confirm("Es-tu sûr de vouloir supprimer ce lieu ?")) {
                           toast.promise(handleDeleteSpot(selectedSpot.id), {
@@ -1410,7 +1413,7 @@ export default function MapView() {
                     }
                   }}
                 >
-                  <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800 text-xs font-bold text-indigo-500 dark:text-indigo-400">
+                  <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800 text-xs font-bold text-indigo-500 dark:text-indigo-400 ring-2 ring-gray-900/60 dark:ring-white/20">
                     {selectedSpot.profiles?.avatar_url ? (
                        <img src={selectedSpot.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
                     ) : (
