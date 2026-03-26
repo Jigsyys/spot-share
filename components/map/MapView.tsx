@@ -12,7 +12,7 @@ import {
   User,
   Share,
   Navigation,
-  Compass,
+  Search,
   X,
   Building2,
   ChevronDown,
@@ -35,6 +35,7 @@ import FriendsModal from "./FriendsModal"
 import PublicProfileModal from "./PublicProfileModal"
 import ProfileModal from "./ProfileModal"
 import OnboardingModal from "./OnboardingModal"
+import ExploreModal from "./ExploreModal"
 import type { Spot, FilterMode } from "@/lib/types"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
@@ -277,6 +278,7 @@ export default function MapView() {
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
+  const [showExploreModal, setShowExploreModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [publicProfileUserId, setPublicProfileUserId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -1227,12 +1229,11 @@ export default function MapView() {
       <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-8">
         <motion.button
           whileTap={{ scale: 0.92 }}
-          onClick={handleSurprise}
-          className="group pointer-events-auto relative hidden overflow-hidden rounded-2xl border border-white/20 bg-gradient-to-br from-blue-700/90 dark:from-indigo-600/90 to-sky-600/90 dark:to-purple-600/90 p-3 text-white shadow-lg backdrop-blur-md transition-all hover:from-blue-600 dark:hover:from-indigo-500 hover:to-sky-500 dark:hover:to-purple-500 sm:flex"
-          title="Surprends-moi !"
+          onClick={() => setShowExploreModal(true)}
+          className="pointer-events-auto hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-3 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800 sm:flex"
+          title="Explorer"
         >
-          <div className="absolute inset-0 bg-white/20 opacity-0 blur-xl transition-opacity group-hover:opacity-100" />
-          <Compass size={20} className="relative z-10" />
+          <Search size={20} />
         </motion.button>
         <motion.button
           whileTap={{ scale: 0.92 }}
@@ -1578,6 +1579,7 @@ export default function MapView() {
               setShowProfileModal(false)
               setShowFriendsModal(false)
               setShowAddModal(false)
+              setShowExploreModal(false)
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
@@ -1602,6 +1604,7 @@ export default function MapView() {
               fetchFollowing()
               setShowProfileModal(false)
               setShowAddModal(false)
+              setShowExploreModal(false)
               setShowFriendsModal(true)
             }}
             className={cn(
@@ -1625,6 +1628,7 @@ export default function MapView() {
               onClick={() => {
                 setShowProfileModal(false)
                 setShowFriendsModal(false)
+                setShowExploreModal(false)
                 handleOpenAddSpot()
               }}
               className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
@@ -1638,18 +1642,24 @@ export default function MapView() {
               setShowProfileModal(false)
               setShowFriendsModal(false)
               setShowAddModal(false)
-              handleSurprise()
+              setShowExploreModal(true)
             }}
-            className="flex w-16 flex-col items-center gap-1 p-2 text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+            className={cn(
+              "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
+              showExploreModal
+                ? "text-blue-600 dark:text-indigo-400"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+            )}
           >
-            <Compass size={22} />
-            <span className="text-[10px] font-medium">Surprise</span>
+            <Search size={22} className={showExploreModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+            <span className="text-[10px] font-medium">Explorer</span>
           </button>
 
           <button
             onClick={() => {
               setShowFriendsModal(false)
               setShowAddModal(false)
+              setShowExploreModal(false)
               setShowProfileModal(true)
             }}
             className={cn(
@@ -1670,6 +1680,23 @@ export default function MapView() {
           onUpdate={handleUpdateSpot}
         />
       )}
+
+      <ExploreModal
+        isOpen={showExploreModal}
+        onClose={() => setShowExploreModal(false)}
+        spots={visibleSpots}
+        userLocation={userLocation}
+        onSelectSpot={(spot) => {
+          setShowExploreModal(false)
+          setSelectedSpot(spot)
+          mapRef.current?.flyTo({
+            center: [spot.lng, spot.lat],
+            zoom: 15.5,
+            offset: [0, 100],
+            duration: 800,
+          })
+        }}
+      />
 
       <AddSpotModal
         isOpen={showAddModal}
