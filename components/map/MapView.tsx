@@ -885,7 +885,7 @@ export default function MapView() {
                   longitude={longitude}
                 >
                   <div
-                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-gray-900/70 dark:border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
+                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
                     onClick={(e) => {
                       e.stopPropagation()
                       if (!supercluster) return
@@ -939,7 +939,7 @@ export default function MapView() {
                     background: color,
                     boxShadow: `0 4px 16px ${color}55`,
                   }}
-                  className="flex h-10 w-10 -rotate-45 cursor-pointer items-center justify-center rounded-[50%_50%_50%_0] border-2 border-gray-900/70 dark:border-white/90 transition-transform hover:scale-110"
+                  className="flex h-10 w-10 -rotate-45 cursor-pointer items-center justify-center rounded-[50%_50%_50%_0] border-2 border-white/80 transition-transform hover:scale-110"
                 >
                   <div className="rotate-45 text-base leading-none">
                     {emoji}
