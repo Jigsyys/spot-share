@@ -24,6 +24,8 @@ export interface Spot {
 }
 
 
+export type FilterMode = "all" | "friends" | "mine"
+
 export interface GeocodingResult {
   id: string
   place_name: string

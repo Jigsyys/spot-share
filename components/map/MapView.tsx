@@ -35,7 +35,7 @@ import FriendsModal from "./FriendsModal"
 import PublicProfileModal from "./PublicProfileModal"
 import ProfileModal from "./ProfileModal"
 import OnboardingModal from "./OnboardingModal"
-import type { Spot } from "@/lib/types"
+import type { Spot, FilterMode } from "@/lib/types"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
@@ -265,6 +265,7 @@ export default function MapView() {
   const { user, loading: authLoading, signOut } = useAuth()
   const { resolvedTheme } = useTheme()
 
+  const [filter, setFilter] = useState<FilterMode>("mine")
   const [activeCategory, setActiveCategory] = useState<string>("all")
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
@@ -545,14 +546,21 @@ export default function MapView() {
   }, [user, checkIncomingRequests])
 
   const visibleSpots = useMemo(() => {
-    let filtered = spots.filter(
-      (s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id)
-    )
+    let filtered =
+      filter === "mine"
+        ? spots.filter((s) => s.user_id === user?.id)
+        : filter === "friends"
+          ? spots.filter((s) => visibleFriendIds.includes(s.user_id))
+          : spots.filter(
+              (s) =>
+                s.user_id === user?.id ||
+                visibleFriendIds.includes(s.user_id)
+            )
     if (activeCategory !== "all") {
       filtered = filtered.filter((s) => s.category === activeCategory)
     }
     return filtered
-  }, [spots, user?.id, visibleFriendIds, activeCategory])
+  }, [spots, filter, user?.id, visibleFriendIds, activeCategory])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -789,6 +797,15 @@ export default function MapView() {
     setSpots((prev) => prev.map((s) => s.id === updatedSpot.id ? updatedSpot : s))
     if (selectedSpot?.id === updatedSpot.id) setSelectedSpot(updatedSpot)
   }
+
+  const filterButtons: {
+    key: FilterMode
+    label: string
+    icon: React.ReactNode
+  }[] = [
+    { key: "mine", label: "Moi", icon: <User size={13} /> },
+    { key: "friends", label: "Amis", icon: <Users size={13} /> },
+  ]
 
   const fetchVisits = useCallback(async (spotId: string) => {
     try {
@@ -1167,15 +1184,33 @@ export default function MapView() {
         </div>
       </div>
 
-      {/* Empty State Onboarding */}
-      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 -translate-x-1/2">
+      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
+        <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
+          {filterButtons.map(({ key, label, icon }) => (
+            <motion.button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={cn(
+                "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
+                filter === key
+                  ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
+                  : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+              )}
+              whileTap={{ scale: 0.95 }}
+            >
+              {icon} {label}
+            </motion.button>
+          ))}
+        </div>
+
+        {/* Empty State Onboarding */}
         <AnimatePresence>
           {visibleSpots.length === 0 && !authLoading && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
+              className="mt-4 w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
             >
               <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
                 C&apos;est un peu vide par ici...
@@ -1705,6 +1740,7 @@ export default function MapView() {
         }}
         onLocateSpot={(spotId, lat, lng) => {
           setShowProfileModal(false)
+          setFilter("mine")
           setActiveCategory("all")
           const spot = spots.find((s) => s.id === spotId)
           if (spot) setSelectedSpot(spot)
@@ -1720,9 +1756,13 @@ export default function MapView() {
         userId={publicProfileUserId}
         onLocateSpot={(spotId, lat, lng) => {
           setPublicProfileUserId(null)
-          // Ensure the friend's spots are visible
-          if (publicProfileUserId && publicProfileUserId !== user?.id && !visibleFriendIds.includes(publicProfileUserId)) {
-            setVisibleFriendIds((prev) => [...prev, publicProfileUserId])
+          if (publicProfileUserId === user?.id) {
+            setFilter("mine")
+          } else {
+            setFilter("friends")
+            if (publicProfileUserId && !visibleFriendIds.includes(publicProfileUserId)) {
+              setVisibleFriendIds((prev) => [...prev, publicProfileUserId])
+            }
           }
           setActiveCategory("all")
           const spot = spots.find((s) => s.id === spotId)
