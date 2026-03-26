@@ -629,15 +629,6 @@ export default function MapView() {
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
-  // Fetch visits when a spot is selected
-  useEffect(() => {
-    if (selectedSpot) {
-      fetchVisits(selectedSpot.id)
-    } else {
-      setVisits([])
-    }
-  }, [selectedSpot?.id, fetchVisits])
-
   // Close filter menu on outside click
   useEffect(() => {
     if (!isCategoryMenuOpen) return
@@ -806,13 +797,15 @@ export default function MapView() {
         .select("user_id, profiles(username, avatar_url)")
         .eq("spot_id", spotId)
       if (data) {
-        setVisits(
-          data.map((v: { user_id: string; profiles: { username: string | null; avatar_url: string | null } | null }) => ({
-            user_id: v.user_id,
-            username: v.profiles?.username ?? null,
-            avatar_url: v.profiles?.avatar_url ?? null,
-          }))
-        )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setVisits(data.map((v: any) => {
+          const p = Array.isArray(v.profiles) ? v.profiles[0] : v.profiles
+          return {
+            user_id: v.user_id as string,
+            username: (p?.username ?? null) as string | null,
+            avatar_url: (p?.avatar_url ?? null) as string | null,
+          }
+        }))
       }
     } catch {
       setVisits([])
@@ -856,6 +849,15 @@ export default function MapView() {
       toast.error("Erreur lors de la mise à jour.")
     }
   }, [user, selectedSpot, visits, userProfile])
+
+  // Fetch visits when a spot is selected
+  useEffect(() => {
+    if (selectedSpot) {
+      fetchVisits(selectedSpot.id)
+    } else {
+      setVisits([])
+    }
+  }, [selectedSpot?.id, fetchVisits])
 
   const points = visibleSpots.map((spot) => ({
     type: "Feature" as const,
