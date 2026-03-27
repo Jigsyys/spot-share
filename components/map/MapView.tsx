@@ -257,8 +257,7 @@ export default function MapView() {
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
   const [showFriendFilter, setShowFriendFilter] = useState(false)
   const [friendFilterSearch, setFriendFilterSearch] = useState("")
-  const [showMapToggle, setShowMapToggle] = useState(true)
-  const toggleHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
@@ -1072,7 +1071,7 @@ export default function MapView() {
           attributionControl={false}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onError={(e: any) => setMapError(e.error?.message || "Erreur carte")}
-          onClick={() => { setSelectedSpot(null); setShowMapToggle(true) }}
+          onClick={() => setSelectedSpot(null)}
           onLoad={() => {
             if (mapRef.current) {
               const b = mapRef.current.getBounds()?.toArray().flat()
@@ -1319,15 +1318,7 @@ export default function MapView() {
         </div>
       </div>
 
-      <AnimatePresence>
-        {(showMapToggle || friendFilterIds.size > 0) && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.18 }}
-            className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2"
-          >
+      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
@@ -1337,9 +1328,6 @@ export default function MapView() {
                   onClick={() => {
                     setFilter(key)
                     if (key === "mine") { setFriendFilterIds(new Set()); setShowFriendFilter(false) }
-                    // Auto-hide après 2.5s
-                    if (toggleHideTimer.current) clearTimeout(toggleHideTimer.current)
-                    toggleHideTimer.current = setTimeout(() => setShowMapToggle(false), 2500)
                   }}
                   className={cn(
                     "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
@@ -1382,7 +1370,7 @@ export default function MapView() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.92 }}
                         transition={{ duration: 0.15 }}
-                        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4"
+                        className="absolute left-1/2 top-full mt-2 -translate-x-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4"
                       >
                         {/* Recherche */}
                         <input
@@ -1450,9 +1438,7 @@ export default function MapView() {
             )}
           </div>
         </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
 
       {/* Empty State Onboarding */}
       <div className="pointer-events-none absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 -translate-x-1/2">
