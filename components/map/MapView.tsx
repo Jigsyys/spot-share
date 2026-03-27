@@ -257,6 +257,8 @@ export default function MapView() {
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
   const [showFriendFilter, setShowFriendFilter] = useState(false)
   const [friendFilterSearch, setFriendFilterSearch] = useState("")
+  const [showMapToggle, setShowMapToggle] = useState(true)
+  const toggleHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
@@ -1070,7 +1072,7 @@ export default function MapView() {
           attributionControl={false}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onError={(e: any) => setMapError(e.error?.message || "Erreur carte")}
-          onClick={() => setSelectedSpot(null)}
+          onClick={() => { setSelectedSpot(null); setShowMapToggle(true) }}
           onLoad={() => {
             if (mapRef.current) {
               const b = mapRef.current.getBounds()?.toArray().flat()
@@ -1317,14 +1319,28 @@ export default function MapView() {
         </div>
       </div>
 
-      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
-        <div className="flex flex-col items-center gap-2">
+      <AnimatePresence>
+        {(showMapToggle || friendFilterIds.size > 0) && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.18 }}
+            className="absolute bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2"
+          >
+          <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
+            <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
               {filterButtons.map(({ key, label, icon }) => (
                 <motion.button
                   key={key}
-                  onClick={() => { setFilter(key); if (key === "mine") { setFriendFilterIds(new Set()); setShowFriendFilter(false) } }}
+                  onClick={() => {
+                    setFilter(key)
+                    if (key === "mine") { setFriendFilterIds(new Set()); setShowFriendFilter(false) }
+                    // Auto-hide après 2.5s
+                    if (toggleHideTimer.current) clearTimeout(toggleHideTimer.current)
+                    toggleHideTimer.current = setTimeout(() => setShowMapToggle(false), 2500)
+                  }}
                   className={cn(
                     "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
                     filter === key
@@ -1434,15 +1450,19 @@ export default function MapView() {
             )}
           </div>
         </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* Empty State Onboarding */}
+      {/* Empty State Onboarding */}
+      <div className="pointer-events-none absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 -translate-x-1/2">
         <AnimatePresence>
           {visibleSpots.length === 0 && !authLoading && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="mt-4 w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
+              className="w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
             >
               <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
                 C&apos;est un peu vide par ici...
