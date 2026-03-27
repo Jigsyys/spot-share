@@ -2,11 +2,12 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Search, LocateFixed, Shuffle } from "lucide-react"
+import { X, Search, LocateFixed, Shuffle, Clock } from "lucide-react"
 import type { Spot } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-// ─── Haversine distance ────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
 function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -23,26 +24,54 @@ function fmtDist(km: number) {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
 }
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-interface ExploreModalProps {
-  isOpen: boolean
-  onClose: () => void
-  spots: Spot[]
-  userLocation: { lat: number; lng: number } | null
-  onSelectSpot: (spot: Spot) => void
+function isNew(createdAt: string) {
+  return Date.now() - new Date(createdAt).getTime() < 48 * 3600_000
+}
+
+function timeSince(date: string): string {
+  const diff = Date.now() - new Date(date).getTime()
+  const h = Math.floor(diff / 3_600_000)
+  const d = Math.floor(h / 24)
+  if (h < 1) return "à l'instant"
+  if (h < 24) return `il y a ${h}h`
+  return `il y a ${d}j`
+}
+
+/** Retourne true=ouvert, false=fermé, null=inconnu */
+function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
+  if (!weekdayDescriptions?.length) return null
+  const now = new Date()
+  const jsDay = now.getDay() // 0=dim
+  const googleIdx = jsDay === 0 ? 6 : jsDay - 1 // google: 0=lun, 6=dim
+  const line = weekdayDescriptions[googleIdx]
+  if (!line) return null
+  const lower = line.toLowerCase()
+  if (lower.includes("fermé") || lower.includes("closed")) return false
+  if (lower.includes("24h") || lower.includes("open 24")) return true
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const ranges = [...line.matchAll(/(\d{1,2}):(\d{2})\s*[–\-]\s*(\d{1,2}):(\d{2})/g)]
+  if (!ranges.length) return null
+  for (const m of ranges) {
+    const openMins = parseInt(m[1]) * 60 + parseInt(m[2])
+    let closeMins = parseInt(m[3]) * 60 + parseInt(m[4])
+    if (closeMins < openMins) closeMins += 24 * 60
+    if (nowMins >= openMins && nowMins <= closeMins) return true
+  }
+  return false
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────
+
 const CATEGORIES = [
-  { key: "all",        label: "Tous",      emoji: "🌎" },
-  { key: "café",       label: "Café",      emoji: "☕" },
-  { key: "restaurant", label: "Resto",     emoji: "🍽️" },
-  { key: "bar",        label: "Bar",       emoji: "🍸" },
-  { key: "outdoor",    label: "Nature",    emoji: "🌿" },
-  { key: "vue",        label: "Vue",       emoji: "🌅" },
-  { key: "culture",    label: "Culture",   emoji: "🎭" },
-  { key: "shopping",   label: "Shopping",  emoji: "🛍️" },
-  { key: "other",      label: "Autre",     emoji: "📍" },
+  { key: "all",        label: "Tous",     emoji: "🌎" },
+  { key: "café",       label: "Café",     emoji: "☕" },
+  { key: "restaurant", label: "Resto",    emoji: "🍽️" },
+  { key: "bar",        label: "Bar",      emoji: "🍸" },
+  { key: "outdoor",    label: "Nature",   emoji: "🌿" },
+  { key: "vue",        label: "Vue",      emoji: "🌅" },
+  { key: "culture",    label: "Culture",  emoji: "🎭" },
+  { key: "shopping",   label: "Shopping", emoji: "🛍️" },
+  { key: "other",      label: "Autre",    emoji: "📍" },
 ]
 
 const CATEGORY_EMOJIS: Record<string, string> = {
@@ -50,47 +79,65 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
 }
 
-// ─── SpotRow ───────────────────────────────────────────────────────────────
+const COLLECTIONS = [
+  { id: "morning", label: "☀️ Ce matin",    desc: "Café & brunch",      categories: ["café"] },
+  { id: "evening", label: "🌙 Ce soir",     desc: "Bars & restos",      categories: ["bar", "restaurant"] },
+  { id: "outdoor", label: "🌿 Plein air",   desc: "Nature & panoramas", categories: ["outdoor", "vue"] },
+  { id: "culture", label: "🎭 À découvrir", desc: "Culture & shopping", categories: ["culture", "shopping"] },
+] as const
+
+// ─── Sub-components ────────────────────────────────────────────────────────
+
 function SpotRow({
-  spot,
-  distance,
-  onSelect,
-}: {
-  spot: Spot
-  distance?: number
-  onSelect: () => void
-}) {
+  spot, distance, onSelect,
+}: { spot: Spot; distance?: number; onSelect: () => void }) {
   const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
-  const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+  const emoji    = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+  const open     = isOpenNow(spot.weekday_descriptions ?? null)
+  const novel    = isNew(spot.created_at)
 
   return (
     <button
       onClick={onSelect}
       className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-zinc-900/60 p-3 text-left transition-all active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800/60"
     >
-      <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-zinc-800">
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>
+      <div className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-zinc-800">
+        {imageUrl
+          ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+          : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>}
+        {novel && (
+          <span className="absolute top-1 left-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
+            NEW
+          </span>
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-          {spot.title}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+            {spot.title}
+          </p>
+        </div>
         {spot.address && (
           <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-zinc-500">
             {spot.address}
           </p>
         )}
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-gray-500 dark:text-zinc-400">
             {emoji} {CATEGORIES.find(c => c.key === spot.category)?.label ?? "Autre"}
           </span>
+          {open === true && (
+            <span className="rounded-full bg-emerald-50 dark:bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+              ● Ouvert
+            </span>
+          )}
+          {open === false && (
+            <span className="rounded-full bg-red-50 dark:bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-400 dark:text-red-400">
+              Fermé
+            </span>
+          )}
           {distance !== undefined && (
-            <span className="rounded-full bg-blue-50 dark:bg-indigo-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-indigo-400">
+            <span className="rounded-full bg-blue-50 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-bold text-blue-600 dark:text-indigo-400">
               📍 {fmtDist(distance)}
             </span>
           )}
@@ -100,22 +147,32 @@ function SpotRow({
   )
 }
 
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+interface ExploreModalProps {
+  isOpen: boolean
+  onClose: () => void
+  spots: Spot[]
+  userLocation: { lat: number; lng: number } | null
+  onSelectSpot: (spot: Spot) => void
+  currentUserId?: string | null
+}
+
 // ─── ExploreModal ──────────────────────────────────────────────────────────
+
 export default function ExploreModal({
-  isOpen,
-  onClose,
-  spots,
-  userLocation,
-  onSelectSpot,
+  isOpen, onClose, spots, userLocation, onSelectSpot, currentUserId,
 }: ExploreModalProps) {
-  const [searchQuery, setSearchQuery]     = useState("")
-  const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [activeCategory, setActiveCategory] = useState("all")
-  const [nearbyMode, setNearbyMode]       = useState(false)
+  const [searchQuery, setSearchQuery]         = useState("")
+  const [debouncedQuery, setDebouncedQuery]   = useState("")
+  const [activeCategory, setActiveCategory]   = useState("all")
+  const [nearbyMode, setNearbyMode]           = useState(false)
+  const [openNowFilter, setOpenNowFilter]     = useState(false)
+  const [activeCollection, setActiveCollection] = useState<string | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const lastPickedIdRef = useRef<string | null>(null)
-  const displayedSpotsRef = useRef<typeof displayedSpots>([])
+  const inputRef           = useRef<HTMLInputElement>(null)
+  const lastPickedIdRef    = useRef<string | null>(null)
+  const displayedSpotsRef  = useRef<{ spot: Spot; distance?: number }[]>([])
 
   // Debounce 300ms
   useEffect(() => {
@@ -127,82 +184,104 @@ export default function ExploreModal({
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery(""); setActiveCategory("all")
-      setNearbyMode(false); setSurpriseLoading(false)
+      setNearbyMode(false); setOpenNowFilter(false); setActiveCollection(null)
+      setSurpriseLoading(false)
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
     }
   }, [isOpen])
 
-  // Spots with optional distance, filtered + sorted
+  // "Amis cette semaine" — spots d'amis ajoutés dans les 7 derniers jours
+  const friendsThisWeek = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 3600_000
+    return spots
+      .filter(s => s.user_id !== currentUserId && new Date(s.created_at).getTime() > weekAgo)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10)
+  }, [spots, currentUserId])
+
+  // Collections — comptage par catégories
+  const collectionCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const col of COLLECTIONS) {
+      map[col.id] = spots.filter(s => (col.categories as readonly string[]).includes(s.category)).length
+    }
+    return map
+  }, [spots])
+
+  // Liste principale avec filtres
   const { displayedSpots, nearbyCount } = useMemo(() => {
-    // Attach distance
-    const withDist = spots.map((s) => ({
+    const withDist = spots.map(s => ({
       spot: s,
       distance: userLocation
         ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng)
         : undefined,
     }))
 
-    // Count nearby (< 2km)
     const nearbyCount = userLocation
       ? withDist.filter(({ distance }) => distance !== undefined && distance < 2).length
       : 0
 
-    // Category filter
-    let list = activeCategory === "all"
-      ? withDist
-      : withDist.filter(({ spot }) => spot.category === activeCategory)
+    let list = withDist
 
-    // Text filter
+    // Filtre collection active
+    if (activeCollection) {
+      const col = COLLECTIONS.find(c => c.id === activeCollection)
+      if (col) list = list.filter(({ spot }) => (col.categories as readonly string[]).includes(spot.category))
+    }
+
+    // Filtre catégorie (si pas de collection active)
+    if (!activeCollection && activeCategory !== "all") {
+      list = list.filter(({ spot }) => spot.category === activeCategory)
+    }
+
+    // Filtre "Ouvert maintenant"
+    if (openNowFilter) {
+      list = list.filter(({ spot }) => isOpenNow(spot.weekday_descriptions ?? null) !== false)
+    }
+
+    // Filtre texte
     if (debouncedQuery.trim()) {
       const q = debouncedQuery.trim().toLowerCase()
-      list = list.filter(
-        ({ spot }) =>
-          spot.title.toLowerCase().includes(q) ||
-          (spot.address ?? "").toLowerCase().includes(q) ||
-          (spot.description ?? "").toLowerCase().includes(q)
+      list = list.filter(({ spot }) =>
+        spot.title.toLowerCase().includes(q) ||
+        (spot.address ?? "").toLowerCase().includes(q) ||
+        (spot.description ?? "").toLowerCase().includes(q)
       )
     }
 
-    // Sort
+    // Tri
     if (nearbyMode && userLocation) {
       list = [...list].sort((a, b) => (a.distance ?? 99999) - (b.distance ?? 99999))
     } else {
-      list = [...list].sort(
-        (a, b) =>
-          new Date(b.spot.created_at).getTime() - new Date(a.spot.created_at).getTime()
+      list = [...list].sort((a, b) =>
+        new Date(b.spot.created_at).getTime() - new Date(a.spot.created_at).getTime()
       )
     }
 
     return { displayedSpots: list, nearbyCount }
-  }, [spots, activeCategory, debouncedQuery, nearbyMode, userLocation])
+  }, [spots, activeCategory, activeCollection, debouncedQuery, openNowFilter, nearbyMode, userLocation])
 
-  // Garde le ref à jour pour éviter les closures périmées dans le setTimeout
+  // Sync ref for surprise
   useEffect(() => { displayedSpotsRef.current = displayedSpots }, [displayedSpots])
 
-  // Surprise : pioche un spot aléatoire différent du dernier
+  // Surprise button
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
     const current = displayedSpotsRef.current
-    if (current.length === 0) return
+    if (!current.length) return
     setSurpriseLoading(true)
     setTimeout(() => {
-      // Pool = spots proches si dispo, sinon tous
       let pool = [...current]
       if (userLocation) {
-        const nearby = current.filter(
-          ({ distance }) => distance !== undefined && distance < 10
-        )
+        const nearby = current.filter(({ distance }) => distance !== undefined && distance < 10)
         if (nearby.length > 0) pool = nearby
       }
-      // Exclut le dernier spot pioché pour éviter les répétitions
       if (pool.length > 1 && lastPickedIdRef.current) {
         const filtered = pool.filter(({ spot }) => spot.id !== lastPickedIdRef.current)
         if (filtered.length > 0) pool = filtered
       }
-      // Sélection vraiment aléatoire
-      const idx = Math.floor(Math.random() * pool.length)
-      const picked = pool[idx]
+      const picked = pool[Math.floor(Math.random() * pool.length)]
       lastPickedIdRef.current = picked.spot.id
       setSurpriseLoading(false)
       onSelectSpot(picked.spot)
@@ -211,20 +290,20 @@ export default function ExploreModal({
 
   if (!isOpen) return null
 
-  const hasLocation = userLocation !== null
+  const hasLocation    = userLocation !== null
+  const isFiltered     = debouncedQuery.trim() || activeCategory !== "all" || openNowFilter || activeCollection
+  const showDiscovery  = !isFiltered
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
             className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm"
           />
 
-          {/* Panel */}
           <motion.div
             initial={{ opacity: 0, y: 100, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -241,7 +320,6 @@ export default function ExploreModal({
           >
             <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
 
-              {/* Drag handle */}
               <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
@@ -250,15 +328,12 @@ export default function ExploreModal({
                   <Search size={18} className="text-blue-600 dark:text-indigo-400" />
                   Explorer
                 </h2>
-                <button
-                  onClick={onClose}
-                  className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10"
-                >
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
                   <X size={18} />
                 </button>
               </div>
 
-              {/* Search bar */}
+              {/* Search */}
               <div className="flex-shrink-0 px-5 pb-3">
                 <div className="flex items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-zinc-800/80 px-4 py-3">
                   <Search size={16} className="flex-shrink-0 text-gray-400 dark:text-zinc-500" />
@@ -271,10 +346,7 @@ export default function ExploreModal({
                     className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500"
                   />
                   {searchQuery && (
-                    <button
-                      onClick={() => { setSearchQuery(""); setDebouncedQuery("") }}
-                      className="text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300"
-                    >
+                    <button onClick={() => { setSearchQuery(""); setDebouncedQuery("") }} className="text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300">
                       <X size={14} />
                     </button>
                   )}
@@ -283,10 +355,9 @@ export default function ExploreModal({
 
               {/* Action cards */}
               <div className="flex-shrink-0 grid grid-cols-2 gap-3 px-5 pb-4">
-
                 {/* Autour de moi */}
                 <button
-                  onClick={() => hasLocation && setNearbyMode((v) => !v)}
+                  onClick={() => hasLocation && setNearbyMode(v => !v)}
                   disabled={!hasLocation}
                   className={cn(
                     "flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-left transition-all",
@@ -298,32 +369,14 @@ export default function ExploreModal({
                   )}
                 >
                   <div className="flex w-full items-center justify-between">
-                    <LocateFixed
-                      size={18}
-                      className={cn(
-                        nearbyMode
-                          ? "text-blue-600 dark:text-indigo-400"
-                          : "text-gray-500 dark:text-zinc-400"
-                      )}
-                    />
-                    {nearbyMode && (
-                      <span className="h-2 w-2 rounded-full bg-blue-500 dark:bg-indigo-400 animate-pulse" />
-                    )}
+                    <LocateFixed size={18} className={nearbyMode ? "text-blue-600 dark:text-indigo-400" : "text-gray-500 dark:text-zinc-400"} />
+                    {nearbyMode && <span className="h-2 w-2 rounded-full bg-blue-500 dark:bg-indigo-400 animate-pulse" />}
                   </div>
-                  <p className={cn(
-                    "text-sm font-semibold",
-                    nearbyMode ? "text-blue-700 dark:text-indigo-300" : "text-gray-800 dark:text-zinc-200"
-                  )}>
+                  <p className={cn("text-sm font-semibold", nearbyMode ? "text-blue-700 dark:text-indigo-300" : "text-gray-800 dark:text-zinc-200")}>
                     Autour de moi
                   </p>
                   <p className="text-[11px] text-gray-400 dark:text-zinc-500 leading-tight">
-                    {!hasLocation
-                      ? "Localisation off"
-                      : nearbyMode
-                        ? "Trié par distance"
-                        : nearbyCount > 0
-                          ? `${nearbyCount} spot${nearbyCount > 1 ? "s" : ""} < 2 km`
-                          : "Trier par distance"}
+                    {!hasLocation ? "Localisation off" : nearbyMode ? "Trié par distance" : nearbyCount > 0 ? `${nearbyCount} spot${nearbyCount > 1 ? "s" : ""} < 2 km` : "Trier par distance"}
                   </p>
                 </button>
 
@@ -331,21 +384,13 @@ export default function ExploreModal({
                 <button
                   onClick={handleSurprise}
                   disabled={surpriseLoading || displayedSpots.length === 0}
-                  className={cn(
-                    "flex flex-col items-start gap-1 rounded-2xl border p-3.5 text-left transition-all",
-                    "border-purple-200 dark:border-purple-500/20 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-500/10 dark:to-pink-500/10",
-                    "hover:from-purple-100 hover:to-pink-100 dark:hover:from-purple-500/20 dark:hover:to-pink-500/20",
-                    "disabled:opacity-40 disabled:cursor-not-allowed"
-                  )}
+                  className="flex flex-col items-start gap-1 rounded-2xl border border-purple-200 dark:border-purple-500/20 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-500/10 dark:to-pink-500/10 p-3.5 text-left transition-all hover:from-purple-100 hover:to-pink-100 dark:hover:from-purple-500/20 dark:hover:to-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <motion.div
-                    animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
-                    transition={surpriseLoading ? { duration: 0.5, ease: "linear", repeat: Infinity } : {}}
-                  >
+                  <motion.div animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }} transition={surpriseLoading ? { duration: 0.5, ease: "linear", repeat: Infinity } : {}}>
                     <Shuffle size={18} className="text-purple-500 dark:text-purple-400" />
                   </motion.div>
                   <p className="text-sm font-semibold text-purple-700 dark:text-purple-300">
-                    {surpriseLoading ? "Choix en cours..." : "Surprends-moi"}
+                    {surpriseLoading ? "Choix..." : "Surprends-moi"}
                   </p>
                   <p className="text-[11px] text-purple-400 dark:text-purple-500 leading-tight">
                     {userLocation ? "Spot aléatoire proche" : "Spot au hasard"}
@@ -353,15 +398,15 @@ export default function ExploreModal({
                 </button>
               </div>
 
-              {/* Category filters */}
-              <div className="no-scrollbar flex flex-shrink-0 gap-2 overflow-x-auto px-5 pb-4">
+              {/* Filtres : catégories + Ouvert maintenant */}
+              <div className="no-scrollbar flex flex-shrink-0 items-center gap-2 overflow-x-auto px-5 pb-4">
                 {CATEGORIES.map(({ key, label, emoji }) => (
                   <button
                     key={key}
-                    onClick={() => setActiveCategory(key)}
+                    onClick={() => { setActiveCategory(key); setActiveCollection(null) }}
                     className={cn(
                       "flex flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
-                      activeCategory === key
+                      activeCategory === key && !activeCollection
                         ? "bg-blue-600 dark:bg-indigo-500 text-white"
                         : "border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/60 text-gray-600 dark:text-zinc-300 hover:border-gray-300 dark:hover:border-white/20"
                     )}
@@ -369,20 +414,127 @@ export default function ExploreModal({
                     {emoji} {label}
                   </button>
                 ))}
+                {/* Séparateur */}
+                <div className="h-5 w-px flex-shrink-0 bg-gray-200 dark:bg-white/10" />
+                {/* Ouvert maintenant */}
+                <button
+                  onClick={() => setOpenNowFilter(v => !v)}
+                  className={cn(
+                    "flex flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                    openNowFilter
+                      ? "bg-emerald-500 text-white"
+                      : "border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/60 text-gray-600 dark:text-zinc-300 hover:border-emerald-300 dark:hover:border-emerald-500/30"
+                  )}
+                >
+                  <Clock size={12} /> Ouvert
+                </button>
               </div>
 
-              {/* Spot list */}
+              {/* Zone scrollable */}
               <div className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
+
+                {/* ── Sections de découverte (masquées si filtre actif) ── */}
+                {showDiscovery && (
+                  <>
+                    {/* Amis cette semaine */}
+                    {friendsThisWeek.length > 0 && (
+                      <div className="mb-5">
+                        <p className="mb-2.5 text-xs font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wide">
+                          🆕 Ajoutés cette semaine
+                        </p>
+                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                          {friendsThisWeek.map(spot => {
+                            const img = spot.image_url?.split(",")[0]?.trim() || null
+                            const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+                            const avatar = spot.profiles?.avatar_url
+                            const username = spot.profiles?.username ?? "Ami"
+                            return (
+                              <button
+                                key={spot.id}
+                                onClick={() => onSelectSpot(spot)}
+                                className="flex-shrink-0 w-40 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-zinc-900/60 text-left transition-all active:scale-[0.97] hover:bg-gray-50 dark:hover:bg-zinc-800/60"
+                              >
+                                <div className="relative h-24 w-full bg-gray-100 dark:bg-zinc-800">
+                                  {img
+                                    ? <img src={img} alt={spot.title} className="h-full w-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+                                    : <div className="flex h-full w-full items-center justify-center text-3xl">{emoji}</div>}
+                                  <span className="absolute top-1.5 right-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white">NEW</span>
+                                </div>
+                                <div className="p-2.5">
+                                  <p className="truncate text-xs font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+                                  <div className="mt-1 flex items-center gap-1.5">
+                                    {avatar
+                                      ? <img src={avatar} alt={username} className="h-4 w-4 rounded-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+                                      : <div className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[8px] font-bold text-white">{username[0]?.toUpperCase()}</div>}
+                                    <span className="truncate text-[10px] text-gray-400 dark:text-zinc-500">{timeSince(spot.created_at)}</span>
+                                  </div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Collections thématiques */}
+                    <div className="mb-5">
+                      <p className="mb-2.5 text-xs font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wide">
+                        Collections
+                      </p>
+                      <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                        {COLLECTIONS.map(col => {
+                          const count = collectionCounts[col.id] ?? 0
+                          const isActive = activeCollection === col.id
+                          // Prendre l'image du premier spot de la collection
+                          const preview = spots.find(s =>
+                            (col.categories as readonly string[]).includes(s.category) && s.image_url
+                          )?.image_url?.split(",")[0]?.trim() || null
+
+                          return (
+                            <button
+                              key={col.id}
+                              onClick={() => {
+                                setActiveCollection(isActive ? null : col.id)
+                                setActiveCategory("all")
+                              }}
+                              disabled={count === 0}
+                              className={cn(
+                                "relative flex-shrink-0 w-36 h-24 overflow-hidden rounded-2xl text-left transition-all active:scale-[0.97]",
+                                isActive ? "ring-2 ring-indigo-500" : "",
+                                count === 0 ? "opacity-40 cursor-not-allowed" : ""
+                              )}
+                            >
+                              {/* Background */}
+                              <div className="absolute inset-0 bg-gradient-to-br from-zinc-700 to-zinc-900">
+                                {preview && (
+                                  <img src={preview} alt="" className="h-full w-full object-cover opacity-60" /> // eslint-disable-line @next/next/no-img-element
+                                )}
+                              </div>
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                              <div className="absolute inset-0 flex flex-col justify-end p-2.5">
+                                <p className="text-sm font-bold text-white leading-tight">{col.label}</p>
+                                <p className="text-[10px] text-white/70">{count} spot{count > 1 ? "s" : ""}</p>
+                              </div>
+                              {isActive && (
+                                <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500">
+                                  <X size={10} className="text-white" />
+                                </div>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ── Liste des spots ── */}
                 {displayedSpots.length === 0 ? (
-                  <div className="flex flex-col items-center gap-3 py-16 text-center">
+                  <div className="flex flex-col items-center gap-3 py-12 text-center">
                     <Search size={40} className="text-gray-300 dark:text-zinc-700" />
-                    <p className="text-sm font-semibold text-gray-500 dark:text-zinc-400">
-                      Aucun spot trouvé
-                    </p>
+                    <p className="text-sm font-semibold text-gray-500 dark:text-zinc-400">Aucun spot trouvé</p>
                     <p className="text-xs text-gray-400 dark:text-zinc-600">
-                      {activeCategory !== "all"
-                        ? "Essaie une autre catégorie"
-                        : "Essaie un autre mot-clé"}
+                      {openNowFilter ? "Essaie de désactiver le filtre «Ouvert»" : activeCategory !== "all" || activeCollection ? "Essaie une autre catégorie" : "Essaie un autre mot-clé"}
                     </p>
                   </div>
                 ) : (
@@ -391,11 +543,8 @@ export default function ExploreModal({
                       <p className="text-xs font-medium text-gray-400 dark:text-zinc-500">
                         {displayedSpots.length} spot{displayedSpots.length > 1 ? "s" : ""}
                       </p>
-                      {nearbyMode && (
-                        <span className="text-[10px] text-blue-500 dark:text-indigo-400 font-medium">
-                          · trié par distance
-                        </span>
-                      )}
+                      {nearbyMode && <span className="text-[10px] text-blue-500 dark:text-indigo-400 font-medium">· par distance</span>}
+                      {openNowFilter && <span className="text-[10px] text-emerald-500 font-medium">· ouverts</span>}
                     </div>
                     {displayedSpots.map(({ spot, distance }) => (
                       <SpotRow

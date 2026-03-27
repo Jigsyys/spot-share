@@ -1717,6 +1717,7 @@ export default function MapView() {
         onClose={() => setShowExploreModal(false)}
         spots={visibleSpots}
         userLocation={userLocation}
+        currentUserId={user?.id ?? null}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
           setSelectedSpot(spot)
