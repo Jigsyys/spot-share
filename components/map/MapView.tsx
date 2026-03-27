@@ -21,7 +21,7 @@ import {
   Pencil,
   CheckCircle2,
   Heart,
-  Bookmark,
+  SlidersHorizontal,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -254,7 +254,9 @@ export default function MapView() {
   const { resolvedTheme } = useTheme()
 
   const [filter, setFilter] = useState<FilterMode>("mine")
-  const [filterFriendId, setFilterFriendId] = useState<string | null>(null)
+  const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
+  const [showFriendFilter, setShowFriendFilter] = useState(false)
+  const [friendFilterSearch, setFriendFilterSearch] = useState("")
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
@@ -286,7 +288,6 @@ export default function MapView() {
   const [initialAddUrl, setInitialAddUrl] = useState<string>("")
   const [visits, setVisits] = useState<{ user_id: string; username: string | null; avatar_url: string | null }[]>([])
   const [reactions, setReactions] = useState<{ user_id: string; type: "love" | "save"; username: string | null; avatar_url: string | null }[]>([])
-  const [savedSpotIds, setSavedSpotIds] = useState<Set<string>>(new Set())
   const [is3D, setIs3D] = useState(true)
   const [friendLocations, setFriendLocations] = useState<
     {
@@ -677,9 +678,9 @@ export default function MapView() {
   const visibleSpots = useMemo(() => {
     if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
     const base = spots.filter((s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id))
-    if (filterFriendId) return base.filter((s) => s.user_id === filterFriendId)
+    if (friendFilterIds.size > 0) return base.filter((s) => s.user_id === user?.id || friendFilterIds.has(s.user_id))
     return base
-  }, [spots, filter, user?.id, visibleFriendIds, filterFriendId])
+  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -958,46 +959,29 @@ export default function MapView() {
     } catch { setReactions([]) }
   }, [])
 
-  const fetchSavedSpots = useCallback(async () => {
-    if (!user) return
-    try {
-      const { data } = await supabaseRef.current
-        .from("spot_reactions")
-        .select("spot_id")
-        .eq("user_id", user.id)
-        .eq("type", "save")
-      if (data) setSavedSpotIds(new Set(data.map((r: { spot_id: string }) => r.spot_id)))
-    } catch { /* table might not exist yet */ }
-  }, [user])
 
-  const handleToggleReaction = useCallback(async (type: "love" | "save") => {
+  const handleToggleLove = useCallback(async () => {
     if (!user || !selectedSpot) return
-    const hasReaction = reactions.some(r => r.user_id === user.id && r.type === type)
-    const myReaction = { user_id: user.id, type, username: userProfile?.username ?? null, avatar_url: userProfile?.avatar_url ?? null }
-    // Optimistic update
-    if (hasReaction) {
-      setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === type)))
-      if (type === "save") setSavedSpotIds(prev => { const n = new Set(prev); n.delete(selectedSpot.id); return n })
+    const hasLoved = reactions.some(r => r.user_id === user.id && r.type === "love")
+    const myReaction = { user_id: user.id, type: "love" as const, username: userProfile?.username ?? null, avatar_url: userProfile?.avatar_url ?? null }
+    if (hasLoved) {
+      setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
     } else {
       setReactions(prev => [...prev, myReaction])
-      if (type === "save") setSavedSpotIds(prev => new Set([...prev, selectedSpot.id]))
     }
     try {
-      if (hasReaction) {
+      if (hasLoved) {
         await supabaseRef.current.from("spot_reactions").delete()
-          .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", type)
+          .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", "love")
       } else {
         await supabaseRef.current.from("spot_reactions")
-          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type })
+          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
       }
     } catch {
-      // Rollback
-      if (hasReaction) {
+      if (hasLoved) {
         setReactions(prev => [...prev, myReaction])
-        if (type === "save") setSavedSpotIds(prev => new Set([...prev, selectedSpot.id]))
       } else {
-        setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === type)))
-        if (type === "save") setSavedSpotIds(prev => { const n = new Set(prev); n.delete(selectedSpot.id); return n })
+        setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
       }
       toast.error("Erreur lors de la mise à jour.")
     }
@@ -1034,8 +1018,6 @@ export default function MapView() {
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [selectedSpot?.id, fetchReactions])
 
-  // Load saved spots once on mount
-  useEffect(() => { fetchSavedSpots() }, [fetchSavedSpots])
 
   const points = visibleSpots.map((spot) => ({
     type: "Feature" as const,
@@ -1145,13 +1127,14 @@ export default function MapView() {
             const spot = visibleSpots.find((s) => s.id === spotId)
             if (!spot) return null
 
-            const color =
-              CATEGORY_COLORS[spot.category ?? "default"] ??
-              CATEGORY_COLORS.default
+            const color = CATEGORY_COLORS[spot.category ?? "default"] ?? CATEGORY_COLORS.default
             const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
             const isMine = spot.user_id === user?.id
+            const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
             const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
             const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
+            // Scale markers with zoom so they stay visible at high zoom levels
+            const markerScale = Math.min(1.8, Math.max(0.7, zoom / 13.5))
 
             return (
               <MapMarker
@@ -1170,10 +1153,13 @@ export default function MapView() {
                   })
                 }}
               >
-                <div className="relative cursor-pointer transition-transform hover:scale-110">
+                <div
+                  className="relative cursor-pointer"
+                  style={{ transform: `scale(${markerScale})`, transformOrigin: "bottom center" }}
+                >
                   {/* Mini avatar de l'ami */}
                   {!isMine && (
-                    <div className="absolute -top-2.5 -right-2.5 z-10 flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white shadow-md">
+                    <div className="absolute -top-1.5 -right-1.5 z-10 flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white shadow-md">
                       {friendAvatar ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={friendAvatar} alt="" className="h-full w-full object-cover" />
@@ -1182,23 +1168,40 @@ export default function MapView() {
                       )}
                     </div>
                   )}
-                  {/* Pin losange */}
+                  {/* Photo circulaire — fallback emoji coloré */}
                   <div
-                    style={{
-                      background: color,
-                      boxShadow: `0 4px 16px ${color}55`,
-                    }}
                     className={cn(
-                      "-rotate-45 flex items-center justify-center rounded-[50%_50%_50%_0]",
+                      "overflow-hidden rounded-full border-[3px] shadow-lg",
                       isMine
-                        ? "h-10 w-10 border-2 border-white/90 dark:border-white/70"
-                        : "h-9 w-9 border-2 border-indigo-400 dark:border-indigo-300"
+                        ? "h-11 w-11 border-white dark:border-white/90 shadow-black/30"
+                        : "h-10 w-10 border-indigo-400 dark:border-indigo-300 shadow-indigo-500/30"
                     )}
                   >
-                    <div className={cn("rotate-45 leading-none", isMine ? "text-base" : "text-sm")}>
-                      {emoji}
-                    </div>
+                    {firstPhoto ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={firstPhoto}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          // fallback to colored div on error
+                          const target = e.currentTarget
+                          target.style.display = "none"
+                          target.parentElement!.style.background = color
+                          target.parentElement!.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.1em">${emoji}</span>`
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-base" style={{ background: color }}>
+                        {emoji}
+                      </div>
+                    )}
                   </div>
+                  {/* Petite pointe en bas */}
+                  <div
+                    className="mx-auto h-2.5 w-[3px] rounded-b-full"
+                    style={{ background: isMine ? "rgba(255,255,255,0.85)" : "rgba(129,140,248,0.9)" }}
+                  />
                 </div>
               </MapMarker>
             )
@@ -1313,62 +1316,120 @@ export default function MapView() {
 
       <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
         <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
-            {filterButtons.map(({ key, label, icon }) => (
-              <motion.button
-                key={key}
-                onClick={() => { setFilter(key); if (key === "mine") setFilterFriendId(null) }}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
-                  filter === key
-                    ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
-                    : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-                )}
-                whileTap={{ scale: 0.95 }}
-              >
-                {icon} {label}
-              </motion.button>
-            ))}
-          </div>
-
-          {/* Chips amis — visibles uniquement en mode Amis */}
-          {filter === "friends" && friendProfiles.length > 0 && (
-            <div className="flex max-w-[90vw] gap-1.5 overflow-x-auto px-1 pb-0.5" style={{ scrollbarWidth: "none" }}>
-              <button
-                onClick={() => setFilterFriendId(null)}
-                className={cn(
-                  "flex shrink-0 items-center rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow backdrop-blur-md transition-colors",
-                  filterFriendId === null
-                    ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
-                    : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-600 dark:text-zinc-300"
-                )}
-              >
-                Tous
-              </button>
-              {friendProfiles.map((fp) => (
-                <button
-                  key={fp.id}
-                  onClick={() => setFilterFriendId(fp.id === filterFriendId ? null : fp.id)}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
+              {filterButtons.map(({ key, label, icon }) => (
+                <motion.button
+                  key={key}
+                  onClick={() => { setFilter(key); if (key === "mine") { setFriendFilterIds(new Set()); setShowFriendFilter(false) } }}
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap shadow backdrop-blur-md transition-colors",
-                    filterFriendId === fp.id
-                      ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
-                      : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-600 dark:text-zinc-300"
+                    "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
+                    filter === key
+                      ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
+                      : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                   )}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  {fp.avatar_url ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={fp.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-[9px] font-bold text-white">
-                      {(fp.username ?? "?")[0].toUpperCase()}
-                    </div>
-                  )}
-                  @{fp.username ?? "ami"}
-                </button>
+                  {icon} {label}
+                </motion.button>
               ))}
             </div>
-          )}
+
+            {/* Bouton filtre amis — petit, discret, visible seulement en mode Amis */}
+            {filter === "friends" && friendProfiles.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowFriendFilter(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-2.5 py-2 text-xs font-medium shadow-md backdrop-blur-md transition-colors",
+                    friendFilterIds.size > 0
+                      ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
+                      : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                  )}
+                >
+                  <SlidersHorizontal size={13} />
+                  {friendFilterIds.size > 0 && (
+                    <span>{friendFilterIds.size}</span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {showFriendFilter && (
+                    <>
+                      {/* Overlay pour fermer en cliquant à côté */}
+                      <div className="fixed inset-0 z-40" onClick={() => setShowFriendFilter(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute left-0 top-full mt-2 z-50 w-60 rounded-2xl border border-gray-200 dark:border-white/10 bg-white/97 dark:bg-zinc-900/97 shadow-xl backdrop-blur-md p-3"
+                      >
+                        {/* Recherche */}
+                        <input
+                          type="text"
+                          placeholder="Rechercher..."
+                          value={friendFilterSearch}
+                          onChange={e => setFriendFilterSearch(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800 px-3 py-2 text-xs text-gray-800 dark:text-zinc-200 outline-none placeholder-gray-400 dark:placeholder-zinc-500"
+                        />
+                        {/* Tout cocher / tout décocher */}
+                        <div className="mt-2 flex gap-1.5">
+                          <button
+                            onClick={() => setFriendFilterIds(new Set(friendProfiles.map(f => f.id)))}
+                            className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                          >
+                            Tout cocher
+                          </button>
+                          <button
+                            onClick={() => setFriendFilterIds(new Set())}
+                            className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                          >
+                            Tout décocher
+                          </button>
+                        </div>
+                        {/* Liste des amis */}
+                        <div className="mt-2 max-h-52 overflow-y-auto space-y-0.5">
+                          {friendProfiles
+                            .filter(fp => !friendFilterSearch || (fp.username ?? "").toLowerCase().includes(friendFilterSearch.toLowerCase()))
+                            .map(fp => (
+                              <button
+                                key={fp.id}
+                                onClick={() => setFriendFilterIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(fp.id)) next.delete(fp.id)
+                                  else next.add(fp.id)
+                                  return next
+                                })}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                              >
+                                {fp.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={fp.avatar_url} alt="" className="h-7 w-7 flex-shrink-0 rounded-full object-cover" />
+                                ) : (
+                                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-xs font-bold text-white">
+                                    {(fp.username ?? "?")[0].toUpperCase()}
+                                  </div>
+                                )}
+                                <span className="flex-1 text-left text-xs text-gray-700 dark:text-zinc-300">@{fp.username ?? "ami"}</span>
+                                <div className={cn(
+                                  "flex h-4 w-4 items-center justify-center rounded border-2 transition-colors",
+                                  friendFilterIds.has(fp.id)
+                                    ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500"
+                                    : "border-gray-300 dark:border-zinc-600"
+                                )}>
+                                  {friendFilterIds.has(fp.id) && <div className="h-1.5 w-1.5 rounded-sm bg-white" />}
+                                </div>
+                              </button>
+                            ))}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Empty State Onboarding */}
@@ -1489,7 +1550,6 @@ export default function MapView() {
                   <div
                     ref={carouselRef}
                     className="relative h-full w-full"
-                    onPointerDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX }}
                     onTouchEnd={(e) => {
                       if (touchStartX.current === null) return
@@ -1511,6 +1571,28 @@ export default function MapView() {
                     ))}
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
+
+                  {/* ❤️ Like button — top-left overlay */}
+                  {user && (() => {
+                    const loveList = reactions.filter(r => r.type === "love")
+                    const hasLoved = loveList.some(r => r.user_id === user.id)
+                    return (
+                      <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => handleToggleLove()}
+                        className={cn(
+                          "absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold backdrop-blur-md transition-colors shadow-md",
+                          hasLoved
+                            ? "bg-red-500/90 text-white"
+                            : "bg-black/40 text-white/90 hover:bg-red-500/80"
+                        )}
+                      >
+                        <Heart size={15} className={hasLoved ? "fill-current" : ""} />
+                        {loveList.length > 0 && <span className="text-xs font-bold">{loveList.length}</span>}
+                      </button>
+                    )
+                  })()}
+
                   {selectedSpot.user_id === user?.id && (
                     <button
                       onPointerDown={(e) => e.stopPropagation()}
@@ -1643,86 +1725,6 @@ export default function MapView() {
                 )}
               </div>
 
-              {/* ── Reactions : ❤️ J'adore (public) + 🔖 Enregistrer (privé) ── */}
-              {user && (() => {
-                const loveList   = reactions.filter(r => r.type === "love")
-                const hasLoved   = loveList.some(r => r.user_id === user.id)
-                const hasSaved   = reactions.some(r => r.user_id === user.id && r.type === "save")
-                const friendSaves = hasSaved
-                  ? reactions.filter(r => r.type === "save" && r.user_id !== user.id && followingIds.includes(r.user_id))
-                  : []
-                return (
-                  <div className="mt-4 flex items-center gap-2">
-                    {/* ❤️ Love button — public, shows friend avatars */}
-                    <button
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => handleToggleReaction("love")}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold transition-colors",
-                        hasLoved
-                          ? "bg-red-50 dark:bg-red-500/15 text-red-500 dark:text-red-400"
-                          : "bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
-                      )}
-                    >
-                      <Heart size={16} className={hasLoved ? "fill-current" : ""} />
-                      {loveList.length > 0 ? (
-                        <div className="flex items-center gap-1">
-                          <div className="flex -space-x-1.5">
-                            {loveList.slice(0, 4).map(r => (
-                              <button
-                                key={r.user_id}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); if (r.user_id !== user.id) setPublicProfileUserId(r.user_id) }}
-                                title={`@${r.username ?? "utilisateur"}`}
-                                className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-950 bg-gradient-to-br from-pink-400 to-red-500 text-[9px] font-bold text-white hover:scale-110 transition-transform"
-                              >
-                                {r.avatar_url
-                                  /* eslint-disable-next-line @next/next/no-img-element */
-                                  ? <img src={r.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : (r.username ?? "?")[0].toUpperCase()}
-                              </button>
-                            ))}
-                          </div>
-                          {loveList.length > 4 && <span className="text-xs">+{loveList.length - 4}</span>}
-                        </div>
-                      ) : "J'adore"}
-                    </button>
-
-                    {/* 🔖 Save button — privé, match silencieux si un ami a aussi enregistré */}
-                    <button
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => handleToggleReaction("save")}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold transition-colors",
-                        hasSaved
-                          ? "bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                          : "bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 hover:text-amber-600"
-                      )}
-                    >
-                      <Bookmark size={16} className={hasSaved ? "fill-current" : ""} />
-                      {hasSaved && friendSaves.length > 0 ? (
-                        <div className="flex items-center gap-1">
-                          <div className="flex -space-x-1.5">
-                            {friendSaves.slice(0, 3).map(r => (
-                              <div
-                                key={r.user_id}
-                                title={`@${r.username ?? ""} a aussi enregistré`}
-                                className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-950 bg-gradient-to-br from-indigo-400 to-purple-500 text-[9px] font-bold text-white"
-                              >
-                                {r.avatar_url
-                                  /* eslint-disable-next-line @next/next/no-img-element */
-                                  ? <img src={r.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : (r.username ?? "?")[0].toUpperCase()}
-                              </div>
-                            ))}
-                          </div>
-                          <span className="text-xs">aussi</span>
-                        </div>
-                      ) : (hasSaved ? "Enregistré" : "Enregistrer")}
-                    </button>
-                  </div>
-                )
-              })()}
 
               {/* Visits Section */}
               <div className="mt-5 border-t border-gray-100 dark:border-white/5 pt-4">
@@ -1945,7 +1947,7 @@ export default function MapView() {
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
-        savedSpotIds={savedSpotIds}
+
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
