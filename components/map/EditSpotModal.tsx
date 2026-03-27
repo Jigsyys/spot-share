@@ -132,25 +132,26 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
             if (offset.y > 100 || velocity.y > 400) onClose()
           }}
         >
-          {/* Handle — seule zone qui déclenche le swipe */}
+          {/* Header + handle — glisser vers le bas pour fermer */}
           <div
-            className="flex-shrink-0 touch-none cursor-grab pt-3 pb-1 sm:hidden"
+            className="flex-shrink-0 touch-none cursor-grab border-b border-gray-200 dark:border-white/10"
             onPointerDown={(e) => dragControls.start(e)}
           >
-            <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300 dark:bg-white/20" />
-          </div>
-
-          {/* Header */}
-          <div className="flex-shrink-0 flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-5 py-4">
-            <h2 className="flex items-center gap-2 text-lg font-bold">
-              <Pencil size={18} className="text-blue-600 dark:text-indigo-400" /> Modifier le spot
-            </h2>
-            <button
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20"
-            >
-              <X size={16} />
-            </button>
+            <div className="flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="h-1.5 w-12 rounded-full bg-gray-300 dark:bg-white/20" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-4">
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <Pencil size={18} className="text-blue-600 dark:text-indigo-400" /> Modifier le spot
+              </h2>
+              <button
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={onClose}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-5 px-5 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
