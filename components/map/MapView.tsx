@@ -1359,11 +1359,11 @@ export default function MapView() {
                       {/* Overlay pour fermer en cliquant à côté */}
                       <div className="fixed inset-0 z-40" onClick={() => setShowFriendFilter(false)} />
                       <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                        transition={{ duration: 0.12 }}
-                        className="absolute left-0 top-full mt-2 z-50 w-60 rounded-2xl border border-gray-200 dark:border-white/10 bg-white/97 dark:bg-zinc-900/97 shadow-xl backdrop-blur-md p-3"
+                        initial={{ opacity: 0, scale: 0.92 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.92 }}
+                        transition={{ duration: 0.15 }}
+                        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4"
                       >
                         {/* Recherche */}
                         <input
