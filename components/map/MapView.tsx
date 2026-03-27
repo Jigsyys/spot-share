@@ -23,7 +23,7 @@ import {
   Heart,
   SlidersHorizontal,
 } from "lucide-react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import useSupercluster from "use-supercluster"
 import { cn, getOpeningStatus, getGoogleOpeningStatus } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -279,6 +279,7 @@ export default function MapView() {
   const carouselRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const spotDragControls = useDragControls()
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
@@ -1151,8 +1152,8 @@ export default function MapView() {
             const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
             const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
             const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
-            // Scale markers with zoom so they stay visible at high zoom levels
-            const markerScale = Math.min(1.8, Math.max(0.7, zoom / 13.5))
+            // Scale markers with zoom — grow significantly at high zoom
+            const markerScale = Math.min(2.8, Math.max(0.6, zoom / 9))
 
             return (
               <MapMarker
@@ -1543,16 +1544,21 @@ export default function MapView() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 200, opacity: 0 }}
             drag="y"
+            dragControls={spotDragControls}
+            dragListener={false}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.6 }}
             onDragEnd={(_e, info) => {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] cursor-grab flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl active:cursor-grabbing sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
-            {/* Drag Handle Mobile — au-dessus de la photo */}
-            <div className="absolute top-3 left-1/2 z-30 -translate-x-1/2 sm:hidden">
+            {/* Drag Handle Mobile — glisser ici pour fermer */}
+            <div
+              className="absolute top-0 left-0 right-0 z-30 flex touch-none cursor-grab justify-center pt-3 pb-5 sm:hidden"
+              onPointerDown={(e) => spotDragControls.start(e)}
+            >
               <div className="h-1.5 w-12 rounded-full bg-white/30" />
             </div>
 
@@ -1595,44 +1601,6 @@ export default function MapView() {
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
 
-                  {/* ❤️ Like button — top-left overlay (long press = voir les likers) */}
-                  {user && (() => {
-                    const loveList = reactions.filter(r => r.type === "love")
-                    const hasLoved = loveList.some(r => r.user_id === user.id)
-                    return (
-                      <button
-                        onPointerDown={(e) => {
-                          e.stopPropagation()
-                          longPressTimer.current = setTimeout(() => {
-                            if (loveList.length > 0) setShowLikersPanel(true)
-                          }, 500)
-                        }}
-                        onPointerUp={(e) => {
-                          e.stopPropagation()
-                          if (longPressTimer.current) {
-                            clearTimeout(longPressTimer.current)
-                            longPressTimer.current = null
-                          }
-                        }}
-                        onPointerLeave={() => {
-                          if (longPressTimer.current) {
-                            clearTimeout(longPressTimer.current)
-                            longPressTimer.current = null
-                          }
-                        }}
-                        onClick={() => handleToggleLove()}
-                        className={cn(
-                          "absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold backdrop-blur-md transition-colors shadow-md select-none",
-                          hasLoved
-                            ? "bg-red-500/90 text-white"
-                            : "bg-black/40 text-white/90 hover:bg-red-500/80"
-                        )}
-                      >
-                        <Heart size={15} className={hasLoved ? "fill-current" : ""} />
-                        {loveList.length > 0 && <span className="text-xs font-bold">{loveList.length}</span>}
-                      </button>
-                    )
-                  })()}
 
                   {selectedSpot.user_id === user?.id && (
                     <button
@@ -1684,9 +1652,42 @@ export default function MapView() {
             )}
 
             <div className="px-5 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
-              <h3 className="line-clamp-2 text-2xl leading-tight font-extrabold">
-                {selectedSpot.title}
-              </h3>
+              <div className="flex items-start gap-3">
+                <h3 className="flex-1 line-clamp-2 text-2xl leading-tight font-extrabold">
+                  {selectedSpot.title}
+                </h3>
+                {user && (() => {
+                  const loveList = reactions.filter(r => r.type === "love")
+                  const hasLoved = loveList.some(r => r.user_id === user.id)
+                  return (
+                    <button
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        longPressTimer.current = setTimeout(() => {
+                          if (loveList.length > 0) setShowLikersPanel(true)
+                        }, 500)
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation()
+                        if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+                      }}
+                      onPointerLeave={() => {
+                        if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+                      }}
+                      onClick={() => handleToggleLove()}
+                      className={cn(
+                        "mt-1 flex flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors select-none",
+                        hasLoved
+                          ? "bg-red-500 text-white"
+                          : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500"
+                      )}
+                    >
+                      <Heart size={15} className={hasLoved ? "fill-current" : ""} />
+                      {loveList.length > 0 && <span className="text-xs font-bold">{loveList.length}</span>}
+                    </button>
+                  )
+                })()}
+              </div>
               {selectedSpot.address && (
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-zinc-400">
                   <MapPin size={14} className="text-blue-600 dark:text-indigo-400" />{" "}
