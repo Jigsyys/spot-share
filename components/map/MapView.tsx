@@ -1152,8 +1152,8 @@ export default function MapView() {
             const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
             const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
             const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
-            // Scale markers with zoom — grow significantly at high zoom
-            const markerScale = Math.min(2.8, Math.max(0.6, zoom / 9))
+            // Scale markers with zoom
+            const markerScale = Math.min(1.4, Math.max(0.5, zoom / 15))
 
             return (
               <MapMarker
