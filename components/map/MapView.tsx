@@ -172,6 +172,19 @@ function cleanDescription(text: string): string {
     .trim()
 }
 
+function renderDescription(text: string): React.ReactNode {
+  return text.split("\n").map((line, li) => (
+    <span key={li}>
+      {li > 0 && <br />}
+      {line.split(/(\*\*[^*]+\*\*)/).map((part, pi) =>
+        part.startsWith("**") && part.endsWith("**")
+          ? <strong key={pi} className="font-semibold text-gray-900 dark:text-white">{part.slice(2, -2)}</strong>
+          : part
+      )}
+    </span>
+  ))
+}
+
 // ---------------------------------------------------------------------------
 // Composant horaires d'ouverture avec dropdown animé
 // ---------------------------------------------------------------------------
@@ -1689,10 +1702,10 @@ export default function MapView() {
               {selectedSpot.description && cleanDescription(selectedSpot.description) && (
                 <div className="mt-4 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
                   <p className={cn(
-                    "text-[15px] leading-relaxed whitespace-pre-wrap text-gray-600 dark:text-zinc-300",
+                    "text-[15px] leading-relaxed text-gray-600 dark:text-zinc-300",
                     !descExpanded && "line-clamp-2"
                   )}>
-                    {cleanDescription(selectedSpot.description)}
+                    {renderDescription(cleanDescription(selectedSpot.description))}
                   </p>
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
@@ -2022,7 +2035,7 @@ export default function MapView() {
       <ExploreModal
         isOpen={showExploreModal}
         onClose={() => setShowExploreModal(false)}
-        spots={visibleSpots}
+        spots={spots}
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}

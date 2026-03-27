@@ -133,7 +133,7 @@ export default function ExploreModal({
 }: ExploreModalProps) {
   const [searchQuery, setSearchQuery]       = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [friendMode, setFriendMode]         = useState<"all" | "friends">("all")
+  const [friendMode, setFriendMode]         = useState<"mine" | "friends">("mine")
   const [nearbyMode, setNearbyMode]         = useState(false)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef          = useRef<HTMLInputElement>(null)
@@ -150,7 +150,7 @@ export default function ExploreModal({
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery("")
-      setNearbyMode(false); setSurpriseLoading(false); setFriendMode("all")
+      setNearbyMode(false); setSurpriseLoading(false); setFriendMode("mine")
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
     }
@@ -193,8 +193,10 @@ export default function ExploreModal({
 
     let list = withDist
 
-    // Filtre amis seulement
-    if (friendMode === "friends") {
+    // Filtre Moi / Amis
+    if (friendMode === "mine") {
+      list = list.filter(({ spot }) => spot.user_id === currentUserId)
+    } else {
       list = list.filter(({ spot }) => spot.user_id !== currentUserId)
     }
 
@@ -321,18 +323,18 @@ export default function ExploreModal({
               {/* Filtres — Tous/Amis + Tri + Surprise */}
               <div className="flex flex-shrink-0 items-center gap-2 px-5 pb-4">
 
-                {/* Tous / Amis */}
+                {/* Moi / Amis */}
                 <div className="flex items-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-zinc-800 p-0.5">
                   <button
-                    onClick={() => setFriendMode("all")}
+                    onClick={() => setFriendMode("mine")}
                     className={cn(
                       "rounded-[9px] px-3 py-1.5 text-xs font-semibold transition-colors",
-                      friendMode === "all"
+                      friendMode === "mine"
                         ? "bg-white dark:bg-zinc-700 text-gray-900 dark:text-white shadow-sm"
                         : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
                     )}
                   >
-                    Tous
+                    Moi
                   </button>
                   {hasFriends && (
                     <button
@@ -437,7 +439,7 @@ export default function ExploreModal({
                     <Search size={40} className="text-gray-300 dark:text-zinc-700" />
                     <p className="text-sm font-semibold text-gray-500 dark:text-zinc-400">Aucun spot trouvé</p>
                     <p className="text-xs text-gray-400 dark:text-zinc-600">
-                      {hasQuery ? "Essaie un autre mot-clé" : friendMode === "friends" ? "Tes amis n'ont pas encore ajouté de spots" : "Aucun spot disponible"}
+                      {hasQuery ? "Essaie un autre mot-clé" : friendMode === "friends" ? "Tes amis n'ont pas encore ajouté de spots" : "Tu n'as pas encore ajouté de spots"}
                     </p>
                   </div>
                 ) : (
@@ -445,6 +447,7 @@ export default function ExploreModal({
                     <p className="mb-2 text-xs font-medium text-gray-400 dark:text-zinc-500">
                       {displayedSpots.length} spot{displayedSpots.length > 1 ? "s" : ""}
                       {nearbyMode && <span className="text-blue-500 dark:text-indigo-400"> · par distance</span>}
+                      {friendMode === "mine" && <span className="text-blue-500 dark:text-blue-400"> · mes spots</span>}
                       {friendMode === "friends" && <span className="text-indigo-500 dark:text-indigo-400"> · amis</span>}
                     </p>
                     {displayedSpots.map(({ spot, distance }) => (
