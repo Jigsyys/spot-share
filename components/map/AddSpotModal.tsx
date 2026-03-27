@@ -14,6 +14,7 @@ import {
   Sparkles,
   UploadCloud,
   Clipboard,
+  Wand2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -56,6 +57,20 @@ interface AddSpotModalProps {
 
 type Tab = "instagram" | "manual"
 
+// ─── Helper : applique les données retournées par l'IA ────────────────────────
+type AiData = {
+  title?: string
+  description?: string
+  category?: string
+  photos?: string[]
+  image_url?: string
+  maps_url?: string
+  weekday_descriptions?: string[]
+  opening_hours?: Record<string, string>
+  coordinates?: { lat: number; lng: number }
+  location?: string
+}
+
 export default function AddSpotModal({
   isOpen,
   onClose,
@@ -65,62 +80,88 @@ export default function AddSpotModal({
   userLng,
 }: AddSpotModalProps) {
   const [tab, setTab] = useState<Tab>("instagram")
-  const [instagramUrl, setInstagramUrl] = useState("")
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [category, setCategory] = useState("café")
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [openingHours, setOpeningHours] = useState<Record<
-    string,
-    string
-  > | null>(null)
+
+  // ── Shared : place search ──────────────────────────────────────────────────
   const [placeQuery, setPlaceQuery] = useState("")
   const [placeResults, setPlaceResults] = useState<GeocodingResult[]>([])
-  const [selectedPlace, setSelectedPlace] = useState<GeocodingResult | null>(
-    null
-  )
+  const [selectedPlace, setSelectedPlace] = useState<GeocodingResult | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mapsUrl, setMapsUrl] = useState<string | null>(null)
-  const [weekdayDescriptions, setWeekdayDescriptions] = useState<string[] | null>(null)
+
+  // ── Instagram tab state ────────────────────────────────────────────────────
+  const [instagramUrl, setInstagramUrl] = useState("")
+  const [igTitle, setIgTitle] = useState("")
+  const [igDescription, setIgDescription] = useState("")
+  const [igCategory, setIgCategory] = useState("café")
+  const [igImageUrl, setIgImageUrl] = useState<string | null>(null)
+  const [igOpeningHours, setIgOpeningHours] = useState<Record<string, string> | null>(null)
+  const [igWeekdayDescriptions, setIgWeekdayDescriptions] = useState<string[] | null>(null)
+  const [igMapsUrl, setIgMapsUrl] = useState<string | null>(null)
   const [autoFillLoading, setAutoFillLoading] = useState(false)
   const [autoFillDone, setAutoFillDone] = useState(false)
+
+  // ── Manual tab state ───────────────────────────────────────────────────────
+  const [manTitle, setManTitle] = useState("")
+  const [manDescription, setManDescription] = useState("")
+  const [manCategory, setManCategory] = useState("café")
+  const [manImageUrl, setManImageUrl] = useState<string | null>(null)
+  const [manOpeningHours, setManOpeningHours] = useState<Record<string, string> | null>(null)
+  const [manWeekdayDescriptions, setManWeekdayDescriptions] = useState<string[] | null>(null)
+  const [manMapsUrl, setManMapsUrl] = useState<string | null>(null)
+  const [manAiFillLoading, setManAiFillLoading] = useState(false)
+  const [manAiFillDone, setManAiFillDone] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const igDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabaseRef = useRef(createClient())
 
-  // Image Upload handler for manual tab
+  // ── Geocoding helper (shared) ──────────────────────────────────────────────
+  const applyCoordinates = useCallback(async (data: AiData, fallbackName: string) => {
+    if (data.coordinates?.lat && data.coordinates?.lng) {
+      const placeName = data.location || fallbackName
+      setPlaceQuery(placeName)
+      setSelectedPlace({
+        id: `ai-${Date.now()}`,
+        place_name: placeName,
+        center: [data.coordinates.lng, data.coordinates.lat],
+      })
+    } else if (data.location) {
+      setPlaceQuery(data.location)
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(data.location)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr`
+        )
+        const json = await res.json()
+        if (json.features?.length > 0) {
+          const best = json.features[0]
+          setSelectedPlace({ id: best.id, place_name: best.place_name, center: best.center })
+        }
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  // ── Image upload (manual tab) ──────────────────────────────────────────────
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
     setUploadingImage(true)
     try {
-      const {
-        data: { session },
-      } = await supabaseRef.current.auth.getSession()
+      const { data: { session } } = await supabaseRef.current.auth.getSession()
       const userId = session?.user?.id || "anonymous"
       const newUrls: string[] = []
-
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
-        const fileExt = file.name.split(".").pop() || "jpg"
-        const filePath = `spots/${userId}-${Date.now()}-${i}.${fileExt}`
-        const { error } = await supabaseRef.current.storage
-          .from("avatars")
-          .upload(filePath, file)
+        const ext = file.name.split(".").pop() || "jpg"
+        const filePath = `spots/${userId}-${Date.now()}-${i}.${ext}`
+        const { error } = await supabaseRef.current.storage.from("avatars").upload(filePath, file)
         if (error) throw error
-        const { data } = supabaseRef.current.storage
-          .from("avatars")
-          .getPublicUrl(filePath)
+        const { data } = supabaseRef.current.storage.from("avatars").getPublicUrl(filePath)
         newUrls.push(data.publicUrl)
       }
-
-      setImageUrl((prev) =>
-        prev ? `${prev},${newUrls.join(",")}` : newUrls.join(",")
-      )
+      setManImageUrl((prev) => prev ? `${prev},${newUrls.join(",")}` : newUrls.join(","))
       toast.success(`${files.length} photo(s) ajoutée(s) !`)
     } catch {
       toast.error("Erreur lors de l'upload de l'image")
@@ -130,9 +171,7 @@ export default function AddSpotModal({
     }
   }
 
-
-
-  // Instagram auto-fill
+  // ── Instagram auto-fill ────────────────────────────────────────────────────
   useEffect(() => {
     if (tab !== "instagram") return
     const url = instagramUrl.trim()
@@ -148,62 +187,27 @@ export default function AddSpotModal({
       try {
         const locParams = userLat != null && userLng != null ? `&lat=${userLat}&lng=${userLng}` : ""
         const res = await fetch(`/api/instagram?url=${encodeURIComponent(url)}${locParams}`)
-        const data = await res.json()
+        const data: AiData & { error?: string } = await res.json()
 
         if (!res.ok || data.error) {
-          toast.error(
-            data.error ||
-              "Impossible d'analyser le lien (compte privé ou invalide ?)"
-          )
+          toast.error(data.error || "Impossible d'analyser le lien (compte privé ou invalide ?)")
           setAutoFillDone(false)
           return
         }
 
-        // Toujours écraser avec le nom commercial retourné par l'API (pas l'adresse)
-        if (data.title) setTitle(data.title)
-        if (data.description && !description) setDescription(data.description)
+        if (data.title) setIgTitle(data.title)
+        if (data.description && !igDescription) setIgDescription(data.description)
         if (data.category) {
           const cat = data.category.toLowerCase()
-          if (CATEGORIES.some((c) => c.key === cat)) setCategory(cat)
+          if (CATEGORIES.some((c) => c.key === cat)) setIgCategory(cat)
         }
-        // Priorité à photos[] (array), fallback sur image_url (compat)
-        if (data.photos?.length) setImageUrl(data.photos.join(","))
-        else if (data.image_url) setImageUrl(data.image_url)
-        if (data.maps_url) setMapsUrl(data.maps_url)
-        if (data.weekday_descriptions?.length) setWeekdayDescriptions(data.weekday_descriptions)
-        if (data.opening_hours) setOpeningHours(data.opening_hours)
+        if (data.photos?.length) setIgImageUrl(data.photos.join(","))
+        else if (data.image_url) setIgImageUrl(data.image_url)
+        if (data.maps_url) setIgMapsUrl(data.maps_url)
+        if (data.weekday_descriptions?.length) setIgWeekdayDescriptions(data.weekday_descriptions)
+        if (data.opening_hours) setIgOpeningHours(data.opening_hours)
+        await applyCoordinates(data, data.title || url)
 
-        if (data.coordinates?.lat && data.coordinates?.lng) {
-          const placeName =
-            data.location || data.title || "Emplacement extrait par l'IA"
-          setPlaceQuery(placeName)
-          setSelectedPlace({
-            id: `ai-${Date.now()}`,
-            place_name: placeName,
-            center: [data.coordinates.lng, data.coordinates.lat],
-          })
-        } else if (data.location && !placeQuery) {
-          // Si on a un nom mais pas les coord exactes, on cherche et on sélectionne le 1er résultat direct !
-          setPlaceQuery(data.location)
-          try {
-            const mapboxRes = await fetch(
-              `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(data.location)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr`
-            )
-            const mapboxData = await mapboxRes.json()
-            if (mapboxData.features && mapboxData.features.length > 0) {
-              const bestMatch = mapboxData.features[0]
-              setSelectedPlace({
-                id: bestMatch.id,
-                place_name: bestMatch.place_name,
-                center: bestMatch.center as [number, number],
-              })
-            } else {
-              searchPlaces(data.location)
-            }
-          } catch {
-            searchPlaces(data.location)
-          }
-        }
         setAutoFillDone(true)
         toast.success("Spot pré-rempli avec l'IA !")
       } catch {
@@ -213,37 +217,59 @@ export default function AddSpotModal({
         setAutoFillLoading(false)
       }
     }, 900)
-
-    return () => {
-      if (igDebounceRef.current) clearTimeout(igDebounceRef.current)
-    }
+    return () => { if (igDebounceRef.current) clearTimeout(igDebounceRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instagramUrl, tab])
 
-  // Reset autoFillDone when URL changes
-  useEffect(() => {
-    setAutoFillDone(false)
-  }, [instagramUrl])
+  useEffect(() => { setAutoFillDone(false) }, [instagramUrl])
 
-  const searchPlaces = useCallback(async (query: string) => {
-    if (query.length < 3) {
-      setPlaceResults([])
-      return
+  // ── Manual AI search ───────────────────────────────────────────────────────
+  const handleManualAiFill = useCallback(async () => {
+    if (!manTitle.trim()) return
+    setManAiFillLoading(true)
+    setManAiFillDone(false)
+    try {
+      const locParams = userLat != null && userLng != null ? `&lat=${userLat}&lng=${userLng}` : ""
+      const res = await fetch(`/api/search-place?name=${encodeURIComponent(manTitle.trim())}${locParams}`)
+      const data: AiData & { error?: string } = await res.json()
+
+      if (!res.ok || data.error) {
+        toast.error(data.error || "Lieu introuvable. Essaie un nom plus précis.")
+        return
+      }
+
+      if (data.description) setManDescription(data.description)
+      if (data.category) {
+        const cat = data.category.toLowerCase()
+        if (CATEGORIES.some((c) => c.key === cat)) setManCategory(cat)
+      }
+      if (data.photos?.length) setManImageUrl(data.photos.join(","))
+      else if (data.image_url) setManImageUrl(data.image_url)
+      if (data.maps_url) setManMapsUrl(data.maps_url)
+      if (data.weekday_descriptions?.length) setManWeekdayDescriptions(data.weekday_descriptions)
+      if (data.opening_hours) setManOpeningHours(data.opening_hours)
+      await applyCoordinates(data, manTitle)
+
+      setManAiFillDone(true)
+      toast.success("Spot pré-rempli avec l'IA !")
+    } catch {
+      toast.error("Échec de la recherche IA.")
+    } finally {
+      setManAiFillLoading(false)
     }
+  }, [manTitle, userLat, userLng, applyCoordinates])
+
+  // ── Place search (shared) ──────────────────────────────────────────────────
+  const searchPlaces = useCallback(async (query: string) => {
+    if (query.length < 3) { setPlaceResults([]); return }
     setSearchLoading(true)
     try {
       const res = await fetch(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=5&language=fr`
       )
       const data = await res.json()
-      setPlaceResults(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data.features?.map((f: any) => ({
-          id: f.id,
-          place_name: f.place_name,
-          center: f.center as [number, number],
-        })) ?? []
-      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setPlaceResults(data.features?.map((f: any) => ({ id: f.id, place_name: f.place_name, center: f.center })) ?? [])
     } catch {
       setPlaceResults([])
     } finally {
@@ -254,29 +280,25 @@ export default function AddSpotModal({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchPlaces(placeQuery), 350)
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [placeQuery, searchPlaces])
 
+  // ── Reset on close ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen) {
       setTimeout(() => {
         setTab("instagram")
         setInstagramUrl("")
-        setTitle("")
-        setDescription("")
-        setCategory("café")
-        setImageUrl(null)
-        setOpeningHours(null)
-        setPlaceQuery("")
-        setPlaceResults([])
-        setSelectedPlace(null)
-        setError(null)
-        setAutoFillDone(false)
-        setAutoFillLoading(false)
-        setMapsUrl(null)
-        setWeekdayDescriptions(null)
+        // Instagram tab reset
+        setIgTitle(""); setIgDescription(""); setIgCategory("café")
+        setIgImageUrl(null); setIgOpeningHours(null); setIgWeekdayDescriptions(null); setIgMapsUrl(null)
+        setAutoFillDone(false); setAutoFillLoading(false)
+        // Manual tab reset
+        setManTitle(""); setManDescription(""); setManCategory("café")
+        setManImageUrl(null); setManOpeningHours(null); setManWeekdayDescriptions(null); setManMapsUrl(null)
+        setManAiFillDone(false); setManAiFillLoading(false)
+        // Shared reset
+        setPlaceQuery(""); setPlaceResults([]); setSelectedPlace(null); setError(null)
       }, 300)
     } else if (initialUrl && !instagramUrl) {
       setTab("instagram")
@@ -284,32 +306,26 @@ export default function AddSpotModal({
     }
   }, [isOpen, initialUrl, instagramUrl])
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     setError(null)
-    if (!selectedPlace) {
-      setError("Sélectionne un lieu !")
-      return
-    }
-    const spotTitle = title.trim()
-    if (!spotTitle) {
-      setError("Ajoute un titre !")
-      return
-    }
+    if (!selectedPlace) { setError("Sélectionne un lieu !"); return }
+    const finalTitle = (tab === "instagram" ? igTitle : manTitle).trim()
+    if (!finalTitle) { setError("Ajoute un titre !"); return }
     setSubmitting(true)
     try {
       await onAdd({
-        title: spotTitle,
-        description: description.trim() || null,
+        title: finalTitle,
+        description: (tab === "instagram" ? igDescription : manDescription).trim() || null,
         lat: selectedPlace.center[1],
         lng: selectedPlace.center[0],
-        category,
-        instagram_url:
-          tab === "instagram" && instagramUrl ? instagramUrl.trim() : null,
-        image_url: imageUrl,
+        category: tab === "instagram" ? igCategory : manCategory,
+        instagram_url: tab === "instagram" && instagramUrl ? instagramUrl.trim() : null,
+        image_url: tab === "instagram" ? igImageUrl : manImageUrl,
         address: selectedPlace.place_name,
-        opening_hours: openingHours,
-        weekday_descriptions: weekdayDescriptions,
-        maps_url: mapsUrl,
+        opening_hours: tab === "instagram" ? igOpeningHours : manOpeningHours,
+        weekday_descriptions: tab === "instagram" ? igWeekdayDescriptions : manWeekdayDescriptions,
+        maps_url: tab === "instagram" ? igMapsUrl : manMapsUrl,
       })
       onClose()
     } catch (err) {
@@ -327,9 +343,7 @@ export default function AddSpotModal({
       {isOpen && (
         <>
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
             className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           />
@@ -342,27 +356,19 @@ export default function AddSpotModal({
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.05, bottom: 0.4 }}
             dragMomentum={false}
-            onDragEnd={(_e, { offset, velocity }) => {
-              if (offset.y > 120 || velocity.y > 400) onClose()
-            }}
+            onDragEnd={(_e, { offset, velocity }) => { if (offset.y > 120 || velocity.y > 400) onClose() }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
             <div className="flex max-h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
-              {/* Drag Handle Mobile */}
               <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
               <div className="flex items-center justify-between p-5 pt-3 pb-3 sm:pt-5">
                 <div>
                   <h2 className="text-lg font-bold">Ajouter un spot</h2>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                    Partage un lieu avec tes amis
-                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">Partage un lieu avec tes amis</p>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10"
-                >
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
                   <X size={18} />
                 </button>
               </div>
@@ -370,18 +376,10 @@ export default function AddSpotModal({
               {/* Tabs */}
               <div className="px-5 pb-3">
                 <div className="flex rounded-xl bg-gray-100 dark:bg-zinc-800/80 p-1">
-                  {[
-                    {
-                      key: "instagram" as Tab,
-                      label: "Lien Insta / TikTok",
-                      icon: <Link2 size={14} />,
-                    },
-                    {
-                      key: "manual" as Tab,
-                      label: "Ajout manuel",
-                      icon: <PenLine size={14} />,
-                    },
-                  ].map(({ key, label, icon }) => (
+                  {([
+                    { key: "instagram" as Tab, label: "Lien Insta / TikTok", icon: <Link2 size={14} /> },
+                    { key: "manual" as Tab, label: "Ajout manuel", icon: <PenLine size={14} /> },
+                  ]).map(({ key, label, icon }) => (
                     <button
                       key={key}
                       onClick={() => setTab(key)}
@@ -400,17 +398,17 @@ export default function AddSpotModal({
 
               {/* Content */}
               <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
+
+                {/* ── Instagram tab ─────────────────────────────────────── */}
                 {tab === "instagram" && (
                   <div className="flex flex-col gap-4">
+                    {/* URL input */}
                     <div>
                       <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
                         Lien Instagram / TikTok
                       </label>
                       <div className="relative">
-                        <Instagram
-                          size={16}
-                          className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500"
-                        />
+                        <Instagram size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
                         <input
                           type="url"
                           placeholder="Lien Instagram ou TikTok..."
@@ -419,16 +417,10 @@ export default function AddSpotModal({
                           className={cn(inputCls, "!pl-10", autoFillLoading || autoFillDone ? "!pr-10" : "!pr-20")}
                         />
                         {autoFillLoading && (
-                          <LoaderCircle
-                            size={15}
-                            className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400"
-                          />
+                          <LoaderCircle size={15} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
                         )}
                         {autoFillDone && !autoFillLoading && (
-                          <Sparkles
-                            size={15}
-                            className="absolute top-1/2 right-3 -translate-y-1/2 text-emerald-400"
-                          />
+                          <Sparkles size={15} className="absolute top-1/2 right-3 -translate-y-1/2 text-emerald-400" />
                         )}
                         {!autoFillLoading && !autoFillDone && (
                           <button
@@ -437,9 +429,7 @@ export default function AddSpotModal({
                               try {
                                 const text = await navigator.clipboard.readText()
                                 if (text?.trim()) setInstagramUrl(text.trim())
-                              } catch {
-                                /* permission refusée — silencieux */
-                              }
+                              } catch { /* silencieux */ }
                             }}
                             className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center gap-1 rounded-lg bg-gray-200 dark:bg-zinc-700 px-2 py-1 text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-300 dark:hover:bg-zinc-600"
                           >
@@ -449,43 +439,84 @@ export default function AddSpotModal({
                       </div>
                       {autoFillDone && (
                         <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-400">
-                          <Sparkles size={11} /> Infos récupérées
-                          automatiquement
+                          <Sparkles size={11} /> Infos récupérées automatiquement
                         </p>
                       )}
+                    </div>
+
+                    {/* Photos Instagram */}
+                    {igImageUrl ? (
+                      <div className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10" style={{ scrollbarWidth: "none" }}>
+                        {igImageUrl.split(",").filter(Boolean).map((url, i, arr) => (
+                          <div key={i} className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url.trim()} alt="Preview" className="h-full w-full object-cover" />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-900/80 via-transparent to-transparent" />
+                            <span className="absolute bottom-2 left-3 text-xs font-semibold text-white/90 drop-shadow-md">
+                              Image {i + 1}{arr.length > 1 ? ` / ${arr.length}` : " extraite"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex h-24 items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/30">
+                        <p className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
+                          <Instagram size={14} /> La photo apparaîtra ici
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Titre */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Titre <span className="text-gray-400 dark:text-zinc-600">(optionnel si auto-rempli)</span>
+                      </label>
+                      <input type="text" placeholder="Ex: Le meilleur café de Paris" value={igTitle} onChange={(e) => setIgTitle(e.target.value)} className={inputCls} />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Description <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
+                      </label>
+                      <textarea placeholder="Décris ce lieu..." value={igDescription} onChange={(e) => setIgDescription(e.target.value)} rows={2} className={cn(inputCls, "resize-none")} />
+                    </div>
+
+                    {/* Catégorie */}
+                    <div>
+                      <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">Catégorie</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CATEGORIES.map((cat) => (
+                          <button key={cat.key} onClick={() => setIgCategory(cat.key)}
+                            className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                              igCategory === cat.key
+                                ? "bg-indigo-500 text-white shadow-sm"
+                                : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                            )}>
+                            <span>{cat.emoji}</span> {cat.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Zone Photos */}
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="block text-xs font-medium text-zinc-400">
-                      Photos
-                    </label>
-                  </div>
-
-                  {tab === "manual" && (
-                    <div className="mb-3">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleImageUpload}
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                      />
+                {/* ── Manual tab ────────────────────────────────────────── */}
+                {tab === "manual" && (
+                  <div className="flex flex-col gap-4">
+                    {/* Photos */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">Photos</label>
+                      <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="hidden" />
                       <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploadingImage}
-                        className="group relative flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-zinc-800/50 p-3 transition-colors hover:border-indigo-500/50"
+                        className="group relative flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-zinc-800/50 p-3 transition-colors hover:border-indigo-500/50 mb-2"
                       >
                         {uploadingImage ? (
                           <div className="flex flex-col items-center gap-1.5 py-1 text-indigo-400">
                             <LoaderCircle size={20} className="animate-spin" />
-                            <span className="text-[11px] font-medium">
-                              Upload en cours...
-                            </span>
+                            <span className="text-[11px] font-medium">Upload en cours...</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 py-1">
@@ -493,184 +524,134 @@ export default function AddSpotModal({
                               <UploadCloud size={16} />
                             </div>
                             <div className="text-left">
-                              <p className="text-[13px] font-semibold text-gray-700 dark:text-zinc-200">
-                                Ajouter des photos
-                              </p>
-                              <p className="text-[10px] text-gray-400 dark:text-zinc-500">
-                                Formats acceptés : JPG, PNG, WebP
-                              </p>
+                              <p className="text-[13px] font-semibold text-gray-700 dark:text-zinc-200">Ajouter des photos</p>
+                              <p className="text-[10px] text-gray-400 dark:text-zinc-500">Formats acceptés : JPG, PNG, WebP</p>
                             </div>
                           </div>
                         )}
                       </button>
+                      {manImageUrl && (
+                        <div className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10" style={{ scrollbarWidth: "none" }}>
+                          {manImageUrl.split(",").filter(Boolean).map((url, i, arr) => (
+                            <div key={i} className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url.trim()} alt="Preview" className="h-full w-full object-cover" />
+                              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-900/80 via-transparent to-transparent" />
+                              <span className="absolute bottom-2 left-3 text-xs font-semibold text-white/90 drop-shadow-md">
+                                Image {i + 1}{arr.length > 1 ? ` / ${arr.length}` : " ajoutée"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
 
-                  {imageUrl && imageUrl.trim() !== "" ? (
-                    <div
-                      className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10"
-                      style={{ scrollbarWidth: "none" }}
-                    >
-                      {imageUrl
-                        .split(",")
-                        .filter((url) => url.trim() !== "")
-                        .map((url, i, arr) => (
-                          <div
-                            key={i}
-                            className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={url.trim()}
-                              alt="Preview"
-                              className="h-full w-full object-cover"
-                            />
-                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-900/80 via-transparent to-transparent" />
-                            <span className="absolute bottom-2 left-3 text-xs font-semibold text-white/90 shadow-black/50 drop-shadow-md">
-                              Image {i + 1}{" "}
-                              {arr.length > 1
-                                ? `/ ${arr.length}`
-                                : tab === "instagram"
-                                  ? " extraite"
-                                  : " ajoutée"}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                  ) : (
-                    tab === "instagram" && (
-                      <div className="flex h-24 items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/30">
-                        <p className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
-                          <Instagram size={14} /> La photo apparaîtra ici
-                        </p>
+                    {/* Titre + bouton IA */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">Titre</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Ex: Café de Flore"
+                          value={manTitle}
+                          onChange={(e) => { setManTitle(e.target.value); setManAiFillDone(false) }}
+                          className={cn(inputCls, "flex-1")}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleManualAiFill}
+                          disabled={manAiFillLoading || !manTitle.trim()}
+                          title="Rechercher avec l'IA"
+                          className={cn(
+                            "flex flex-shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                            manAiFillDone
+                              ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/30"
+                              : "bg-indigo-500 text-white hover:bg-indigo-400 disabled:opacity-40"
+                          )}
+                        >
+                          {manAiFillLoading
+                            ? <LoaderCircle size={14} className="animate-spin" />
+                            : manAiFillDone
+                              ? <Sparkles size={14} />
+                              : <Wand2 size={14} />}
+                          {manAiFillLoading ? "..." : manAiFillDone ? "OK" : "IA"}
+                        </button>
                       </div>
-                    )
-                  )}
-                </div>
+                      {manAiFillDone && (
+                        <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-400">
+                          <Sparkles size={11} /> Infos récupérées automatiquement
+                        </p>
+                      )}
+                    </div>
 
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
-                    Titre{" "}
-                    {tab === "instagram" && (
-                      <span className="text-gray-400 dark:text-zinc-600">
-                        (optionnel si auto-rempli)
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Le meilleur café de Paris"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className={inputCls}
-                  />
-                </div>
+                    {/* Description */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Description <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
+                      </label>
+                      <textarea placeholder="Décris ce lieu..." value={manDescription} onChange={(e) => setManDescription(e.target.value)} rows={2} className={cn(inputCls, "resize-none")} />
+                    </div>
 
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
-                    Description{" "}
-                    <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
-                  </label>
-                  <textarea
-                    placeholder="Décris ce lieu..."
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={2}
-                    className={cn(inputCls, "resize-none")}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">
-                    Catégorie
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CATEGORIES.map((cat) => (
-                      <button
-                        key={cat.key}
-                        onClick={() => setCategory(cat.key)}
-                        className={cn(
-                          "flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
-                          category === cat.key
-                            ? "bg-indigo-500 text-white shadow-sm"
-                            : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
-                        )}
-                      >
-                        <span>{cat.emoji}</span> {cat.label}
-                      </button>
-                    ))}
+                    {/* Catégorie */}
+                    <div>
+                      <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">Catégorie</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CATEGORIES.map((cat) => (
+                          <button key={cat.key} onClick={() => setManCategory(cat.key)}
+                            className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                              manCategory === cat.key
+                                ? "bg-indigo-500 text-white shadow-sm"
+                                : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                            )}>
+                            <span>{cat.emoji}</span> {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
 
+                {/* ── Place search (shared) ──────────────────────────── */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
-                    📍 Rechercher le lieu
-                  </label>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">📍 Rechercher le lieu</label>
                   <div className="relative">
-                    <Search
-                      size={16}
-                      className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500"
-                    />
+                    <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
                     <input
                       type="text"
                       placeholder="Chercher une adresse..."
                       value={placeQuery}
-                      onChange={(e) => {
-                        setPlaceQuery(e.target.value)
-                        setSelectedPlace(null)
-                      }}
+                      onChange={(e) => { setPlaceQuery(e.target.value); setSelectedPlace(null) }}
                       className={cn(inputCls, "!pl-10")}
                     />
                     {searchLoading && (
-                      <LoaderCircle
-                        size={16}
-                        className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400"
-                      />
+                      <LoaderCircle size={16} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
                     )}
                   </div>
                   {placeResults.length > 0 && !selectedPlace && (
                     <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/90">
                       {placeResults.map((place) => (
-                        <button
-                          key={place.id}
-                          onClick={() => {
-                            setSelectedPlace(place)
-                            setPlaceQuery(place.place_name)
-                            setPlaceResults([])
-                          }}
+                        <button key={place.id}
+                          onClick={() => { setSelectedPlace(place); setPlaceQuery(place.place_name); setPlaceResults([]) }}
                           className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 dark:text-zinc-200 transition-colors hover:bg-gray-50 dark:hover:bg-white/10"
                         >
-                          <MapPin
-                            size={14}
-                            className="mt-0.5 flex-shrink-0 text-indigo-400"
-                          />
-                          <span className="line-clamp-1">
-                            {place.place_name}
-                          </span>
+                          <MapPin size={14} className="mt-0.5 flex-shrink-0 text-indigo-400" />
+                          <span className="line-clamp-1">{place.place_name}</span>
                         </button>
                       ))}
                     </div>
                   )}
                   {selectedPlace && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="mt-2 flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2"
-                    >
+                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                      className="mt-2 flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2">
                       <MapPin size={14} className="text-indigo-400" />
-                      <span className="truncate text-xs text-indigo-300">
-                        {selectedPlace.place_name}
-                      </span>
+                      <span className="truncate text-xs text-indigo-300">{selectedPlace.place_name}</span>
                     </motion.div>
                   )}
                 </div>
 
                 {error && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-center text-sm text-red-400"
-                  >
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-center text-sm text-red-400">
                     {error}
                   </motion.div>
                 )}
@@ -681,13 +662,9 @@ export default function AddSpotModal({
                   disabled={submitting}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-purple-500 disabled:opacity-50"
                 >
-                  {submitting ? (
-                    <LoaderCircle size={18} className="animate-spin" />
-                  ) : (
-                    <>
-                      <Plus size={16} /> Ajouter ce spot
-                    </>
-                  )}
+                  {submitting
+                    ? <LoaderCircle size={18} className="animate-spin" />
+                    : <><Plus size={16} /> Ajouter ce spot</>}
                 </motion.button>
               </div>
             </div>
