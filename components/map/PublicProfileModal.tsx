@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, User, MapPin, Users, LoaderCircle } from "lucide-react"
+import { X, User, MapPin, Users, LoaderCircle, Heart } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 interface Spot {
@@ -36,6 +36,7 @@ export default function PublicProfileModal({
   const [profile, setProfile] = useState<{ username: string; avatar_url: string | null; last_active_at: string | null } | null>(null)
   const [spots, setSpots] = useState<Spot[]>([])
   const [followers, setFollowers] = useState(0)
+  const [totalLikes, setTotalLikes] = useState(0)
   const [loading, setLoading] = useState(false)
   const supabaseRef = useRef(createClient())
 
@@ -61,6 +62,20 @@ export default function PublicProfileModal({
         .select("*", { count: "exact", head: true })
         .eq("following_id", userId)
       setFollowers(count || 0)
+
+      try {
+        const { data: spotIds } = await supabaseRef.current
+          .from("spots").select("id").eq("user_id", userId)
+        if (spotIds && spotIds.length > 0) {
+          const ids = spotIds.map((s: { id: string }) => s.id)
+          const { count: likesCount } = await supabaseRef.current
+            .from("spot_reactions")
+            .select("*", { count: "exact", head: true })
+            .in("spot_id", ids)
+            .eq("type", "love")
+          setTotalLikes(likesCount ?? 0)
+        }
+      } catch { /* */ }
     } catch {
       // ignore
     } finally {
@@ -75,6 +90,7 @@ export default function PublicProfileModal({
       setProfile(null)
       setSpots([])
       setFollowers(0)
+      setTotalLikes(0)
     }
   }, [isOpen, userId, loadData])
 
@@ -139,18 +155,23 @@ export default function PublicProfileModal({
                       <p className="text-lg font-bold">@{profile?.username || "utilisateur"}</p>
                     </div>
 
-                    <div className="flex items-center justify-center gap-6 rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/50 py-4">
+                    <div className="grid grid-cols-3 gap-2 rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/50 py-4">
                       <div className="flex flex-col items-center gap-1">
                         <span className="text-xl font-bold">{spots.length}</span>
                         <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
                           <MapPin size={12} /> Lieux
                         </div>
                       </div>
-                      <div className="h-8 w-px bg-gray-200 dark:bg-white/10" />
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex flex-col items-center gap-1 border-x border-gray-200 dark:border-white/10">
                         <span className="text-xl font-bold">{followers}</span>
                         <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
                           <Users size={12} /> Abonnés
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-xl font-bold">{totalLikes}</span>
+                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
+                          <Heart size={12} className="fill-red-500 text-red-500" /> Likes
                         </div>
                       </div>
                     </div>

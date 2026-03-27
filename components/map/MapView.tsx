@@ -261,8 +261,10 @@ export default function MapView() {
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
   const [descExpanded, setDescExpanded] = useState(false)
+  const [showLikersPanel, setShowLikersPanel] = useState(false)
   const carouselRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
@@ -755,6 +757,7 @@ export default function MapView() {
   useEffect(() => {
     setCarouselIdx(0)
     setDescExpanded(false)
+    setShowLikersPanel(false)
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
@@ -1572,16 +1575,34 @@ export default function MapView() {
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
 
-                  {/* ❤️ Like button — top-left overlay */}
+                  {/* ❤️ Like button — top-left overlay (long press = voir les likers) */}
                   {user && (() => {
                     const loveList = reactions.filter(r => r.type === "love")
                     const hasLoved = loveList.some(r => r.user_id === user.id)
                     return (
                       <button
-                        onPointerDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => {
+                          e.stopPropagation()
+                          longPressTimer.current = setTimeout(() => {
+                            if (loveList.length > 0) setShowLikersPanel(true)
+                          }, 500)
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation()
+                          if (longPressTimer.current) {
+                            clearTimeout(longPressTimer.current)
+                            longPressTimer.current = null
+                          }
+                        }}
+                        onPointerLeave={() => {
+                          if (longPressTimer.current) {
+                            clearTimeout(longPressTimer.current)
+                            longPressTimer.current = null
+                          }
+                        }}
                         onClick={() => handleToggleLove()}
                         className={cn(
-                          "absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold backdrop-blur-md transition-colors shadow-md",
+                          "absolute top-3 left-3 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold backdrop-blur-md transition-colors shadow-md select-none",
                           hasLoved
                             ? "bg-red-500/90 text-white"
                             : "bg-black/40 text-white/90 hover:bg-red-500/80"
@@ -1823,6 +1844,57 @@ export default function MapView() {
             </div>{/* fin px-5 pb-6 pt-4 */}
             </div>{/* fin flex-1 overflow-y-auto */}
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Panel likers (long press sur ❤️) */}
+      <AnimatePresence>
+        {showLikersPanel && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[90] bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowLikersPanel(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={{ duration: 0.15 }}
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[min(18rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <p className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
+                  <Heart size={14} className="fill-red-500 text-red-500" />
+                  {reactions.filter(r => r.type === "love").length} j&apos;adore
+                </p>
+                <button onClick={() => setShowLikersPanel(false)} className="rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-1">
+                {reactions.filter(r => r.type === "love").map(r => (
+                  <button
+                    key={r.user_id}
+                    onClick={() => { setShowLikersPanel(false); if (r.user_id !== user?.id) setPublicProfileUserId(r.user_id) }}
+                    className="flex w-full items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                  >
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-pink-400 to-red-500 text-xs font-bold text-white">
+                      {r.avatar_url
+                        ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={r.avatar_url} alt="" className="h-full w-full object-cover" />
+                        : (r.username ?? "?")[0].toUpperCase()}
+                    </div>
+                    <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
+                      @{r.username ?? "utilisateur"}
+                      {r.user_id === user?.id && <span className="ml-1 text-xs text-gray-400 dark:text-zinc-500">(toi)</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

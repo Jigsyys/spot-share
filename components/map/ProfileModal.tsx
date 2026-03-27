@@ -19,6 +19,7 @@ import {
   Navigation,
   UserMinus,
   LogOut,
+  Heart,
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
@@ -79,6 +80,7 @@ export default function ProfileModal({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [followersCount, setFollowersCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
+  const [totalLikes, setTotalLikes] = useState(0)
   const [isGhostMode, setIsGhostMode] = useState(false)
   const [subView, setSubView] = useState<SubView>(null)
   const [followersList, setFollowersList] = useState<FollowProfile[]>([])
@@ -133,6 +135,20 @@ export default function ProfileModal({
         ])
         setFollowersCount(followers ?? 0)
         setFollowingCount(following ?? 0)
+      } catch { /* */ }
+
+      try {
+        const { data: spotIds } = await supabaseRef.current
+          .from("spots").select("id").eq("user_id", user.id)
+        if (spotIds && spotIds.length > 0) {
+          const ids = spotIds.map((s: { id: string }) => s.id)
+          const { count } = await supabaseRef.current
+            .from("spot_reactions")
+            .select("*", { count: "exact", head: true })
+            .in("spot_id", ids)
+            .eq("type", "love")
+          setTotalLikes(count ?? 0)
+        }
       } catch { /* */ }
     }
 
@@ -585,7 +601,7 @@ export default function ProfileModal({
                     </div>
 
                     {/* Stats (clickable) */}
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-4 gap-2">
                       <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
                         <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
                         <span className="text-lg font-bold">{spotsCount}</span>
@@ -601,6 +617,11 @@ export default function ProfileModal({
                         <span className="text-lg font-bold">{followingCount}</span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnements</span>
                       </button>
+                      <div className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3">
+                        <span className="text-red-500"><Heart size={14} className="fill-red-500" /></span>
+                        <span className="text-lg font-bold">{totalLikes}</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Likes reçus</span>
+                      </div>
                     </div>
 
                     {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
