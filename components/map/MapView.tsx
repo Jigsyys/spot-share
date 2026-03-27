@@ -859,6 +859,7 @@ export default function MapView() {
   const handleDeleteSpot = async (spotId: string) => {
     if (!user) return
     try {
+      await supabaseRef.current.from("spot_reactions").delete().eq("spot_id", spotId)
       const { error } = await supabaseRef.current
         .from("spots")
         .delete()

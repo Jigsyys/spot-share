@@ -73,6 +73,7 @@ export default function PublicProfileModal({
             .select("*", { count: "exact", head: true })
             .in("spot_id", ids)
             .eq("type", "love")
+            .neq("user_id", userId)
           setTotalLikes(likesCount ?? 0)
         }
       } catch { /* */ }
