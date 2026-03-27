@@ -99,8 +99,8 @@ function FilterDropdown({
         className={cn(
           "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all",
           isActive
-            ? "border-blue-500 bg-blue-50 text-blue-700"
-            : "border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100"
+            ? "border-blue-500 bg-blue-50 dark:bg-blue-500/20 dark:border-blue-500/50 text-blue-700 dark:text-blue-300"
+            : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800"
         )}
       >
         {selected?.emoji && <span className="text-sm">{selected.emoji}</span>}
@@ -122,7 +122,7 @@ function FilterDropdown({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.96 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl shadow-black/10"
+            className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-xl shadow-black/20"
           >
             {options.map(opt => (
               <button
@@ -131,8 +131,8 @@ function FilterDropdown({
                 className={cn(
                   "flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors",
                   opt.value === value
-                    ? "bg-blue-50 font-semibold text-blue-700"
-                    : "text-gray-700 hover:bg-gray-50"
+                    ? "bg-blue-50 dark:bg-blue-500/20 font-semibold text-blue-700 dark:text-blue-300"
+                    : "text-gray-700 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
                 )}
               >
                 {opt.emoji && <span className="text-base">{opt.emoji}</span>}
@@ -207,7 +207,7 @@ function SpotHCard({
   return (
     <button
       onClick={onSelect}
-      className="flex-shrink-0 w-38 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left active:scale-[0.97] transition-transform"
+      className="flex-shrink-0 w-38 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 text-left active:scale-[0.97] transition-transform"
       style={{ width: "9.5rem" }}
     >
       <div className="relative h-28 w-full overflow-hidden bg-gray-100">
@@ -228,7 +228,7 @@ function SpotHCard({
         )}
       </div>
       <div className="p-2.5">
-        <p className="line-clamp-2 text-xs font-semibold leading-tight text-gray-900">{spot.title}</p>
+        <p className="line-clamp-2 text-xs font-semibold leading-tight text-gray-900 dark:text-white">{spot.title}</p>
         {username && (
           <button
             onClick={e => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
@@ -266,7 +266,7 @@ function SpotListRow({
   return (
     <button
       onClick={onSelect}
-      className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3 text-left active:scale-[0.98] hover:bg-gray-50 transition-all"
+      className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-3 text-left active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800 transition-all"
     >
       <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100">
         {imageUrl
@@ -276,9 +276,9 @@ function SpotListRow({
         }
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-gray-900">{spot.title}</p>
+        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{spot.title}</p>
         {spot.address && (
-          <p className="mt-0.5 truncate text-xs text-gray-400">{spot.address}</p>
+          <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-zinc-500">{spot.address}</p>
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           {distance !== undefined && (
@@ -338,7 +338,7 @@ export default function ExploreModal({
   const [searchQuery, setSearchQuery]     = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
-  const [friendFilter, setFriendFilter]   = useState<string | null>(null)
+  const [friendFilter, setFriendFilter]     = useState<string | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef        = useRef<HTMLInputElement>(null)
   const lastPickedIdRef = useRef<string | null>(null)
@@ -402,7 +402,8 @@ export default function ExploreModal({
       list = list.filter(s =>
         s.title.toLowerCase().includes(q) ||
         (s.address ?? "").toLowerCase().includes(q) ||
-        (s.description ?? "").toLowerCase().includes(q)
+        (s.description ?? "").toLowerCase().includes(q) ||
+        (s.profiles?.username ?? "").toLowerCase().includes(q)
       )
     }
     return list
@@ -474,20 +475,9 @@ export default function ExploreModal({
     ...CATEGORIES.map(c => ({ label: c.label, value: c.key, emoji: c.emoji })),
   ]
 
-  const friendOptions: DropdownOption[] = [
-    { label: "Tous les amis", value: null },
-    ...friendProfiles.map(f => ({
-      label: f.username ?? "Anonyme",
-      value: f.id,
-      avatar: f.avatar_url,
-    })),
-  ]
-
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  const hasFilters  = !!(categoryFilter || friendFilter || debouncedQuery.trim())
-  const hasFriends  = friendProfiles.length > 0
-  const showFriendDropdown = (mode === "friends" || mode === "explorer") && hasFriends
+  const hasFilters = !!(categoryFilter || friendFilter || debouncedQuery.trim())
 
   if (!isOpen) return null
 
@@ -517,18 +507,18 @@ export default function ExploreModal({
             }}
             className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 
               {/* Drag handle */}
-              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 sm:hidden" />
+              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700 sm:hidden" />
 
               {/* ── Header ── */}
               <div className="flex-shrink-0 px-5 pt-3 pb-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">Explorer</h2>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Explorer</h2>
                   <button
                     onClick={onClose}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300 transition-colors"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-white/20 transition-colors"
                   >
                     <X size={16} />
                   </button>
@@ -541,8 +531,8 @@ export default function ExploreModal({
                     className={cn(
                       "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
                       mode === "mine"
-                        ? "bg-gray-900 text-white shadow-sm"
-                        : "bg-white border border-gray-200 text-gray-500 hover:bg-gray-50"
+                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
+                        : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
                     )}
                   >
                     Mes spots
@@ -552,8 +542,8 @@ export default function ExploreModal({
                     className={cn(
                       "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
                       mode === "friends"
-                        ? "bg-gray-900 text-white shadow-sm"
-                        : "bg-white border border-gray-200 text-gray-500 hover:bg-gray-50"
+                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
+                        : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
                     )}
                   >
                     Amis
@@ -561,27 +551,27 @@ export default function ExploreModal({
                 </div>
 
                 {/* ── Search ── */}
-                <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 mb-3">
-                  <Search size={15} className="flex-shrink-0 text-gray-400" />
+                <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3 mb-3">
+                  <Search size={15} className="flex-shrink-0 text-gray-400 dark:text-zinc-500" />
                   <input
                     ref={inputRef}
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Cherche un spot, une adresse..."
-                    className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
+                    placeholder="Spot, adresse ou @ami..."
+                    className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-600"
                   />
                   {searchQuery && (
                     <button
                       onClick={() => { setSearchQuery(""); setDebouncedQuery("") }}
-                      className="text-gray-300 hover:text-gray-500 transition-colors"
+                      className="text-gray-300 dark:text-zinc-600 hover:text-gray-500 dark:hover:text-zinc-400 transition-colors"
                     >
                       <X size={14} />
                     </button>
                   )}
                 </div>
 
-                {/* ── Dropdowns filtres ── */}
+                {/* ── Dropdown catégorie uniquement ── */}
                 <div className="flex items-center gap-2">
                   <FilterDropdown
                     label="Catégorie"
@@ -589,14 +579,6 @@ export default function ExploreModal({
                     value={categoryFilter}
                     onChange={setCategoryFilter}
                   />
-                  {showFriendDropdown && (
-                    <FilterDropdown
-                      label="Ami"
-                      options={friendOptions}
-                      value={friendFilter}
-                      onChange={setFriendFilter}
-                    />
-                  )}
                 </div>
               </div>
 
@@ -633,7 +615,7 @@ export default function ExploreModal({
                     {/* Près de toi */}
                     {nearbySpots.length > 0 && !debouncedQuery && (
                       <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900">📍 Près de toi</p>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">📍 Près de toi</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
                           {nearbySpots.map(({ spot, distance }) => (
                             <SpotHCard
@@ -651,7 +633,7 @@ export default function ExploreModal({
                     {/* Récemment ajoutés */}
                     <div>
                       {!hasFilters && (
-                        <p className="mb-3 text-sm font-bold text-gray-900">🆕 Récemment ajoutés</p>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Récemment ajoutés</p>
                       )}
                       {recentSpots.length === 0 ? (
                         <EmptyState mode="explorer" hasQuery={!!debouncedQuery} />
@@ -685,7 +667,7 @@ export default function ExploreModal({
                       <EmptyState mode="mine" hasQuery={!!debouncedQuery} />
                     ) : (
                       <>
-                        <p className="mb-3 text-xs text-gray-400">
+                        <p className="mb-3 text-xs text-gray-400 dark:text-zinc-600">
                           {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
@@ -706,31 +688,42 @@ export default function ExploreModal({
                 {mode === "friends" && (
                   <div className="space-y-6">
 
-                    {/* Avatars amis */}
-                    {!friendFilter && friendProfiles.length > 0 && (
+                    {/* Avatars amis — clic pour filtrer inline */}
+                    {friendProfiles.length > 0 && (
                       <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900">Tes amis</p>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendProfiles.map(f => (
-                            <button
-                              key={f.id}
-                              onClick={() => onSelectUser?.(f.id)}
-                              className="flex flex-shrink-0 flex-col items-center gap-1.5"
-                            >
-                              <div className="h-14 w-14 overflow-hidden rounded-full border-2 border-white shadow-md bg-gradient-to-br from-indigo-400 to-purple-500">
-                                {f.avatar_url
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  ? <img src={f.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white">
-                                      {(f.username ?? "?")[0]?.toUpperCase()}
-                                    </div>
-                                }
-                              </div>
-                              <span className="max-w-[3.5rem] truncate text-[10px] text-gray-500">
-                                @{f.username ?? "ami"}
-                              </span>
-                            </button>
-                          ))}
+                          {friendProfiles.map(f => {
+                            const isSelected = friendFilter === f.id
+                            return (
+                              <button
+                                key={f.id}
+                                onClick={() => setFriendFilter(isSelected ? null : f.id)}
+                                className="flex flex-shrink-0 flex-col items-center gap-1.5"
+                              >
+                                <div className={cn(
+                                  "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
+                                  isSelected
+                                    ? "border-[3px] border-blue-500 scale-105"
+                                    : "border-2 border-white dark:border-zinc-800"
+                                )}>
+                                  {f.avatar_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={f.avatar_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white">
+                                        {(f.username ?? "?")[0]?.toUpperCase()}
+                                      </div>
+                                  }
+                                </div>
+                                <span className={cn(
+                                  "max-w-[3.5rem] truncate text-[10px]",
+                                  isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
+                                )}>
+                                  @{f.username ?? "ami"}
+                                </span>
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -738,7 +731,7 @@ export default function ExploreModal({
                     {/* Cette semaine */}
                     {friendsThisWeek.length > 0 && !hasFilters && (
                       <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900">🆕 Cette semaine</p>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Cette semaine</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
                           {friendsThisWeek.map(spot => (
                             <SpotHCard
@@ -755,8 +748,16 @@ export default function ExploreModal({
                     {/* Tous leurs spots */}
                     <div>
                       {!hasFilters && (
-                        <p className="mb-3 text-sm font-bold text-gray-900">Tous leurs spots</p>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tous leurs spots</p>
                       )}
+                      {friendFilter && (() => {
+                        const f = friendProfiles.find(p => p.id === friendFilter)
+                        return f ? (
+                          <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
+                            Spots de @{f.username ?? "ami"}
+                          </p>
+                        ) : null
+                      })()}
                       {filteredPool.length === 0 ? (
                         <EmptyState mode="friends" hasQuery={!!debouncedQuery} />
                       ) : (
@@ -814,8 +815,8 @@ function EmptyState({ mode, hasQuery }: { mode: Mode; hasQuery: boolean }) {
   return (
     <div className="flex flex-col items-center gap-3 py-14 text-center">
       <span className="text-4xl">{m.icon}</span>
-      <p className="text-sm font-semibold text-gray-600">{m.title}</p>
-      <p className="text-xs text-gray-400">{m.sub}</p>
+      <p className="text-sm font-semibold text-gray-600 dark:text-zinc-400">{m.title}</p>
+      <p className="text-xs text-gray-400 dark:text-zinc-600">{m.sub}</p>
     </div>
   )
 }
