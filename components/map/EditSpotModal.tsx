@@ -7,17 +7,7 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import type { Spot } from "@/lib/types"
-
-const CATEGORIES = [
-  { key: "café", label: "Café", emoji: "☕" },
-  { key: "restaurant", label: "Restaurant", emoji: "🍽️" },
-  { key: "bar", label: "Bar", emoji: "🍸" },
-  { key: "outdoor", label: "Outdoor", emoji: "🌿" },
-  { key: "vue", label: "Vue", emoji: "🌅" },
-  { key: "culture", label: "Culture", emoji: "🎭" },
-  { key: "shopping", label: "Shopping", emoji: "🛍️" },
-  { key: "other", label: "Autre", emoji: "📍" },
-]
+import { CATEGORIES } from "@/lib/categories"
 
 interface EditSpotModalProps {
   spot: Spot
@@ -54,6 +44,18 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]
+    const MAX_SIZE = 10 * 1024 * 1024
+    for (let i = 0; i < files.length; i++) {
+      if (!ALLOWED_TYPES.includes(files[i].type)) {
+        toast.error(`Fichier non supporté : ${files[i].name}. Formats acceptés : JPG, PNG, WebP.`)
+        return
+      }
+      if (files[i].size > MAX_SIZE) {
+        toast.error(`${files[i].name} dépasse la limite de 10 Mo.`)
+        return
+      }
+    }
     setUploadingImage(true)
     try {
       const { data: { session } } = await supabase.current.auth.getSession()

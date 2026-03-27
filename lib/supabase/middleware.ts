@@ -6,11 +6,15 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Variables d'environnement Supabase manquantes.")
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      "https://knfprbelfybkmlojltpr.supabase.co",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      "SUPABASE_ANON_KEY_REMOVED",
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {

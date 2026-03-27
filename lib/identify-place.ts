@@ -229,7 +229,8 @@ async function resolvePhotoUrls(
     try {
       const res = await fetch(apiUrl, { redirect: "manual", signal: AbortSignal.timeout(5000) })
       const cdnUrl = res.headers.get("location")
-      results.push(cdnUrl ?? apiUrl)
+      const resolved = cdnUrl ?? apiUrl
+      if (resolved.startsWith("https://")) results.push(resolved)
     } catch {
       results.push(apiUrl)
     }
@@ -306,7 +307,8 @@ Renvoie UNIQUEMENT ce JSON :
 
 async function geminiWriteDescription(
   place: PlacesResult,
-  geminiKey: string
+  geminiKey: string,
+  meta: VideoMetadata
 ): Promise<string> {
   const genAI = new GoogleGenerativeAI(geminiKey)
   const model = genAI.getGenerativeModel({
@@ -325,22 +327,34 @@ async function geminiWriteDescription(
   const price = place.priceLevel ? PRICE_LABELS[place.priceLevel] ?? null : null
 
   const contextLines: string[] = []
+  if (price) contextLines.push(`Prix Google : ${price}`)
   if (editorial) contextLines.push(`Résumé Google : ${editorial}`)
-  if (price) contextLines.push(`Niveau de prix : ${price}`)
 
-  const prompt = `Rédige une description courte (2-3 phrases max) et pratique pour un utilisateur qui découvre "${nom}" (${type || "lieu"}).
+  const userContent: string[] = []
+  if (meta.title) userContent.push(`Titre du post : ${meta.title.slice(0, 300)}`)
+  if (meta.description) userContent.push(`Description du post : ${meta.description.slice(0, 1500)}`)
 
-Données disponibles :
-${contextLines.join("\n")}
+  const prompt = `Tu dois rédiger une description courte (2-3 phrases max) et pratique pour le lieu "${nom}" (${type || "lieu"}).
+
+Données Google Maps :
+${contextLines.length ? contextLines.join("\n") : "— aucune donnée —"}
+
+Contenu du post original :
+${userContent.length ? userContent.join("\n") : "— aucun contenu —"}
+
+Ordre de priorité strict pour choisir ce que tu mets en avant :
+1. Prix explicites (tarifs d'entrée, menu, prix d'un plat, budget moyen) — si dispo dans le post ou Google
+2. Promotions ou offres en cours mentionnées dans le post (happy hour, réduction, code promo, offre spéciale)
+3. Dates et horaires d'événement mentionnés dans le post (expo temporaire, soirée, pop-up, festival)
+4. Spécialité maison, plat signature, produit phare
+5. Ambiance, environnement, format de visite
 
 Règles :
-- Concentre-toi sur ce qui est concret et utile : spécialité maison, plat signature, produit phare, ambiance, environnement, format de visite, etc.
-- Si c'est un lieu en extérieur ou un panorama, décris l'environnement (vue, nature, atmosphère).
-- Si un niveau de prix est disponible, mentionne-le naturellement dans le contexte (ex : "comptez €€ pour un repas").
-- NE PAS mentionner de note ni de nombre d'avis.
-- NE PAS parler du contexte d'une vidéo ou d'un post.
-- Ton naturel, en français, sans marketing excessif.
-- NE PAS commencer par le nom du lieu.`
+- Rédige uniquement en français, ton naturel et factuel
+- Formule tout en affirmation directe, jamais "selon le post" ni "dans la description" ni "d'après la vidéo"
+- NE PAS mentionner les notes ou avis
+- NE PAS commencer par le nom du lieu
+- Si aucune info de priorité 1-3 n'est disponible, décris le lieu naturellement avec 4-5`
 
   try {
     const result = await model.generateContent(prompt)
@@ -438,7 +452,7 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   // ── Phase 3 : Photos + Description en parallèle ─────────────────────────
   const [googlePhotosUrls, description] = await Promise.all([
     resolvePhotoUrls(best.photos ?? [], placesKey),
-    geminiWriteDescription(best, geminiKey),
+    geminiWriteDescription(best, geminiKey, meta),
   ])
 
   // ── Phase 4 : Catégorie + Assemblage ────────────────────────────────────
@@ -448,6 +462,11 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
   const ratingLine = best.rating ? ` · ⭐ ${best.rating}/5` : ""
   console.log(`[Phase 4] ✓ "${nom_officiel_google}" | ${best.formattedAddress} | ${categorie}${priceLine}${ratingLine} | q: "${usedQuery}" | ${googlePhotosUrls.length} photos | ${horaires.length} horaires`)
 
+  // Coordonnées obligatoires — refus si Google Places ne retourne pas de position
+  if (!best.location?.latitude || !best.location?.longitude) {
+    return { erreur: "Lieu trouvé sur Google Maps mais sans coordonnées GPS valides." }
+  }
+
   return {
     titre: nom_officiel_google,
     nom_officiel_google,
@@ -455,8 +474,8 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     categorie,
     adresse: best.formattedAddress ?? "",
     coordonnees: {
-      lat: best.location?.latitude ?? 0,
-      lng: best.location?.longitude ?? 0,
+      lat: best.location.latitude,
+      lng: best.location.longitude,
     },
     photos: googlePhotosUrls,
     horaires,

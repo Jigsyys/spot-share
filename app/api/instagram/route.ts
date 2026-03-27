@@ -804,7 +804,8 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
           signal: AbortSignal.timeout(5000),
         })
         const directUrl = photoRes.headers.get("location")
-        photoUrls.push(directUrl || redirectUrl)
+        const resolved = directUrl || redirectUrl
+        if (resolved.startsWith("https://")) photoUrls.push(resolved)
       } catch {
         photoUrls.push(redirectUrl)
       }
@@ -1163,11 +1164,33 @@ Réponds UNIQUEMENT avec ce JSON (ou null si non trouvé) :
 // ---------------------------------------------------------------------------
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const url = searchParams.get("url")
+  // Vérification auth
+  const { createClient: createServerClient } = await import("@/lib/supabase/server")
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: "Non authentifié." }, { status: 401 })
+  }
 
-  if (!url || (!url.includes("instagram.com") && !url.includes("tiktok.com"))) {
-    return NextResponse.json({ error: "URL invalide. Seuls Instagram et TikTok sont acceptés." }, { status: 400 })
+  const { searchParams } = new URL(request.url)
+  const rawUrl = searchParams.get("url")
+
+  // Validation stricte du hostname pour éviter le SSRF
+  const ALLOWED_HOSTNAMES = [
+    "www.instagram.com", "instagram.com",
+    "www.tiktok.com", "tiktok.com",
+    "vm.tiktok.com", "vt.tiktok.com",
+  ]
+  let url: string
+  try {
+    const parsed = new URL(rawUrl ?? "")
+    if (!ALLOWED_HOSTNAMES.includes(parsed.hostname)) {
+      return NextResponse.json({ error: "URL invalide. Seuls Instagram et TikTok sont acceptés." }, { status: 400 })
+    }
+    // Normalise : uniquement scheme + hostname + path + search, sans fragment
+    url = `${parsed.origin}${parsed.pathname}${parsed.search}`
+  } catch {
+    return NextResponse.json({ error: "URL invalide." }, { status: 400 })
   }
 
   try {

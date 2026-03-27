@@ -8,7 +8,6 @@ import {
   UserPlus,
   LoaderCircle,
   Users,
-  MapPin,
   Clock,
   Check,
   Bell,
@@ -570,28 +569,6 @@ export default function FriendsModal({
                             onSendRequest={() => sendRequest(profile.id)}
                             onCancelRequest={() => cancelRequest(profile.id)}
                             onUnfollow={() => unfollow(profile.id)}
-                            isVisible={visibleFriendIds.includes(profile.id)}
-                            onToggleVisibility={() =>
-                              setVisibleFriendIds((prev) =>
-                                prev.includes(profile.id)
-                                  ? prev.filter((id) => id !== profile.id)
-                                  : [...prev, profile.id]
-                              )
-                            }
-                            onLocate={() => {
-                              if (
-                                profile.last_lat &&
-                                profile.last_lng &&
-                                onLocateFriend &&
-                                !profile.is_ghost_mode
-                              ) {
-                                onLocateFriend(
-                                  profile.last_lat,
-                                  profile.last_lng
-                                )
-                                onClose()
-                              }
-                            }}
                             onSelectUser={() => {
                               onSelectUser?.(profile.id)
                               onClose()
@@ -659,25 +636,6 @@ export default function FriendsModal({
                           onSendRequest={() => sendRequest(profile.id)}
                           onCancelRequest={() => cancelRequest(profile.id)}
                           onUnfollow={() => unfollow(profile.id)}
-                          isVisible={visibleFriendIds.includes(profile.id)}
-                          onToggleVisibility={() =>
-                            setVisibleFriendIds((prev) =>
-                              prev.includes(profile.id)
-                                ? prev.filter((id) => id !== profile.id)
-                                : [...prev, profile.id]
-                            )
-                          }
-                          onLocate={() => {
-                            if (
-                              profile.last_lat &&
-                              profile.last_lng &&
-                              onLocateFriend &&
-                              !profile.is_ghost_mode
-                            ) {
-                              onLocateFriend(profile.last_lat, profile.last_lng)
-                              onClose()
-                            }
-                          }}
                           onSelectUser={() => {
                             onSelectUser?.(profile.id)
                             onClose()
@@ -708,9 +666,6 @@ function UserRow({
   onSendRequest,
   onCancelRequest,
   onUnfollow,
-  isVisible,
-  onToggleVisibility,
-  onLocate,
   onSelectUser,
 }: {
   profile: Profile
@@ -721,17 +676,9 @@ function UserRow({
   onSendRequest: () => void
   onCancelRequest: () => void
   onUnfollow: () => void
-  isVisible?: boolean
-  onToggleVisibility?: () => void
-  onLocate?: () => void
   onSelectUser?: () => void
 }) {
   const online = isOnline(profile.last_active_at, profile.is_ghost_mode)
-  const showLocate =
-    isFollowing &&
-    !profile.is_ghost_mode &&
-    profile.last_lat &&
-    profile.last_lng
 
   return (
     <div
@@ -777,19 +724,6 @@ function UserRow({
 
       {/* Actions */}
       <div className="flex flex-shrink-0 items-center gap-1">
-        {showLocate && onLocate && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onLocate()
-            }}
-            title="Voir la dernière position"
-            className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10 hover:text-gray-900 dark:hover:text-white"
-          >
-            <MapPin size={15} />
-          </button>
-        )}
-
         {/* Main action button */}
         {isFollowing ? (
           <button

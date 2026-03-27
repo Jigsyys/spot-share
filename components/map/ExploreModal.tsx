@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { X, Search, LocateFixed, Shuffle, Clock } from "lucide-react"
 import type { Spot } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { CATEGORY_EMOJIS } from "@/lib/categories"
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -73,11 +74,6 @@ const CATEGORIES = [
   { key: "shopping",   label: "Shopping", emoji: "🛍️" },
   { key: "other",      label: "Autre",    emoji: "📍" },
 ]
-
-const CATEGORY_EMOJIS: Record<string, string> = {
-  café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿",
-  vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
-}
 
 const COLLECTIONS = [
   { id: "morning", label: "☀️ Ce matin",    desc: "Café & brunch",      categories: ["café"] },
@@ -153,15 +149,18 @@ interface ExploreModalProps {
   isOpen: boolean
   onClose: () => void
   spots: Spot[]
+  allSpots?: Spot[]
   userLocation: { lat: number; lng: number } | null
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
+  savedSpotIds?: Set<string>
+  onSelectUser?: (userId: string) => void
 }
 
 // ─── ExploreModal ──────────────────────────────────────────────────────────
 
 export default function ExploreModal({
-  isOpen, onClose, spots, userLocation, onSelectSpot, currentUserId,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, savedSpotIds, onSelectUser,
 }: ExploreModalProps) {
   const [searchQuery, setSearchQuery]         = useState("")
   const [debouncedQuery, setDebouncedQuery]   = useState("")
@@ -170,6 +169,7 @@ export default function ExploreModal({
   const [openNowFilter, setOpenNowFilter]     = useState(false)
   const [activeCollection, setActiveCollection] = useState<string | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
+  const [filterFriendId, setFilterFriendId]   = useState<string | null>(null)
   const inputRef           = useRef<HTMLInputElement>(null)
   const lastPickedIdRef    = useRef<string | null>(null)
   const displayedSpotsRef  = useRef<{ spot: Spot; distance?: number }[]>([])
@@ -185,11 +185,30 @@ export default function ExploreModal({
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery(""); setActiveCategory("all")
       setNearbyMode(false); setOpenNowFilter(false); setActiveCollection(null)
-      setSurpriseLoading(false)
+      setSurpriseLoading(false); setFilterFriendId(null)
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
     }
   }, [isOpen])
+
+  // Profils amis dérivés des spots
+  const friendProfiles = useMemo(() => {
+    const seen = new Set<string>()
+    const result: { id: string; username: string | null; avatar_url: string | null }[] = []
+    for (const s of spots) {
+      if (s.user_id !== currentUserId && !seen.has(s.user_id)) {
+        seen.add(s.user_id)
+        result.push({ id: s.user_id, username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null })
+      }
+    }
+    return result
+  }, [spots, currentUserId])
+
+  // "Mes envies" — spots enregistrés par l'utilisateur
+  const savedSpots = useMemo(() => {
+    if (!savedSpotIds || savedSpotIds.size === 0) return []
+    return spots.filter(s => savedSpotIds.has(s.id))
+  }, [spots, savedSpotIds])
 
   // "Amis cette semaine" — spots d'amis ajoutés dans les 7 derniers jours
   const friendsThisWeek = useMemo(() => {
@@ -240,6 +259,11 @@ export default function ExploreModal({
       list = list.filter(({ spot }) => isOpenNow(spot.weekday_descriptions ?? null) !== false)
     }
 
+    // Filtre par ami
+    if (filterFriendId) {
+      list = list.filter(({ spot }) => spot.user_id === filterFriendId)
+    }
+
     // Filtre texte
     if (debouncedQuery.trim()) {
       const q = debouncedQuery.trim().toLowerCase()
@@ -260,21 +284,26 @@ export default function ExploreModal({
     }
 
     return { displayedSpots: list, nearbyCount }
-  }, [spots, activeCategory, activeCollection, debouncedQuery, openNowFilter, nearbyMode, userLocation])
+  }, [spots, activeCategory, activeCollection, debouncedQuery, openNowFilter, nearbyMode, userLocation, filterFriendId])
 
   // Sync ref for surprise
   useEffect(() => { displayedSpotsRef.current = displayedSpots }, [displayedSpots])
 
-  // Surprise button
+  // Surprise button — pioche dans TOUS les spots dans un rayon de 50km
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
-    const current = displayedSpotsRef.current
-    if (!current.length) return
+    const base = allSpots ?? spots
+    if (!base.length) return
     setSurpriseLoading(true)
     setTimeout(() => {
-      let pool = [...current]
+      let pool = base.map(s => ({
+        spot: s,
+        distance: userLocation
+          ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng)
+          : undefined,
+      }))
       if (userLocation) {
-        const nearby = current.filter(({ distance }) => distance !== undefined && distance < 10)
+        const nearby = pool.filter(({ distance }) => distance !== undefined && distance < 50)
         if (nearby.length > 0) pool = nearby
       }
       if (pool.length > 1 && lastPickedIdRef.current) {
@@ -286,7 +315,7 @@ export default function ExploreModal({
       setSurpriseLoading(false)
       onSelectSpot(picked.spot)
     }, 600)
-  }, [surpriseLoading, userLocation, onSelectSpot])
+  }, [surpriseLoading, userLocation, onSelectSpot, allSpots, spots])
 
   if (!isOpen) return null
 
@@ -430,12 +459,76 @@ export default function ExploreModal({
                 </button>
               </div>
 
+              {/* Filtre par ami */}
+              {friendProfiles.length > 0 && (
+                <div className="no-scrollbar flex flex-shrink-0 items-center gap-2 overflow-x-auto px-5 pb-4">
+                  <span className="flex-shrink-0 text-xs font-semibold text-gray-400 dark:text-zinc-500">Par ami :</span>
+                  {friendProfiles.map((fp) => (
+                    <button
+                      key={fp.id}
+                      onClick={() => setFilterFriendId(fp.id === filterFriendId ? null : fp.id)}
+                      className={cn(
+                        "flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                        filterFriendId === fp.id
+                          ? "bg-blue-600 dark:bg-indigo-500 text-white"
+                          : "border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/60 text-gray-600 dark:text-zinc-300 hover:border-gray-300 dark:hover:border-white/20"
+                      )}
+                    >
+                      {fp.avatar_url ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={fp.avatar_url} alt="" className="h-4 w-4 rounded-full object-cover" />
+                      ) : (
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white">
+                          {(fp.username ?? "?")[0].toUpperCase()}
+                        </div>
+                      )}
+                      @{fp.username ?? "ami"}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Zone scrollable */}
               <div className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
 
                 {/* ── Sections de découverte (masquées si filtre actif) ── */}
                 {showDiscovery && (
                   <>
+                    {/* Mes envies */}
+                    {savedSpots.length > 0 && (
+                      <div className="mb-5">
+                        <p className="mb-2.5 text-xs font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wide">
+                          🔖 Mes envies
+                        </p>
+                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                          {savedSpots.map(spot => {
+                            const img   = spot.image_url?.split(",")[0]?.trim() || null
+                            const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+                            return (
+                              <button
+                                key={spot.id}
+                                onClick={() => onSelectSpot(spot)}
+                                className="flex-shrink-0 w-40 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-white dark:bg-zinc-900/60 text-left transition-all active:scale-[0.97] hover:bg-gray-50 dark:hover:bg-zinc-800/60"
+                              >
+                                <div className="relative h-24 w-full bg-gray-100 dark:bg-zinc-800">
+                                  {img
+                                    ? <img src={img} alt={spot.title} className="h-full w-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+                                    : <div className="flex h-full w-full items-center justify-center text-3xl">{emoji}</div>}
+                                  <span className="absolute bottom-1.5 right-1.5 text-sm">🔖</span>
+                                </div>
+                                <div className="p-2.5">
+                                  <p className="truncate text-xs font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+                                  {spot.address && (
+                                    <p className="mt-0.5 truncate text-[10px] text-gray-400 dark:text-zinc-500">{spot.address}</p>
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Amis cette semaine */}
                     {friendsThisWeek.length > 0 && (
                       <div className="mb-5">
@@ -462,11 +555,14 @@ export default function ExploreModal({
                                 </div>
                                 <div className="p-2.5">
                                   <p className="truncate text-xs font-semibold text-gray-900 dark:text-white">{spot.title}</p>
-                                  <div className="mt-1 flex items-center gap-1.5">
+                                  <div
+                                    className={cn("mt-1 flex items-center gap-1.5", onSelectUser && "cursor-pointer hover:opacity-80")}
+                                    onClick={(e) => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
+                                  >
                                     {avatar
                                       ? <img src={avatar} alt={username} className="h-4 w-4 rounded-full object-cover" /> // eslint-disable-line @next/next/no-img-element
                                       : <div className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[8px] font-bold text-white">{username[0]?.toUpperCase()}</div>}
-                                    <span className="truncate text-[10px] text-gray-400 dark:text-zinc-500">{timeSince(spot.created_at)}</span>
+                                    <span className="truncate text-[10px] text-gray-400 dark:text-zinc-500">@{username} · {timeSince(spot.created_at)}</span>
                                   </div>
                                 </div>
                               </button>

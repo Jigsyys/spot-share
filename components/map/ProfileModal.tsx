@@ -204,6 +204,16 @@ export default function ProfileModal({
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !user) return
     const file = e.target.files[0]
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]
+    const MAX_SIZE = 10 * 1024 * 1024
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast.error("Format non supporté. Utilise JPG, PNG ou WebP.")
+      return
+    }
+    if (file.size > MAX_SIZE) {
+      toast.error("Image trop lourde (max 10 Mo).")
+      return
+    }
     setUploadingAvatar(true)
     setSaveError(null)
     const fileExt = file.name.split(".").pop()
@@ -440,7 +450,11 @@ export default function ProfileModal({
                     ) : (
                       <div className="space-y-2">
                         {followersList.map((p) => (
-                          <div key={p.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
+                          <div
+                            key={p.id}
+                            className="flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
+                            onClick={() => { onSelectUser?.(p.id); onClose() }}
+                          >
                             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
@@ -451,7 +465,7 @@ export default function ProfileModal({
                             </div>
                             <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
-                              onClick={() => handleRemoveFollowerUser(p.id)}
+                              onClick={(e) => { e.stopPropagation(); handleRemoveFollowerUser(p.id) }}
                               className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />

@@ -20,6 +20,8 @@ import {
   ChevronRight,
   Pencil,
   CheckCircle2,
+  Heart,
+  Bookmark,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -36,6 +38,7 @@ import ProfileModal from "./ProfileModal"
 import OnboardingModal from "./OnboardingModal"
 import ExploreModal from "./ExploreModal"
 import type { Spot, FilterMode } from "@/lib/types"
+import { CATEGORY_EMOJIS as CAT_EMOJIS } from "@/lib/categories"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
@@ -45,17 +48,6 @@ const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
 const LIGHT_HIDDEN_LAYERS = ["motorway", "trunk", "poi", "landmark", "monument", "tourism", "transit-label", "airport-label"]
 // Classes de route à exclure des labels (numéros A1, A4…)
 const LIGHT_HIDDEN_ROAD_CLASSES = ["motorway", "motorway_link", "trunk", "trunk_link"]
-
-const CATEGORIES = [
-  { key: "café", label: "Café", emoji: "☕" },
-  { key: "restaurant", label: "Restaurant", emoji: "🍽️" },
-  { key: "bar", label: "Bar", emoji: "🍸" },
-  { key: "outdoor", label: "Outdoor", emoji: "🌿" },
-  { key: "vue", label: "Vue", emoji: "🌅" },
-  { key: "culture", label: "Culture", emoji: "🎭" },
-  { key: "shopping", label: "Shopping", emoji: "🛍️" },
-  { key: "other", label: "Autre", emoji: "📍" },
-]
 
 // Couche fill-extrusion pour les bâtiments 3D — thème sombre
 const BUILDINGS_LAYER = {
@@ -166,16 +158,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   other: "#6366F1",
   default: "#6366F1",
 }
-const CATEGORY_EMOJIS: Record<string, string> = {
-  café: "☕",
-  restaurant: "🍽️",
-  bar: "🍸",
-  outdoor: "🌿",
-  vue: "🌅",
-  culture: "🎭",
-  shopping: "🛍️",
-  other: "📍",
-}
+const CATEGORY_EMOJIS = CAT_EMOJIS
 
 const DEMO_SPOTS: Spot[] = []
 
@@ -271,6 +254,7 @@ export default function MapView() {
   const { resolvedTheme } = useTheme()
 
   const [filter, setFilter] = useState<FilterMode>("mine")
+  const [filterFriendId, setFilterFriendId] = useState<string | null>(null)
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
@@ -301,6 +285,8 @@ export default function MapView() {
   } | null>(null)
   const [initialAddUrl, setInitialAddUrl] = useState<string>("")
   const [visits, setVisits] = useState<{ user_id: string; username: string | null; avatar_url: string | null }[]>([])
+  const [reactions, setReactions] = useState<{ user_id: string; type: "love" | "save"; username: string | null; avatar_url: string | null }[]>([])
+  const [savedSpotIds, setSavedSpotIds] = useState<Set<string>>(new Set())
   const [is3D, setIs3D] = useState(true)
   const [friendLocations, setFriendLocations] = useState<
     {
@@ -346,11 +332,14 @@ export default function MapView() {
   }, [])
 
   const fetchSpots = useCallback(async () => {
+    const PAGE_SIZE = 100
     try {
+      // Première tranche — s'affiche immédiatement
       const { data, error } = await supabaseRef.current
         .from("spots")
         .select("*, profiles(id, username, avatar_url, created_at)")
         .order("created_at", { ascending: false })
+        .range(0, PAGE_SIZE - 1)
 
       if (error) {
         // Fallback progressif si la colonne avatar_url n'existe pas encore dans la DB
@@ -362,6 +351,7 @@ export default function MapView() {
             .from("spots")
             .select("*, profiles(id, username, created_at)")
             .order("created_at", { ascending: false })
+            .range(0, PAGE_SIZE - 1)
           setSpots(
             fallbackData && fallbackData.length > 0
               ? (fallbackData as Spot[])
@@ -371,7 +361,30 @@ export default function MapView() {
         }
         throw error
       }
-      setSpots(data && data.length > 0 ? (data as Spot[]) : DEMO_SPOTS)
+
+      const firstPage = data && data.length > 0 ? (data as Spot[]) : DEMO_SPOTS
+      setSpots(firstPage)
+
+      // Charger les pages suivantes en arrière-plan si la première tranche était pleine
+      if (data && data.length === PAGE_SIZE) {
+        let offset = PAGE_SIZE
+        let hasMore = true
+        while (hasMore) {
+          const { data: more } = await supabaseRef.current
+            .from("spots")
+            .select("*, profiles(id, username, avatar_url, created_at)")
+            .order("created_at", { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1)
+          if (!more || more.length === 0) { hasMore = false; break }
+          setSpots(prev => {
+            const existingIds = new Set(prev.map(s => s.id))
+            const fresh = (more as Spot[]).filter(s => !existingIds.has(s.id))
+            return fresh.length > 0 ? [...prev, ...fresh] : prev
+          })
+          offset += PAGE_SIZE
+          if (more.length < PAGE_SIZE) hasMore = false
+        }
+      }
     } catch (_e) {
       console.error("fetchSpots error:", _e)
       setSpots(DEMO_SPOTS)
@@ -649,13 +662,24 @@ export default function MapView() {
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [user])
 
+  const friendProfiles = useMemo(() => {
+    const seen = new Set<string>()
+    const result: { id: string; username: string | null; avatar_url: string | null }[] = []
+    for (const s of spots) {
+      if (s.user_id !== user?.id && visibleFriendIds.includes(s.user_id) && !seen.has(s.user_id)) {
+        seen.add(s.user_id)
+        result.push({ id: s.user_id, username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null })
+      }
+    }
+    return result
+  }, [spots, user?.id, visibleFriendIds])
+
   const visibleSpots = useMemo(() => {
-    return filter === "mine"
-      ? spots.filter((s) => s.user_id === user?.id)
-      : spots.filter(
-          (s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id)
-        )
-  }, [spots, filter, user?.id, visibleFriendIds])
+    if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
+    const base = spots.filter((s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id))
+    if (filterFriendId) return base.filter((s) => s.user_id === filterFriendId)
+    return base
+  }, [spots, filter, user?.id, visibleFriendIds, filterFriendId])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -738,25 +762,6 @@ export default function MapView() {
     setInitialAddUrl("")
     setShowAddModal(true)
   }
-
-  const handleSurprise = useCallback(() => {
-    if (visibleSpots.length === 0) {
-      toast.error("Aucun spot à découvrir pour le moment !")
-      return
-    }
-    const randomSpot =
-      visibleSpots[Math.floor(Math.random() * visibleSpots.length)]
-    setSelectedSpot(null)
-    mapRef.current?.flyTo({
-      center: [randomSpot.lng, randomSpot.lat],
-      zoom: 15.5,
-      duration: 2500,
-      pitch: 50,
-      bearing: Math.random() * 60 - 30,
-    })
-    // Afficher la fiche juste avant la fin du vol pour l'effet "découverte"
-    setTimeout(() => setSelectedSpot(randomSpot), 2200)
-  }, [visibleSpots])
 
   const handleAddSpot = async (spotData: {
     title: string
@@ -937,6 +942,67 @@ export default function MapView() {
     }
   }, [user, selectedSpot, visits, userProfile])
 
+  const fetchReactions = useCallback(async (spotId: string) => {
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("user_id, type, profiles(username, avatar_url)")
+        .eq("spot_id", spotId)
+      if (data) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setReactions(data.map((r: any) => {
+          const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
+          return { user_id: r.user_id, type: r.type as "love" | "save", username: p?.username ?? null, avatar_url: p?.avatar_url ?? null }
+        }))
+      }
+    } catch { setReactions([]) }
+  }, [])
+
+  const fetchSavedSpots = useCallback(async () => {
+    if (!user) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("spot_id")
+        .eq("user_id", user.id)
+        .eq("type", "save")
+      if (data) setSavedSpotIds(new Set(data.map((r: { spot_id: string }) => r.spot_id)))
+    } catch { /* table might not exist yet */ }
+  }, [user])
+
+  const handleToggleReaction = useCallback(async (type: "love" | "save") => {
+    if (!user || !selectedSpot) return
+    const hasReaction = reactions.some(r => r.user_id === user.id && r.type === type)
+    const myReaction = { user_id: user.id, type, username: userProfile?.username ?? null, avatar_url: userProfile?.avatar_url ?? null }
+    // Optimistic update
+    if (hasReaction) {
+      setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === type)))
+      if (type === "save") setSavedSpotIds(prev => { const n = new Set(prev); n.delete(selectedSpot.id); return n })
+    } else {
+      setReactions(prev => [...prev, myReaction])
+      if (type === "save") setSavedSpotIds(prev => new Set([...prev, selectedSpot.id]))
+    }
+    try {
+      if (hasReaction) {
+        await supabaseRef.current.from("spot_reactions").delete()
+          .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", type)
+      } else {
+        await supabaseRef.current.from("spot_reactions")
+          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type })
+      }
+    } catch {
+      // Rollback
+      if (hasReaction) {
+        setReactions(prev => [...prev, myReaction])
+        if (type === "save") setSavedSpotIds(prev => new Set([...prev, selectedSpot.id]))
+      } else {
+        setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === type)))
+        if (type === "save") setSavedSpotIds(prev => { const n = new Set(prev); n.delete(selectedSpot.id); return n })
+      }
+      toast.error("Erreur lors de la mise à jour.")
+    }
+  }, [user, selectedSpot, reactions, userProfile])
+
   // Fetch visits + realtime subscription when a spot is selected
   useEffect(() => {
     if (!selectedSpot) {
@@ -954,6 +1020,22 @@ export default function MapView() {
       .subscribe()
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [selectedSpot?.id, fetchVisits])
+
+  // Fetch reactions + realtime when a spot is selected
+  useEffect(() => {
+    if (!selectedSpot) { setReactions([]); return }
+    fetchReactions(selectedSpot.id)
+    const channel = supabaseRef.current
+      .channel(`spot-reactions-${selectedSpot.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "spot_reactions", filter: `spot_id=eq.${selectedSpot.id}` },
+        () => fetchReactions(selectedSpot.id)
+      )
+      .subscribe()
+    return () => { supabaseRef.current.removeChannel(channel) }
+  }, [selectedSpot?.id, fetchReactions])
+
+  // Load saved spots once on mount
+  useEffect(() => { fetchSavedSpots() }, [fetchSavedSpots])
 
   const points = visibleSpots.map((spot) => ({
     type: "Feature" as const,
@@ -1067,6 +1149,10 @@ export default function MapView() {
               CATEGORY_COLORS[spot.category ?? "default"] ??
               CATEGORY_COLORS.default
             const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+            const isMine = spot.user_id === user?.id
+            const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
+            const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
+
             return (
               <MapMarker
                 key={`spot-${spot.id}`}
@@ -1076,7 +1162,6 @@ export default function MapView() {
                 onClick={(e) => {
                   e.originalEvent.stopPropagation()
                   setSelectedSpot(spot)
-                  // Déplacer la carte pour que la grosse popup ait de la place (offset visuel vers le bas pour le spot)
                   mapRef.current?.flyTo({
                     center: [spot.lng, spot.lat],
                     zoom: 15.5,
@@ -1085,15 +1170,34 @@ export default function MapView() {
                   })
                 }}
               >
-                <div
-                  style={{
-                    background: color,
-                    boxShadow: `0 4px 16px ${color}55`,
-                  }}
-                  className="flex h-10 w-10 -rotate-45 cursor-pointer items-center justify-center rounded-[50%_50%_50%_0] border-2 border-white/80 transition-transform hover:scale-110"
-                >
-                  <div className="rotate-45 text-base leading-none">
-                    {emoji}
+                <div className="relative cursor-pointer transition-transform hover:scale-110">
+                  {/* Mini avatar de l'ami */}
+                  {!isMine && (
+                    <div className="absolute -top-2.5 -right-2.5 z-10 flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white shadow-md">
+                      {friendAvatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={friendAvatar} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        friendInitial
+                      )}
+                    </div>
+                  )}
+                  {/* Pin losange */}
+                  <div
+                    style={{
+                      background: color,
+                      boxShadow: `0 4px 16px ${color}55`,
+                    }}
+                    className={cn(
+                      "-rotate-45 flex items-center justify-center rounded-[50%_50%_50%_0]",
+                      isMine
+                        ? "h-10 w-10 border-2 border-white/90 dark:border-white/70"
+                        : "h-9 w-9 border-2 border-indigo-400 dark:border-indigo-300"
+                    )}
+                  >
+                    <div className={cn("rotate-45 leading-none", isMine ? "text-base" : "text-sm")}>
+                      {emoji}
+                    </div>
                   </div>
                 </div>
               </MapMarker>
@@ -1208,22 +1312,63 @@ export default function MapView() {
       </div>
 
       <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-3">
-        <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
-          {filterButtons.map(({ key, label, icon }) => (
-            <motion.button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={cn(
-                "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
-                filter === key
-                  ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
-                  : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-              )}
-              whileTap={{ scale: 0.95 }}
-            >
-              {icon} {label}
-            </motion.button>
-          ))}
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 p-1 shadow-lg backdrop-blur-md">
+            {filterButtons.map(({ key, label, icon }) => (
+              <motion.button
+                key={key}
+                onClick={() => { setFilter(key); if (key === "mine") setFilterFriendId(null) }}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
+                  filter === key
+                    ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
+                    : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                )}
+                whileTap={{ scale: 0.95 }}
+              >
+                {icon} {label}
+              </motion.button>
+            ))}
+          </div>
+
+          {/* Chips amis — visibles uniquement en mode Amis */}
+          {filter === "friends" && friendProfiles.length > 0 && (
+            <div className="flex max-w-[90vw] gap-1.5 overflow-x-auto px-1 pb-0.5" style={{ scrollbarWidth: "none" }}>
+              <button
+                onClick={() => setFilterFriendId(null)}
+                className={cn(
+                  "flex shrink-0 items-center rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap shadow backdrop-blur-md transition-colors",
+                  filterFriendId === null
+                    ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
+                    : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-600 dark:text-zinc-300"
+                )}
+              >
+                Tous
+              </button>
+              {friendProfiles.map((fp) => (
+                <button
+                  key={fp.id}
+                  onClick={() => setFilterFriendId(fp.id === filterFriendId ? null : fp.id)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap shadow backdrop-blur-md transition-colors",
+                    filterFriendId === fp.id
+                      ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
+                      : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-600 dark:text-zinc-300"
+                  )}
+                >
+                  {fp.avatar_url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={fp.avatar_url} alt="" className="h-5 w-5 rounded-full object-cover" />
+                  ) : (
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-[9px] font-bold text-white">
+                      {(fp.username ?? "?")[0].toUpperCase()}
+                    </div>
+                  )}
+                  @{fp.username ?? "ami"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Empty State Onboarding */}
@@ -1498,6 +1643,87 @@ export default function MapView() {
                 )}
               </div>
 
+              {/* ── Reactions : ❤️ J'adore (public) + 🔖 Enregistrer (privé) ── */}
+              {user && (() => {
+                const loveList   = reactions.filter(r => r.type === "love")
+                const hasLoved   = loveList.some(r => r.user_id === user.id)
+                const hasSaved   = reactions.some(r => r.user_id === user.id && r.type === "save")
+                const friendSaves = hasSaved
+                  ? reactions.filter(r => r.type === "save" && r.user_id !== user.id && followingIds.includes(r.user_id))
+                  : []
+                return (
+                  <div className="mt-4 flex items-center gap-2">
+                    {/* ❤️ Love button — public, shows friend avatars */}
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => handleToggleReaction("love")}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold transition-colors",
+                        hasLoved
+                          ? "bg-red-50 dark:bg-red-500/15 text-red-500 dark:text-red-400"
+                          : "bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
+                      )}
+                    >
+                      <Heart size={16} className={hasLoved ? "fill-current" : ""} />
+                      {loveList.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <div className="flex -space-x-1.5">
+                            {loveList.slice(0, 4).map(r => (
+                              <button
+                                key={r.user_id}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); if (r.user_id !== user.id) setPublicProfileUserId(r.user_id) }}
+                                title={`@${r.username ?? "utilisateur"}`}
+                                className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-950 bg-gradient-to-br from-pink-400 to-red-500 text-[9px] font-bold text-white hover:scale-110 transition-transform"
+                              >
+                                {r.avatar_url
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  ? <img src={r.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : (r.username ?? "?")[0].toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                          {loveList.length > 4 && <span className="text-xs">+{loveList.length - 4}</span>}
+                        </div>
+                      ) : "J'adore"}
+                    </button>
+
+                    {/* 🔖 Save button — privé, match silencieux si un ami a aussi enregistré */}
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => handleToggleReaction("save")}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-2 rounded-2xl py-2.5 text-sm font-semibold transition-colors",
+                        hasSaved
+                          ? "bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                          : "bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 hover:text-amber-600"
+                      )}
+                    >
+                      <Bookmark size={16} className={hasSaved ? "fill-current" : ""} />
+                      {hasSaved && friendSaves.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <div className="flex -space-x-1.5">
+                            {friendSaves.slice(0, 3).map(r => (
+                              <div
+                                key={r.user_id}
+                                title={`@${r.username ?? ""} a aussi enregistré`}
+                                className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-950 bg-gradient-to-br from-indigo-400 to-purple-500 text-[9px] font-bold text-white"
+                              >
+                                {r.avatar_url
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  ? <img src={r.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : (r.username ?? "?")[0].toUpperCase()}
+                              </div>
+                            ))}
+                          </div>
+                          <span className="text-xs">aussi</span>
+                        </div>
+                      ) : (hasSaved ? "Enregistré" : "Enregistrer")}
+                    </button>
+                  </div>
+                )
+              })()}
+
               {/* Visits Section */}
               <div className="mt-5 border-t border-gray-100 dark:border-white/5 pt-4">
                 <div className="mb-3 flex items-center justify-between">
@@ -1716,8 +1942,11 @@ export default function MapView() {
         isOpen={showExploreModal}
         onClose={() => setShowExploreModal(false)}
         spots={visibleSpots}
+        allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
+        savedSpotIds={savedSpotIds}
+        onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
           setSelectedSpot(spot)
