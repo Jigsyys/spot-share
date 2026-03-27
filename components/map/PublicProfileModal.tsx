@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, User, MapPin, Users, LoaderCircle, Heart } from "lucide-react"
+import { X, MapPin, Users, LoaderCircle, Heart } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 interface Spot {
@@ -25,6 +25,17 @@ interface PublicProfileModalProps {
 const CATEGORY_EMOJIS: Record<string, string> = {
   café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿",
   vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
+}
+
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  café: "from-amber-400 to-orange-500",
+  restaurant: "from-rose-400 to-pink-500",
+  bar: "from-purple-500 to-indigo-600",
+  outdoor: "from-emerald-400 to-green-600",
+  vue: "from-sky-400 to-blue-600",
+  culture: "from-violet-500 to-purple-600",
+  shopping: "from-pink-400 to-rose-500",
+  other: "from-slate-400 to-gray-500",
 }
 
 export default function PublicProfileModal({
@@ -117,33 +128,40 @@ export default function PublicProfileModal({
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.05, bottom: 0.4 }}
             dragMomentum={false}
-            onDragEnd={(_e, { offset, velocity }) => {
+            onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
             className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
-              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
+            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 
-              <div className="flex flex-shrink-0 items-center justify-between p-5 pt-3 pb-4 sm:pt-5">
-                <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <User size={18} className="text-indigo-600 dark:text-indigo-400" /> Profil
-                </h2>
-                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
-                  <X size={18} />
+              {/* Drag handle */}
+              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700" />
+
+              {/* Header */}
+              <div className="flex flex-shrink-0 items-center justify-between px-5 py-4">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Profil</h2>
+                <button
+                  onClick={onClose}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-300 dark:hover:bg-white/20"
+                >
+                  <X size={16} />
                 </button>
               </div>
 
-              <div className="flex flex-col flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
+              {/* Scrollable content */}
+              <div className="flex flex-col flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
                 {loading ? (
-                  <div className="flex flex-1 items-center justify-center">
+                  <div className="flex flex-1 items-center justify-center py-16">
                     <LoaderCircle size={32} className="animate-spin text-indigo-500" />
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    <div className="flex flex-col items-center gap-3">
+
+                    {/* Avatar + username */}
+                    <div className="flex flex-col items-center gap-3 pt-2">
                       <div className="relative">
-                        <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-indigo-500/50 bg-gradient-to-br from-indigo-500 to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/25">
+                        <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-indigo-500/40 bg-gradient-to-br from-indigo-500 to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/20">
                           {profile?.avatar_url ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -151,54 +169,58 @@ export default function PublicProfileModal({
                             <span>{(profile?.username || "?")?.charAt(0).toUpperCase()}</span>
                           )}
                         </div>
-                        <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-white dark:border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-500"}`} />
+                        <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-gray-50 dark:border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-400"}`} />
                       </div>
-                      <p className="text-lg font-bold">@{profile?.username || "utilisateur"}</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">@{profile?.username || "utilisateur"}</p>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/50 py-4">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-xl font-bold">{spots.length}</span>
-                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
-                          <MapPin size={12} /> Lieux
-                        </div>
+                    {/* Stats */}
+                    <div className="flex gap-3">
+                      <div className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-4">
+                        <MapPin size={14} className="text-indigo-500" />
+                        <span className="text-xl font-bold text-gray-900 dark:text-white">{spots.length}</span>
+                        <span className="text-xs text-gray-500 dark:text-zinc-400">Lieux</span>
                       </div>
-                      <div className="flex flex-col items-center gap-1 border-x border-gray-200 dark:border-white/10">
-                        <span className="text-xl font-bold">{followers}</span>
-                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
-                          <Users size={12} /> Abonnés
-                        </div>
+                      <div className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-4">
+                        <Users size={14} className="text-indigo-500" />
+                        <span className="text-xl font-bold text-gray-900 dark:text-white">{followers}</span>
+                        <span className="text-xs text-gray-500 dark:text-zinc-400">Abonnés</span>
                       </div>
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-xl font-bold">{totalLikes}</span>
-                        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
-                          <Heart size={12} className="fill-red-500 text-red-500" /> Likes
-                        </div>
+                      <div className="flex flex-1 flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-4">
+                        <Heart size={14} className="fill-red-500 text-red-500" />
+                        <span className="text-xl font-bold text-gray-900 dark:text-white">{totalLikes}</span>
+                        <span className="text-xs text-gray-500 dark:text-zinc-400">Likes</span>
                       </div>
                     </div>
 
+                    {/* Spots section */}
                     <div>
-                      <h3 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Ses Spots ({spots.length})</h3>
+                      <h3 className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
+                        Ses Spots ({spots.length})
+                      </h3>
                       {spots.length === 0 ? (
-                        <p className="p-4 text-center text-sm text-gray-500 dark:text-zinc-500">Aucun spot ajouté.</p>
+                        <p className="py-8 text-center text-sm text-gray-500 dark:text-zinc-500">Aucun spot ajouté.</p>
                       ) : (
                         <div className="grid grid-cols-2 gap-2">
                           {spots.map((spot) => {
                             const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+                            const gradient = CATEGORY_GRADIENTS[spot.category ?? "other"] ?? "from-slate-400 to-gray-500"
+                            const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
                             return (
                               <button
                                 key={spot.id}
                                 onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                                className="flex flex-col overflow-hidden rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
+                                className="relative aspect-square w-full overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 transition-transform hover:scale-[0.98]"
                               >
-                                <div className="aspect-square w-full overflow-hidden bg-gray-200 dark:bg-zinc-900/60">
-                                  {imageUrl && (
-                                    /* eslint-disable-next-line @next/next/no-img-element */
-                                    <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-                                  )}
-                                </div>
-                                <div className="px-2.5 py-2">
-                                  <p className="line-clamp-2 text-xs font-semibold leading-tight">{spot.title}</p>
+                                {imageUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className={`h-full w-full bg-gradient-to-br ${gradient} flex items-center justify-center text-4xl`}>{emoji}</div>
+                                )}
+                                {/* Title overlay */}
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2.5">
+                                  <p className="line-clamp-2 text-left text-xs font-semibold leading-tight text-white">{spot.title}</p>
                                 </div>
                               </button>
                             )
@@ -206,6 +228,7 @@ export default function PublicProfileModal({
                         </div>
                       )}
                     </div>
+
                   </div>
                 )}
               </div>

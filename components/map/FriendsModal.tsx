@@ -426,34 +426,31 @@ export default function FriendsModal({
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.05, bottom: 0.4 }}
             dragMomentum={false}
-            onDragEnd={(_e, { offset, velocity }) => {
+            onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="pb-safe flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
-              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
+            <div className="pb-safe flex h-[90vh] flex-col overflow-hidden rounded-t-[2rem] border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+
+              {/* Drag handle */}
+              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700" />
 
               {/* Header */}
-              <div className="flex flex-shrink-0 items-center justify-between p-5 pt-3 pb-4 sm:pt-5">
-                <div>
-                  <h2 className="flex items-center gap-2 text-lg font-bold">
-                    <Users size={18} className="text-indigo-600 dark:text-indigo-400" /> Amis
-                    {incomingRequests.length > 0 && (
-                      <span className="ml-1 flex items-center gap-1 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                        <Bell size={10} /> {incomingRequests.length}
-                      </span>
-                    )}
-                  </h2>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                    Suis des gens pour voir leurs spots
-                  </p>
+              <div className="flex flex-shrink-0 items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Amis</h2>
+                  {incomingRequests.length > 0 && (
+                    <span className="flex items-center gap-1 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                      <Bell size={10} /> {incomingRequests.length}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={onClose}
-                  className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-300 dark:hover:bg-white/20"
                 >
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
@@ -462,36 +459,38 @@ export default function FriendsModal({
                 <div className="relative">
                   <Search
                     size={15}
-                    className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-500"
+                    className="absolute top-1/2 left-4 -translate-y-1/2 text-gray-400 dark:text-zinc-500"
                   />
                   <input
                     type="text"
                     placeholder="Rechercher par nom d'utilisateur..."
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-zinc-800/60 py-2.5 pr-4 pl-9 text-[16px] text-gray-900 dark:text-white transition-all outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 sm:text-sm"
+                    className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3 pl-10 text-[16px] text-gray-900 dark:text-white transition-all outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 sm:text-sm"
                   />
                   {searchLoading && (
                     <LoaderCircle
                       size={15}
-                      className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400"
+                      className="absolute top-1/2 right-4 -translate-y-1/2 animate-spin text-indigo-400"
                     />
                   )}
                 </div>
               </div>
 
+              {/* Scrollable content */}
               <div className="flex-1 space-y-5 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
+
                 {/* Incoming Requests */}
                 {incomingRequests.length > 0 && query.length < 2 && (
                   <div>
-                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wider text-indigo-600 dark:text-indigo-400 uppercase">
-                      <Bell size={11} /> Invitations ({incomingRequests.length})
+                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
+                      Invitations ({incomingRequests.length})
                     </p>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {incomingRequests.map((req) => (
                         <div
                           key={req.id}
-                          className="flex items-center gap-3 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 px-3 py-2.5"
+                          className="flex items-center gap-3 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 p-3"
                         >
                           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
                             {req.profiles?.avatar_url ? (
@@ -508,10 +507,10 @@ export default function FriendsModal({
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
+                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
                               @{req.profiles?.username ?? "utilisateur"}
                             </p>
-                            <p className="text-[10px] text-gray-500 dark:text-zinc-500">
+                            <p className="text-[10px] text-gray-500 dark:text-zinc-400">
                               veut être ton ami
                             </p>
                           </div>
@@ -522,10 +521,7 @@ export default function FriendsModal({
                               className="flex items-center gap-1 rounded-xl bg-green-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-green-400 disabled:opacity-50"
                             >
                               {loadingId === req.from_id ? (
-                                <LoaderCircle
-                                  size={12}
-                                  className="animate-spin"
-                                />
+                                <LoaderCircle size={12} className="animate-spin" />
                               ) : (
                                 <>
                                   <Check size={12} /> Accepter
@@ -535,7 +531,7 @@ export default function FriendsModal({
                             <button
                               onClick={() => declineRequest(req)}
                               disabled={loadingId === req.from_id}
-                              className="rounded-xl p-1.5 text-gray-500 dark:text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+                              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-100 dark:hover:bg-red-500/20 hover:text-red-500 disabled:opacity-50"
                             >
                               <X size={14} />
                             </button>
@@ -549,7 +545,7 @@ export default function FriendsModal({
                 {/* Search Results */}
                 {query.length >= 2 && (
                   <div>
-                    <p className="mb-2 text-xs font-medium tracking-wider text-gray-500 dark:text-zinc-500 uppercase">
+                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
                       Résultats
                     </p>
                     {searchResults.length === 0 && !searchLoading ? (
@@ -557,7 +553,7 @@ export default function FriendsModal({
                         Aucun utilisateur trouvé
                       </p>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         {searchResults.map((profile) => (
                           <UserRow
                             key={profile.id}
@@ -583,10 +579,10 @@ export default function FriendsModal({
                 {/* Recommendations (only when actively searching) */}
                 {query.length >= 2 && searchResults.length === 0 && !searchLoading && recommendations.length > 0 && (
                   <div>
-                    <p className="mb-2 text-xs font-medium tracking-wider text-gray-500 dark:text-zinc-500 uppercase">
+                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
                       Suggestions
                     </p>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {recommendations
                         .filter((r) => !isFollowing(r.id))
                         .map((profile) => (
@@ -612,7 +608,7 @@ export default function FriendsModal({
 
                 {/* Following list */}
                 <div>
-                  <p className="mb-2 text-xs font-medium tracking-wider text-gray-500 dark:text-zinc-500 uppercase">
+                  <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
                     Amis ({followingIds.length})
                   </p>
                   {following.length === 0 ? (
@@ -624,7 +620,7 @@ export default function FriendsModal({
                       </span>
                     </p>
                   ) : (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {following.map((profile) => (
                         <UserRow
                           key={profile.id}
@@ -682,12 +678,12 @@ function UserRow({
 
   return (
     <div
-      className="flex cursor-pointer items-center gap-2.5 rounded-2xl px-3 py-2.5 transition-colors hover:bg-gray-100 dark:hover:bg-white/5"
+      className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
       onClick={onSelectUser}
     >
       {/* Avatar */}
       <div className="relative flex-shrink-0">
-        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+        <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
           {profile.avatar_url ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
@@ -700,17 +696,17 @@ function UserRow({
           )}
         </div>
         {online && (
-          <div className="absolute right-0 bottom-0 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-zinc-900 bg-green-500" />
+          <div className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-900 bg-green-500" />
         )}
       </div>
 
       {/* Name + status */}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm leading-tight font-medium">
+        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
           @{profile.username ?? "utilisateur"}
         </p>
         {profile.last_active_at && (
-          <p className="mt-0.5 flex items-center gap-1 truncate text-[10px]">
+          <p className="mt-0.5 flex items-center gap-1 truncate text-xs">
             {online ? (
               <span className="font-medium text-green-500 dark:text-green-400">En ligne</span>
             ) : (
@@ -724,7 +720,6 @@ function UserRow({
 
       {/* Actions */}
       <div className="flex flex-shrink-0 items-center gap-1">
-        {/* Main action button */}
         {isFollowing ? (
           <button
             onClick={(e) => {
@@ -733,7 +728,7 @@ function UserRow({
             }}
             disabled={loading}
             title="Supprimer l'ami"
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
           >
             {loading ? (
               <LoaderCircle size={14} className="animate-spin" />
@@ -749,7 +744,7 @@ function UserRow({
             }}
             disabled={loading}
             title="Annuler la demande"
-            className="flex items-center gap-1.5 rounded-xl bg-gray-200 dark:bg-zinc-700/60 px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-gray-600 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
           >
             {loading ? (
               <LoaderCircle size={12} className="animate-spin" />
@@ -767,7 +762,7 @@ function UserRow({
             }}
             disabled={loading}
             title="Envoyer une invitation"
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500 text-white transition-all hover:bg-indigo-400 disabled:opacity-50"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-white transition-all hover:bg-indigo-400 disabled:opacity-50"
           >
             {loading ? (
               <LoaderCircle size={14} className="animate-spin" />
