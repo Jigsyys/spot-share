@@ -114,6 +114,8 @@ export default function ExploreModal({
   const [nearbyMode, setNearbyMode]       = useState(false)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const lastPickedIdRef = useRef<string | null>(null)
+  const displayedSpotsRef = useRef<typeof displayedSpots>([])
 
   // Debounce 300ms
   useEffect(() => {
@@ -175,23 +177,37 @@ export default function ExploreModal({
     return { displayedSpots: list, nearbyCount }
   }, [spots, activeCategory, debouncedQuery, nearbyMode, userLocation])
 
-  // Surprise: pick random from nearby (< 5km if location), else random
+  // Garde le ref à jour pour éviter les closures périmées dans le setTimeout
+  useEffect(() => { displayedSpotsRef.current = displayedSpots }, [displayedSpots])
+
+  // Surprise : pioche un spot aléatoire différent du dernier
   const handleSurprise = useCallback(() => {
-    if (surpriseLoading || displayedSpots.length === 0) return
+    if (surpriseLoading) return
+    const current = displayedSpotsRef.current
+    if (current.length === 0) return
     setSurpriseLoading(true)
     setTimeout(() => {
-      let pool = displayedSpots
+      // Pool = spots proches si dispo, sinon tous
+      let pool = [...current]
       if (userLocation) {
-        const nearby = displayedSpots.filter(
-          ({ distance }) => distance !== undefined && distance < 5
+        const nearby = current.filter(
+          ({ distance }) => distance !== undefined && distance < 10
         )
         if (nearby.length > 0) pool = nearby
       }
-      const picked = pool[Math.floor(Math.random() * pool.length)]
+      // Exclut le dernier spot pioché pour éviter les répétitions
+      if (pool.length > 1 && lastPickedIdRef.current) {
+        const filtered = pool.filter(({ spot }) => spot.id !== lastPickedIdRef.current)
+        if (filtered.length > 0) pool = filtered
+      }
+      // Sélection vraiment aléatoire
+      const idx = Math.floor(Math.random() * pool.length)
+      const picked = pool[idx]
+      lastPickedIdRef.current = picked.spot.id
       setSurpriseLoading(false)
       onSelectSpot(picked.spot)
     }, 600)
-  }, [displayedSpots, userLocation, surpriseLoading, onSelectSpot])
+  }, [surpriseLoading, userLocation, onSelectSpot])
 
   if (!isOpen) return null
 
