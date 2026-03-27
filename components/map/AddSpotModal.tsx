@@ -238,6 +238,8 @@ export default function AddSpotModal({
         return
       }
 
+      // Remplace le titre saisi (potentiellement mal orthographié) par le nom officiel
+      if (data.title) setManTitle(data.title)
       if (data.description) setManDescription(data.description)
       if (data.category) {
         const cat = data.category.toLowerCase()
