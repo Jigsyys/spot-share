@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import { X, UploadCloud, LoaderCircle, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -26,6 +26,7 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = useRef(createClient())
+  const dragControls = useDragControls()
 
   const handlePhotoDelete = (idx: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== idx))
@@ -115,12 +116,15 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
         <motion.div
-          className="relative z-10 w-full max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl sm:max-w-lg bg-white dark:bg-zinc-950 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white"
+          className="relative z-10 flex w-full flex-col rounded-t-3xl sm:rounded-3xl sm:max-w-lg bg-white dark:bg-zinc-950 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white"
+          style={{ maxHeight: "90dvh" }}
           initial={{ y: 100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 100, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 28 }}
           drag="y"
+          dragControls={dragControls}
+          dragListener={false}
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.5 }}
           dragMomentum={false}
@@ -128,9 +132,16 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
             if (offset.y > 100 || velocity.y > 400) onClose()
           }}
         >
-          <div className="mx-auto mt-3 mb-0 h-1.5 w-12 rounded-full bg-gray-300 dark:bg-white/20 sm:hidden" />
+          {/* Handle — seule zone qui déclenche le swipe */}
+          <div
+            className="flex-shrink-0 touch-none cursor-grab pt-3 pb-1 sm:hidden"
+            onPointerDown={(e) => dragControls.start(e)}
+          >
+            <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300 dark:bg-white/20" />
+          </div>
+
           {/* Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 px-5 py-4">
+          <div className="flex-shrink-0 flex items-center justify-between border-b border-gray-200 dark:border-white/10 px-5 py-4">
             <h2 className="flex items-center gap-2 text-lg font-bold">
               <Pencil size={18} className="text-blue-600 dark:text-indigo-400" /> Modifier le spot
             </h2>
@@ -142,7 +153,7 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
             </button>
           </div>
 
-          <div className="space-y-5 px-5 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
+          <div className="flex-1 overflow-y-auto space-y-5 px-5 pt-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
             {/* Photos */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-500 dark:text-zinc-400">Photos</label>
