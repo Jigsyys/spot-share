@@ -133,7 +133,7 @@ export default function ExploreModal({
 }: ExploreModalProps) {
   const [searchQuery, setSearchQuery]       = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [friendMode, setFriendMode]         = useState<"mine" | "friends">("mine")
+  const [friendMode, setFriendMode]         = useState<"mine" | "friends" | "all">("mine")
   const [nearbyMode, setNearbyMode]         = useState(false)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef          = useRef<HTMLInputElement>(null)
@@ -193,12 +193,13 @@ export default function ExploreModal({
 
     let list = withDist
 
-    // Filtre Moi / Amis
+    // Filtre Moi / Amis / Découvrir
     if (friendMode === "mine") {
       list = list.filter(({ spot }) => spot.user_id === currentUserId)
-    } else {
+    } else if (friendMode === "friends") {
       list = list.filter(({ spot }) => spot.user_id !== currentUserId)
     }
+    // "all" = pas de filtre
 
     // Filtre texte
     if (debouncedQuery.trim()) {
@@ -323,32 +324,22 @@ export default function ExploreModal({
               {/* Filtres — Tous/Amis + Tri + Surprise */}
               <div className="flex flex-shrink-0 items-center gap-2 px-5 pb-4">
 
-                {/* Moi / Amis */}
+                {/* Moi / Amis / Découvrir */}
                 <div className="flex items-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-zinc-800 p-0.5">
-                  <button
-                    onClick={() => setFriendMode("mine")}
-                    className={cn(
-                      "rounded-[9px] px-3 py-1.5 text-xs font-semibold transition-colors",
-                      friendMode === "mine"
-                        ? "bg-white dark:bg-zinc-700 text-gray-900 dark:text-white shadow-sm"
-                        : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
-                    )}
-                  >
-                    Moi
-                  </button>
-                  {hasFriends && (
+                  {(["mine", ...(hasFriends ? ["friends"] : []), "all"] as ("mine" | "friends" | "all")[]).map((mode) => (
                     <button
-                      onClick={() => setFriendMode("friends")}
+                      key={mode}
+                      onClick={() => setFriendMode(mode)}
                       className={cn(
                         "rounded-[9px] px-3 py-1.5 text-xs font-semibold transition-colors",
-                        friendMode === "friends"
+                        friendMode === mode
                           ? "bg-white dark:bg-zinc-700 text-gray-900 dark:text-white shadow-sm"
                           : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
                       )}
                     >
-                      Amis
+                      {mode === "mine" ? "Moi" : mode === "friends" ? "Amis" : "Découvrir"}
                     </button>
-                  )}
+                  ))}
                 </div>
 
                 {/* Sort : Distance / Récents */}
@@ -439,7 +430,7 @@ export default function ExploreModal({
                     <Search size={40} className="text-gray-300 dark:text-zinc-700" />
                     <p className="text-sm font-semibold text-gray-500 dark:text-zinc-400">Aucun spot trouvé</p>
                     <p className="text-xs text-gray-400 dark:text-zinc-600">
-                      {hasQuery ? "Essaie un autre mot-clé" : friendMode === "friends" ? "Tes amis n'ont pas encore ajouté de spots" : "Tu n'as pas encore ajouté de spots"}
+                      {hasQuery ? "Essaie un autre mot-clé" : friendMode === "friends" ? "Tes amis n'ont pas encore ajouté de spots" : friendMode === "all" ? "Aucun spot disponible" : "Tu n'as pas encore ajouté de spots"}
                     </p>
                   </div>
                 ) : (
@@ -449,6 +440,7 @@ export default function ExploreModal({
                       {nearbyMode && <span className="text-blue-500 dark:text-indigo-400"> · par distance</span>}
                       {friendMode === "mine" && <span className="text-blue-500 dark:text-blue-400"> · mes spots</span>}
                       {friendMode === "friends" && <span className="text-indigo-500 dark:text-indigo-400"> · amis</span>}
+                      {friendMode === "all" && <span className="text-emerald-500 dark:text-emerald-400"> · découverte</span>}
                     </p>
                     {displayedSpots.map(({ spot, distance }) => (
                       <SpotRow

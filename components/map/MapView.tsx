@@ -292,6 +292,7 @@ export default function MapView() {
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
   const visibleFriendIdsRef = useRef<string[]>([])
   const [incomingCount, setIncomingCount] = useState(0)
+  const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<{
     lat: number
@@ -531,6 +532,42 @@ export default function MapView() {
     [user, userProfile?.is_ghost_mode]
   )
 
+  const checkNewLikes = useCallback(async () => {
+    if (!user) return
+    try {
+      const { data: spotIds } = await supabaseRef.current
+        .from("spots").select("id").eq("user_id", user.id)
+      if (!spotIds?.length) return
+      const ids = spotIds.map((s: { id: string }) => s.id)
+      const { count } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("*", { count: "exact", head: true })
+        .in("spot_id", ids)
+        .eq("type", "love")
+        .neq("user_id", user.id)
+      const known = parseInt(localStorage.getItem(`likesKnown_${user.id}`) || "0")
+      setNewLikesCount(Math.max(0, (count ?? 0) - known))
+    } catch { /* ignore */ }
+  }, [user])
+
+  const markLikesSeen = useCallback(async () => {
+    if (!user) return
+    try {
+      const { data: spotIds } = await supabaseRef.current
+        .from("spots").select("id").eq("user_id", user.id)
+      if (!spotIds?.length) { localStorage.setItem(`likesKnown_${user.id}`, "0"); setNewLikesCount(0); return }
+      const ids = spotIds.map((s: { id: string }) => s.id)
+      const { count } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("*", { count: "exact", head: true })
+        .in("spot_id", ids)
+        .eq("type", "love")
+        .neq("user_id", user.id)
+      localStorage.setItem(`likesKnown_${user.id}`, String(count ?? 0))
+      setNewLikesCount(0)
+    } catch { /* ignore */ }
+  }, [user])
+
   const checkIncomingRequests = useCallback(async () => {
     if (!user) return
     try {
@@ -552,6 +589,10 @@ export default function MapView() {
     fetchSpots()
     fetchFollowing()
   }, [fetchSpots, fetchFollowing])
+
+  useEffect(() => {
+    if (user) checkNewLikes()
+  }, [user, checkNewLikes])
 
   useEffect(() => {
     fetchFriendLocations()
@@ -1704,7 +1745,7 @@ export default function MapView() {
                 <div className="mt-4 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
                   <p className={cn(
                     "text-[15px] leading-relaxed text-gray-600 dark:text-zinc-300",
-                    !descExpanded && "line-clamp-2"
+                    !descExpanded && "line-clamp-4"
                   )}>
                     {renderDescription(cleanDescription(selectedSpot.description))}
                   </p>
@@ -1729,17 +1770,17 @@ export default function MapView() {
                 </a>
                 <button
                   onClick={async () => {
-                    const mapsLink = selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`
+                    const spotUrl = `${window.location.origin}/spot/${selectedSpot.id}`
                     const text = `📍 ${selectedSpot.title}${selectedSpot.address ? ` · ${selectedSpot.address}` : ""}`
                     if (navigator.share) {
                       try {
-                        await navigator.share({ title: selectedSpot.title, text, url: mapsLink })
+                        await navigator.share({ title: selectedSpot.title, text, url: spotUrl })
                       } catch {
                         /* user cancelled */
                       }
                     } else {
-                      await navigator.clipboard.writeText(`${text}\n${mapsLink}`)
-                      toast.success("Lien copié dans le presse-papier !")
+                      await navigator.clipboard.writeText(spotUrl)
+                      toast.success("Lien copié !")
                     }
                   }}
                   className="flex items-center justify-center gap-2 rounded-2xl bg-gray-100 dark:bg-white/10 px-5 py-3 text-sm font-bold text-gray-700 dark:text-white transition-colors hover:bg-gray-200 dark:hover:bg-white/20"
@@ -2013,13 +2054,21 @@ export default function MapView() {
               setShowAddModal(false)
               setShowExploreModal(false)
               setShowProfileModal(true)
+              markLikesSeen()
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
                showProfileModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
-            <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+            <div className="relative">
+              <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+              {newLikesCount > 0 && (
+                <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
+                  {newLikesCount > 9 ? "9+" : newLikesCount}
+                </div>
+              )}
+            </div>
             <span className="text-[10px] font-medium">Profil</span>
           </button>
         </div>
