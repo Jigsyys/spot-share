@@ -162,8 +162,10 @@ export default function AddSpotModal({
         // Toujours écraser avec le nom commercial retourné par l'API (pas l'adresse)
         if (data.title) setTitle(data.title)
         if (data.description && !description) setDescription(data.description)
-        if (data.category && CATEGORIES.some((c) => c.key === data.category))
-          setCategory(data.category)
+        if (data.category) {
+          const cat = data.category.toLowerCase()
+          if (CATEGORIES.some((c) => c.key === cat)) setCategory(cat)
+        }
         // Priorité à photos[] (array), fallback sur image_url (compat)
         if (data.photos?.length) setImageUrl(data.photos.join(","))
         else if (data.image_url) setImageUrl(data.image_url)

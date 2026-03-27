@@ -287,6 +287,7 @@ export default function MapView() {
   const [spots, setSpots] = useState<Spot[]>([])
   const [followingIds, setFollowingIds] = useState<string[]>([])
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
+  const visibleFriendIdsRef = useRef<string[]>([])
   const [incomingCount, setIncomingCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<{
@@ -513,6 +514,9 @@ export default function MapView() {
     }
   }, [user])
 
+  // Garde le ref à jour pour les closures realtime
+  useEffect(() => { visibleFriendIdsRef.current = visibleFriendIds }, [visibleFriendIds])
+
   useEffect(() => {
     fetchSpots()
     fetchFollowing()
@@ -567,6 +571,28 @@ export default function MapView() {
         },
         () => checkIncomingRequests()
       )
+      // Quand une relation follower est créée pour moi → ami accepté, on rafraîchit
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "followers",
+          filter: `follower_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const newId = (payload.new as { following_id: string }).following_id
+          setFollowingIds((prev) =>
+            prev.includes(newId) ? prev : [...prev, newId]
+          )
+          setVisibleFriendIds((prev) =>
+            prev.includes(newId) ? prev : [...prev, newId]
+          )
+          toast("✅ Ami accepté !", {
+            description: "Ses spots apparaissent maintenant sur ta carte.",
+          })
+        }
+      )
       .subscribe()
 
     return () => {
@@ -574,14 +600,61 @@ export default function MapView() {
     }
   }, [user, checkIncomingRequests])
 
+  // ── Realtime : nouveaux spots d'amis visibles instantanément ────────────
+  useEffect(() => {
+    if (!user) return
+    const channel = supabaseRef.current
+      .channel("realtime-spots-global")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "spots" },
+        async (payload) => {
+          const raw = payload.new as Spot
+          // Nos propres spots sont déjà ajoutés en optimiste — on ignore
+          if (raw.user_id === user.id) return
+          // On n'ajoute que les spots de nos amis visibles
+          if (!visibleFriendIdsRef.current.includes(raw.user_id)) return
+          // Récupère le spot complet avec le profil
+          const { data } = await supabaseRef.current
+            .from("spots")
+            .select("*, profiles(id, username, avatar_url, created_at)")
+            .eq("id", raw.id)
+            .single()
+          if (data) {
+            setSpots((prev) =>
+              prev.some((s) => s.id === data.id) ? prev : [data, ...prev]
+            )
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "spots" },
+        (payload) => {
+          const updated = payload.new as Spot
+          setSpots((prev) =>
+            prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s))
+          )
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "spots" },
+        (payload) => {
+          const deleted = payload.old as { id: string }
+          setSpots((prev) => prev.filter((s) => s.id !== deleted.id))
+        }
+      )
+      .subscribe()
+    return () => { supabaseRef.current.removeChannel(channel) }
+  }, [user])
+
   const visibleSpots = useMemo(() => {
     return filter === "mine"
       ? spots.filter((s) => s.user_id === user?.id)
-      : filter === "friends"
-        ? spots.filter((s) => visibleFriendIds.includes(s.user_id))
-        : spots.filter(
-            (s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id)
-          )
+      : spots.filter(
+          (s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id)
+        )
   }, [spots, filter, user?.id, visibleFriendIds])
 
   const locateUser = useCallback(() => {
