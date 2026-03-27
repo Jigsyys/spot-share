@@ -1371,7 +1371,7 @@ export default function MapView() {
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.92 }}
                         transition={{ duration: 0.15 }}
-                        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4"
+                        className="fixed left-1/2 -translate-x-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4" style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
                       >
                         {/* Recherche */}
                         <input
