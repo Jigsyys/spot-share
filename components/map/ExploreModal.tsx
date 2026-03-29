@@ -385,10 +385,25 @@ export default function ExploreModal({
     return result
   }, [spots, currentUserId])
 
+  // Classement mensuel des amis
+  const monthlyRanking = useMemo(() => {
+    const monthStart = new Date()
+    monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+    const counts = new Map<string, { userId: string; username: string | null; avatar_url: string | null; count: number }>()
+    for (const spot of spots) {
+      if (!currentUserId || spot.user_id === currentUserId) continue
+      if (new Date(spot.created_at) < monthStart) continue
+      const entry = counts.get(spot.user_id)
+      if (entry) { entry.count++ }
+      else { counts.set(spot.user_id, { userId: spot.user_id, username: spot.profiles?.username ?? null, avatar_url: spot.profiles?.avatar_url ?? null, count: 1 }) }
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 5)
+  }, [spots, currentUserId])
+
   // Base pool for the current mode
   const basePool = useMemo(() => {
     if (mode === "mine")    return spots.filter(s => s.user_id === currentUserId)
-    if (mode === "friends") return spots.filter(s => s.user_id !== currentUserId)
+    if (mode === "friends") return spots.filter(s => currentUserId ? s.user_id !== currentUserId : false)
     return allSpots ?? spots   // explorer = tout
   }, [mode, spots, allSpots, currentUserId])
 
@@ -687,6 +702,44 @@ export default function ExploreModal({
                 {/* ════ MODE AMIS ════ */}
                 {mode === "friends" && (
                   <div className="space-y-6">
+
+                    {/* Classement mensuel */}
+                    {!hasFilters && (
+                      <div>
+                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🏆 Classement du mois</p>
+                        {monthlyRanking.length === 0 ? (
+                          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-5 text-center">
+                            <p className="text-2xl mb-1">🏁</p>
+                            <p className="text-sm font-semibold text-gray-500 dark:text-zinc-400">Aucun spot ce mois-ci</p>
+                            <p className="text-xs text-gray-400 dark:text-zinc-600 mt-0.5">Sois le premier à en ajouter un !</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {monthlyRanking.map((entry, idx) => (
+                              <div key={entry.userId} className="flex items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3">
+                                <span className="w-6 flex-shrink-0 text-center text-lg leading-none">
+                                  {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : <span className="text-xs font-bold text-gray-400 dark:text-zinc-500">{idx + 1}</span>}
+                                </span>
+                                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-sm font-bold text-white">
+                                  {entry.avatar_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                    : (entry.username ?? "?")[0]?.toUpperCase()
+                                  }
+                                </div>
+                                <p className="flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">
+                                  @{entry.username ?? "ami"}
+                                </p>
+                                <div className="text-right">
+                                  <p className="text-sm font-bold text-blue-600 dark:text-indigo-400">{entry.count}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-zinc-500">spot{entry.count > 1 ? "s" : ""}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Avatars amis — clic pour filtrer inline */}
                     {friendProfiles.length > 0 && (
