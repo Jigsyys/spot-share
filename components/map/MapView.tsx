@@ -1005,21 +1005,25 @@ export default function MapView() {
 
   const fetchVisits = useCallback(async (spotId: string) => {
     try {
-      const { data } = await supabaseRef.current
+      const { data, error } = await supabaseRef.current
         .from("spot_visits")
-        .select("user_id, profiles(username, avatar_url)")
+        .select("user_id")
         .eq("spot_id", spotId)
-      if (data) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setVisits(data.map((v: any) => {
-          const p = Array.isArray(v.profiles) ? v.profiles[0] : v.profiles
-          return {
-            user_id: v.user_id as string,
-            username: (p?.username ?? null) as string | null,
-            avatar_url: (p?.avatar_url ?? null) as string | null,
-          }
-        }))
-      }
+      if (error) { console.error("fetchVisits:", error); return }
+      if (!data || data.length === 0) { setVisits([]); return }
+
+      const userIds = [...new Set(data.map((v: { user_id: string }) => v.user_id))]
+      const { data: profiles } = await supabaseRef.current
+        .from("profiles")
+        .select("id, username, avatar_url")
+        .in("id", userIds)
+      const pm = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
+
+      setVisits(data.map((v: { user_id: string }) => ({
+        user_id: v.user_id,
+        username: pm[v.user_id]?.username ?? null,
+        avatar_url: pm[v.user_id]?.avatar_url ?? null,
+      })))
     } catch {
       setVisits([])
     }
@@ -1045,9 +1049,10 @@ export default function MapView() {
           .eq("spot_id", selectedSpot.id)
           .eq("user_id", user.id)
       } else {
-        await supabaseRef.current
+        const { error: visitError } = await supabaseRef.current
           .from("spot_visits")
-          .upsert({ spot_id: selectedSpot.id, user_id: user.id })
+          .upsert({ spot_id: selectedSpot.id, user_id: user.id }, { onConflict: "spot_id,user_id", ignoreDuplicates: true })
+        if (visitError) throw visitError
       }
     } catch {
       // rollback
@@ -1065,17 +1070,26 @@ export default function MapView() {
 
   const fetchReactions = useCallback(async (spotId: string) => {
     try {
-      const { data } = await supabaseRef.current
+      const { data, error } = await supabaseRef.current
         .from("spot_reactions")
-        .select("user_id, type, profiles(username, avatar_url)")
+        .select("user_id, type")
         .eq("spot_id", spotId)
-      if (data) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setReactions(data.map((r: any) => {
-          const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles
-          return { user_id: r.user_id, type: r.type as "love" | "save", username: p?.username ?? null, avatar_url: p?.avatar_url ?? null }
-        }))
-      }
+      if (error) { console.error("fetchReactions:", error); return }
+      if (!data || data.length === 0) { setReactions([]); return }
+
+      const userIds = [...new Set(data.map((r: { user_id: string }) => r.user_id))]
+      const { data: profiles } = await supabaseRef.current
+        .from("profiles")
+        .select("id, username, avatar_url")
+        .in("id", userIds)
+      const pm = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
+
+      setReactions(data.map((r: { user_id: string; type: string }) => ({
+        user_id: r.user_id,
+        type: r.type as "love" | "save",
+        username: pm[r.user_id]?.username ?? null,
+        avatar_url: pm[r.user_id]?.avatar_url ?? null,
+      })))
     } catch { setReactions([]) }
   }, [])
 
