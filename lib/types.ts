@@ -20,6 +20,7 @@ export interface Spot {
   weekday_descriptions: string[] | null
   maps_url: string | null
   created_at: string
+  expires_at: string | null
   profiles?: Profile
 }
 

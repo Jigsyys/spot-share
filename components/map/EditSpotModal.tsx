@@ -24,6 +24,10 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
   )
   const [submitting, setSubmitting] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [isEphemeral, setIsEphemeral] = useState(!!spot.expires_at)
+  const [ephemeralDate, setEphemeralDate] = useState(
+    spot.expires_at ? new Date(spot.expires_at).toISOString().split("T")[0] : ""
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = useRef(createClient())
   const dragControls = useDragControls()
@@ -90,6 +94,7 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
         description: description.trim() || null,
         category,
         image_url: photos.length > 0 ? photos.join(",") : null,
+        expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
       }
       const { error } = await supabase.current
         .from("spots")
@@ -261,6 +266,44 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Spot éphémère */}
+            <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => setIsEphemeral(v => !v)}
+                className="flex w-full items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">⏳</span>
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Spot éphémère</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-500">Ce lieu disparaîtra à la date choisie</p>
+                  </div>
+                </div>
+                <div className={cn(
+                  "relative h-6 w-11 rounded-full transition-colors",
+                  isEphemeral ? "bg-amber-500" : "bg-gray-200 dark:bg-zinc-700"
+                )}>
+                  <div className={cn(
+                    "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                    isEphemeral ? "translate-x-5" : "translate-x-0.5"
+                  )} />
+                </div>
+              </button>
+              {isEphemeral && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
+                  <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Date de fin</label>
+                  <input
+                    type="date"
+                    value={ephemeralDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={e => setEphemeralDate(e.target.value)}
+                    className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </motion.div>
+              )}
             </div>
 
             {/* Submit */}

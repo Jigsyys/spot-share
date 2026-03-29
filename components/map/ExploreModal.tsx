@@ -38,6 +38,17 @@ function timeSince(date: string): string {
   return `il y a ${d}j`
 }
 
+/** Returns a human-readable countdown badge string, or null if not ephemeral */
+function expiresIn(expiresAt: string | null | undefined): string | null {
+  if (!expiresAt) return null
+  const ms = new Date(expiresAt).getTime() - Date.now()
+  if (ms <= 0) return null
+  const days = Math.ceil(ms / 86_400_000)
+  if (days <= 1) return "⏳ Expire demain"
+  if (days <= 7) return `⏳ ${days}j restants`
+  return null
+}
+
 function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
   if (!weekdayDescriptions?.length) return null
   const now = new Date()
@@ -162,6 +173,7 @@ function SpotGridCard({ spot, onSelect }: { spot: Spot; onSelect: () => void }) 
   const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const novel = isNew(spot.created_at)
+  const countdown = expiresIn(spot.expires_at)
 
   return (
     <button
@@ -174,9 +186,14 @@ function SpotGridCard({ spot, onSelect }: { spot: Spot; onSelect: () => void }) 
         : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
       }
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
-      {novel && (
+      {novel && !countdown && (
         <span className="absolute top-2 left-2 rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white">
           NEW
+        </span>
+      )}
+      {countdown && (
+        <span className="absolute top-2 left-2 rounded-full bg-amber-500 px-2 py-0.5 text-[9px] font-bold text-white">
+          {countdown}
         </span>
       )}
       <div className="absolute bottom-0 left-0 right-0 p-2.5">
@@ -201,6 +218,7 @@ function SpotHCard({
   const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const novel = isNew(spot.created_at)
+  const countdown = expiresIn(spot.expires_at)
   const username = spot.profiles?.username ?? null
   const avatar = spot.profiles?.avatar_url ?? null
 
@@ -216,9 +234,14 @@ function SpotHCard({
           ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
           : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
         }
-        {novel && (
+        {novel && !countdown && (
           <span className="absolute top-1.5 left-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
             NEW
+          </span>
+        )}
+        {countdown && (
+          <span className="absolute top-1.5 left-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+            {countdown}
           </span>
         )}
         {distance !== undefined && (
@@ -260,6 +283,7 @@ function SpotListRow({
   const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const open = isOpenNow(spot.weekday_descriptions ?? null)
+  const countdown = expiresIn(spot.expires_at)
   const username = spot.profiles?.username ?? null
   const avatar = spot.profiles?.avatar_url ?? null
 
@@ -281,6 +305,11 @@ function SpotListRow({
           <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-zinc-500">{spot.address}</p>
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {countdown && (
+            <span className="rounded-full bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+              {countdown}
+            </span>
+          )}
           {distance !== undefined && (
             <span className="flex items-center gap-0.5 text-[11px] font-semibold text-blue-600">
               <MapPin size={9} /> {fmtDist(distance)}
@@ -400,12 +429,16 @@ export default function ExploreModal({
     return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 5)
   }, [spots, currentUserId])
 
+  // Filter expired spots
+  const now = useMemo(() => Date.now(), [])
+
   // Base pool for the current mode
   const basePool = useMemo(() => {
-    if (mode === "mine")    return spots.filter(s => s.user_id === currentUserId)
-    if (mode === "friends") return spots.filter(s => currentUserId ? s.user_id !== currentUserId : false)
-    return allSpots ?? spots   // explorer = tout
-  }, [mode, spots, allSpots, currentUserId])
+    const notExpired = (s: Spot) => !s.expires_at || new Date(s.expires_at).getTime() > now
+    if (mode === "mine")    return spots.filter(s => s.user_id === currentUserId && notExpired(s))
+    if (mode === "friends") return spots.filter(s => (currentUserId ? s.user_id !== currentUserId : false) && notExpired(s))
+    return (allSpots ?? spots).filter(notExpired)
+  }, [mode, spots, allSpots, currentUserId, now])
 
   // Apply category + friend + search filters
   const filteredPool = useMemo(() => {

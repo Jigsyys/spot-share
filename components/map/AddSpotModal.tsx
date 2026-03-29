@@ -39,6 +39,7 @@ interface AddSpotModalProps {
     opening_hours: Record<string, string> | null
     weekday_descriptions: string[] | null
     maps_url: string | null
+    expires_at: string | null
   }) => Promise<void>
   initialUrl?: string
   userLat?: number
@@ -102,6 +103,10 @@ export default function AddSpotModal({
   const [manAiFillLoading, setManAiFillLoading] = useState(false)
   const [manAiFillDone, setManAiFillDone] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
+
+  // ── Ephemeral spot ─────────────────────────────────────────────────────────
+  const [isEphemeral, setIsEphemeral] = useState(false)
+  const [ephemeralDate, setEphemeralDate] = useState("")
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const igDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -330,6 +335,7 @@ export default function AddSpotModal({
         opening_hours: tab === "instagram" ? igOpeningHours : manOpeningHours,
         weekday_descriptions: tab === "instagram" ? igWeekdayDescriptions : manWeekdayDescriptions,
         maps_url: tab === "instagram" ? igMapsUrl : manMapsUrl,
+        expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
       })
       onClose()
     } catch (err) {
@@ -649,6 +655,44 @@ export default function AddSpotModal({
                       className="mt-2 flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2">
                       <MapPin size={14} className="text-indigo-400" />
                       <span className="truncate text-xs text-indigo-300">{selectedPlace.place_name}</span>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* ── Spot éphémère ──────────────────────────────────── */}
+                <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsEphemeral(v => !v)}
+                    className="flex w-full items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">⏳</span>
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Spot éphémère</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-500">Ce lieu disparaîtra à la date choisie</p>
+                      </div>
+                    </div>
+                    <div className={cn(
+                      "relative h-6 w-11 rounded-full transition-colors",
+                      isEphemeral ? "bg-amber-500" : "bg-gray-200 dark:bg-zinc-700"
+                    )}>
+                      <div className={cn(
+                        "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                        isEphemeral ? "translate-x-5" : "translate-x-0.5"
+                      )} />
+                    </div>
+                  </button>
+                  {isEphemeral && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
+                      <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Date de fin</label>
+                      <input
+                        type="date"
+                        value={ephemeralDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={e => setEphemeralDate(e.target.value)}
+                        className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+                      />
                     </motion.div>
                   )}
                 </div>
