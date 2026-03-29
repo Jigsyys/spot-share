@@ -1645,32 +1645,6 @@ export default function MapView() {
         </motion.button>
       </div>
 
-      {/* Surprise pin badge */}
-      <AnimatePresence>
-        {surprisePin && (
-          <motion.button
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            onClick={() => {
-              setSelectedSpot(surprisePin.spot)
-              setFilter("friends")
-              setVisibleFriendIds(followingIds)
-              mapRef.current?.flyTo({ center: [surprisePin.spot.lng, surprisePin.spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
-            }}
-            className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl bg-violet-600/90 backdrop-blur-md px-4 py-2.5 text-sm font-bold text-white shadow-xl shadow-violet-600/30"
-          >
-            <span className="animate-pulse">🎲</span>
-            <span className="truncate max-w-[160px]">{surprisePin.spot.title}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); setSurprisePin(null) }}
-              className="ml-1 opacity-70 hover:opacity-100"
-            >
-              <X size={14} />
-            </button>
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       {/* Bouton 3D (En bas à gauche) */}
       <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-8">
