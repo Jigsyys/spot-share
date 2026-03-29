@@ -899,7 +899,8 @@ export default function MapView() {
         // Colonne inconnue (42703) → retry sans les champs optionnels non migrés
         if (error.code === "42703" || error.code === "PGRST204") {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { maps_url, weekday_descriptions, image_url, ...core } = spotData
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { maps_url, weekday_descriptions, image_url, expires_at, ...core } = spotData
           const { data: fallback, error: fallbackError } = await supabaseRef.current
             .from("spots")
             .insert({ user_id: user.id, ...core, image_url })
@@ -2068,6 +2069,7 @@ export default function MapView() {
               setShowAddModal(false)
               setShowExploreModal(false)
               setShowFriendsModal(true)
+              setIncomingCount(0)
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
@@ -2263,6 +2265,12 @@ export default function MapView() {
         }}
         onSignOut={signOut}
         onSelectUser={(id) => { setShowProfileModal(false); setPublicProfileUserId(id) }}
+        onSelectSpot={(spotId, lat, lng) => {
+          setShowProfileModal(false)
+          const spot = spots.find((s) => s.id === spotId)
+          if (spot) setSelectedSpot(spot)
+          mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.5, duration: 1000 })
+        }}
       />
 
       <PublicProfileModal

@@ -31,7 +31,6 @@ interface Spot {
   title: string
   category?: string
   address?: string | null
-  image_url?: string | null
   lat: number
   lng: number
 }
@@ -40,6 +39,18 @@ interface FollowProfile {
   id: string
   username: string | null
   avatar_url: string | null
+}
+
+interface LikeHistoryItem {
+  reactionId: string
+  spotId: string
+  spotTitle: string
+  spotCategory: string | null
+  spotLat: number
+  spotLng: number
+  likerUsername: string | null
+  likerAvatarUrl: string | null
+  likedAt: string
 }
 
 interface ProfileModalProps {
@@ -55,25 +66,10 @@ interface ProfileModalProps {
   onLocateSpot?: (id: string, lat: number, lng: number) => void
   onSignOut?: () => void
   onSelectUser?: (id: string) => void
+  onSelectSpot?: (id: string, lat: number, lng: number) => void
 }
 
-type SubView = null | "spots" | "followers" | "following"
-
-const CATEGORY_EMOJIS: Record<string, string> = {
-  café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿",
-  vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
-}
-
-const CATEGORY_GRADIENTS: Record<string, string> = {
-  café: "from-amber-400 to-orange-500",
-  restaurant: "from-rose-400 to-pink-500",
-  bar: "from-purple-500 to-indigo-600",
-  outdoor: "from-emerald-400 to-green-600",
-  vue: "from-sky-400 to-blue-600",
-  culture: "from-violet-500 to-purple-600",
-  shopping: "from-pink-400 to-rose-500",
-  other: "from-slate-400 to-gray-500",
-}
+type SubView = null | "spots" | "followers" | "following" | "likes"
 
 export default function ProfileModal({
   isOpen,
@@ -88,6 +84,7 @@ export default function ProfileModal({
   onLocateSpot,
   onSignOut,
   onSelectUser,
+  onSelectSpot,
 }: ProfileModalProps) {
   const [username, setUsername] = useState("")
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -103,6 +100,8 @@ export default function ProfileModal({
   const [followersList, setFollowersList] = useState<FollowProfile[]>([])
   const [followingList, setFollowingList] = useState<FollowProfile[]>([])
   const [loadingList, setLoadingList] = useState(false)
+  const [likeHistory, setLikeHistory] = useState<LikeHistoryItem[]>([])
+  const [loadingLikes, setLoadingLikes] = useState(false)
 
   // Inline editing
   const [editingName, setEditingName] = useState(false)
@@ -363,15 +362,75 @@ export default function ProfileModal({
     finally { setLoadingList(false) }
   }, [user])
 
+  const loadLikeHistory = useCallback(async () => {
+    if (!user) return
+    setLoadingLikes(true)
+    try {
+      // Get all spot IDs owned by user
+      const { data: spotData } = await supabaseRef.current
+        .from("spots")
+        .select("id, title, category, lat, lng")
+        .eq("user_id", user.id)
+      if (!spotData || spotData.length === 0) { setLikeHistory([]); setLoadingLikes(false); return }
+
+      const spotIds = spotData.map((s: { id: string }) => s.id)
+      const spotMap = Object.fromEntries(spotData.map((s: { id: string; title: string; category: string | null; lat: number; lng: number }) => [s.id, s]))
+
+      // Get reactions (likes) from others on those spots
+      const { data: reactions } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("id, spot_id, user_id, created_at")
+        .in("spot_id", spotIds)
+        .eq("type", "love")
+        .neq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50)
+
+      if (!reactions || reactions.length === 0) { setLikeHistory([]); setLoadingLikes(false); return }
+
+      // Fetch liker profiles
+      const likerIds = [...new Set(reactions.map((r: { user_id: string }) => r.user_id))]
+      const { data: profiles } = await supabaseRef.current
+        .from("profiles")
+        .select("id, username, avatar_url")
+        .in("id", likerIds)
+      const profileMap = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
+
+      const history: LikeHistoryItem[] = reactions.map((r: { id: string; spot_id: string; user_id: string; created_at: string }) => {
+        const spot = spotMap[r.spot_id]
+        const liker = profileMap[r.user_id]
+        return {
+          reactionId: r.id,
+          spotId: r.spot_id,
+          spotTitle: spot?.title ?? "Spot",
+          spotCategory: spot?.category ?? null,
+          spotLat: spot?.lat ?? 0,
+          spotLng: spot?.lng ?? 0,
+          likerUsername: liker?.username ?? null,
+          likerAvatarUrl: liker?.avatar_url ?? null,
+          likedAt: r.created_at,
+        }
+      })
+      setLikeHistory(history)
+    } catch { setLikeHistory([]) }
+    finally { setLoadingLikes(false) }
+  }, [user])
+
   const openSubView = (view: SubView) => {
     setSubView(view)
     if (view === "followers") loadFollowersList()
     if (view === "following") loadFollowingList()
+    if (view === "likes") loadLikeHistory()
   }
 
   const initials = username
     ? username.charAt(0).toUpperCase()
     : (user?.email?.charAt(0).toUpperCase() ?? "?")
+
+  const CATEGORY_EMOJIS: Record<string, string> = {
+    café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿",
+    vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
+  }
 
   if (!isOpen) return null
 
@@ -395,88 +454,70 @@ export default function ProfileModal({
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.05, bottom: 0.4 }}
             dragMomentum={false}
-            onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
+            onDragEnd={(_e, { offset, velocity }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2rem] border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
-
-              {/* Drag handle */}
-              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700" />
+            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
+              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
-              <div className="flex flex-shrink-0 items-center justify-between px-5 py-4">
+              <div className="flex flex-shrink-0 items-center justify-between p-5 pt-3 pb-4 sm:pt-5">
                 {subView ? (
-                  <button
-                    onClick={() => setSubView(null)}
-                    className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-zinc-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                  >
+                  <button onClick={() => setSubView(null)} className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-zinc-300 hover:text-white">
                     <ArrowLeft size={16} /> Retour
                   </button>
                 ) : (
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Mon profil</h2>
+                  <h2 className="flex items-center gap-2 text-lg font-bold">
+                    <User size={18} className="text-blue-600 dark:text-indigo-400" /> Mon profil
+                  </h2>
                 )}
-                <button
-                  onClick={onClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-300 dark:hover:bg-white/20"
-                >
-                  <X size={16} />
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
+                  <X size={18} />
                 </button>
               </div>
 
-              {/* Scrollable content */}
               <div className="flex flex-1 flex-col overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
-
                 {/* ============================================ */}
                 {/* SUB-VIEW: Spots list */}
                 {/* ============================================ */}
                 {subView === "spots" && (
-                  <div>
-                    <p className="mb-4 text-sm font-bold text-gray-900 dark:text-white">
+                  <div className="space-y-5">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Mes spots ({userSpots.length})
                     </p>
                     {userSpots.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun spot ajouté pour l&apos;instant.</p>
                     ) : (
-                      <div className="grid grid-cols-2 gap-2">
-                        {userSpots.map((spot) => {
-                          const imageUrl = (spot as Spot & { image_url?: string | null }).image_url?.split(",")[0]?.trim() || null
-                          const gradient = CATEGORY_GRADIENTS[spot.category ?? "other"] ?? "from-slate-400 to-gray-500"
-                          const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
-                          return (
-                            <button
-                              key={spot.id}
-                              onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                              className="relative aspect-square w-full overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 transition-transform hover:scale-[0.98]"
-                            >
-                              {imageUrl ? (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-                              ) : (
-                                <div className={`h-full w-full bg-gradient-to-br ${gradient} flex items-center justify-center text-4xl`}>{emoji}</div>
-                              )}
-                              {/* Title overlay */}
-                              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2.5">
-                                <p className="line-clamp-2 text-left text-xs font-semibold leading-tight text-white">{spot.title}</p>
-                              </div>
-                              {/* Nav button overlay top-left */}
-                              <div
-                                onClick={(e) => { e.stopPropagation(); onLocateSpot?.(spot.id, spot.lat, spot.lng) }}
-                                className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm"
-                              >
-                                <Navigation size={12} />
-                              </div>
-                              {/* Trash button overlay top-right */}
+                      <div className="space-y-2">
+                        {userSpots.map((spot) => (
+                          <button
+                            key={spot.id}
+                            onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
+                            className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800 group"
+                          >
+                            <span className="text-lg">{CATEGORY_EMOJIS[spot.category || "other"] || "📍"}</span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold">{spot.title}</p>
+                              {spot.address && <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">{spot.address}</p>}
+                            </div>
+                            <div className="flex items-center gap-1">
                               <button
-                                onClick={(e) => { e.stopPropagation(); handleDeleteUserSpot(spot.id) }}
-                                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition-colors hover:bg-red-500/80"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteUserSpot(spot.id)
+                                }}
+                                className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                               >
-                                <Trash2 size={12} />
+                                <Trash2 size={14} />
                               </button>
-                            </button>
-                          )
-                        })}
+                              <div className="rounded-xl p-2 text-blue-600 dark:text-indigo-400 opacity-80 group-hover:opacity-100">
+                                <Navigation size={14} />
+                              </div>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -486,12 +527,12 @@ export default function ProfileModal({
                 {/* SUB-VIEW: Followers list */}
                 {/* ============================================ */}
                 {subView === "followers" && (
-                  <div>
-                    <p className="mb-4 text-sm font-bold text-gray-900 dark:text-white">
+                  <div className="space-y-5">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Abonnés ({followersCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-500" /></div>
+                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
                     ) : followersList.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonné.</p>
                     ) : (
@@ -499,10 +540,10 @@ export default function ProfileModal({
                         {followersList.map((p) => (
                           <div
                             key={p.id}
-                            className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                            className="flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
                             onClick={() => { onSelectUser?.(p.id); onClose() }}
                           >
-                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-sm font-bold text-white">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -510,10 +551,10 @@ export default function ProfileModal({
                                 (p.username || "?").charAt(0).toUpperCase()
                               )}
                             </div>
-                            <p className="truncate text-sm font-semibold flex-1 text-gray-900 dark:text-white">@{p.username || "utilisateur"}</p>
+                            <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleRemoveFollowerUser(p.id) }}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500"
+                              className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />
                             </button>
@@ -528,12 +569,12 @@ export default function ProfileModal({
                 {/* SUB-VIEW: Following list */}
                 {/* ============================================ */}
                 {subView === "following" && (
-                  <div>
-                    <p className="mb-4 text-sm font-bold text-gray-900 dark:text-white">
+                  <div className="space-y-5">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
                       Abonnements ({followingCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-indigo-500" /></div>
+                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
                     ) : followingList.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonnement.</p>
                     ) : (
@@ -541,10 +582,10 @@ export default function ProfileModal({
                         {followingList.map((p) => (
                           <div
                             key={p.id}
-                            className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                            className="flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
                             onClick={() => { onSelectUser?.(p.id); onClose() }}
                           >
-                            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-sm font-bold text-white">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-sm font-bold text-white">
                               {p.avatar_url ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -552,10 +593,10 @@ export default function ProfileModal({
                                 (p.username || "?").charAt(0).toUpperCase()
                               )}
                             </div>
-                            <p className="truncate text-sm font-semibold flex-1 text-gray-900 dark:text-white">@{p.username || "utilisateur"}</p>
+                            <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleUnfollowUser(p.id) }}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500"
+                              className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
                             >
                               <UserMinus size={14} />
                             </button>
@@ -567,174 +608,216 @@ export default function ProfileModal({
                 )}
 
                 {/* ============================================ */}
+                {/* SUB-VIEW: Likes history */}
+                {/* ============================================ */}
+                {subView === "likes" && (
+                  <div className="space-y-3">
+                    <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
+                      Historique des likes ({likeHistory.length})
+                    </p>
+                    {loadingLikes ? (
+                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-red-500" /></div>
+                    ) : likeHistory.length === 0 ? (
+                      <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun like reçu pour l&apos;instant.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {likeHistory.map((item) => {
+                          const timeDiff = Date.now() - new Date(item.likedAt).getTime()
+                          const h = Math.floor(timeDiff / 3_600_000)
+                          const d = Math.floor(h / 24)
+                          const timeStr = h < 1 ? "à l'instant" : h < 24 ? `il y a ${h}h` : `il y a ${d}j`
+                          const CATEGORY_EMOJIS: Record<string, string> = { café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿", vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍" }
+                          return (
+                            <button
+                              key={item.reactionId}
+                              onClick={() => { onSelectSpot?.(item.spotId, item.spotLat, item.spotLng); onClose() }}
+                              className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800 group"
+                            >
+                              {/* Liker avatar */}
+                              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-pink-500 to-red-500 text-sm font-bold text-white">
+                                {item.likerAvatarUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={item.likerAvatarUrl} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  (item.likerUsername || "?").charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              {/* Info */}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  <span className="font-bold">@{item.likerUsername || "utilisateur"}</span>
+                                  {" a aimé "}
+                                  <span className="font-semibold">{item.spotTitle}</span>
+                                </p>
+                                <p className="text-[11px] text-gray-400 dark:text-zinc-500">{timeStr}</p>
+                              </div>
+                              {/* Spot emoji + heart */}
+                              <div className="flex flex-shrink-0 items-center gap-1">
+                                <span className="text-base">{CATEGORY_EMOJIS[item.spotCategory || "other"] || "📍"}</span>
+                                <Heart size={12} className="fill-red-500 text-red-500" />
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ============================================ */}
                 {/* MAIN PROFILE VIEW */}
                 {/* ============================================ */}
                 {!subView && (
                   <div className="flex flex-1 flex-col pb-2">
                     <div className="space-y-5">
-
-                      {/* Avatar + username */}
-                      <div className="group relative flex flex-col items-center gap-3 pt-2">
-                        <div
-                          onClick={() => fileInputRef.current?.click()}
-                          className="relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-indigo-500/40 bg-gradient-to-br from-indigo-500 to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/20"
-                        >
-                          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
-                          {uploadingAvatar ? (
-                            <LoaderCircle className="z-10 h-8 w-8 animate-spin text-white" />
-                          ) : avatarUrl ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="z-10">{initials}</span>
-                          )}
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                            <UploadCloud size={24} className="text-white drop-shadow-md" />
-                          </div>
+                    {/* Avatar (click to change photo) */}
+                    <div className="group relative flex flex-col items-center gap-3 py-2">
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-blue-600/50 dark:border-indigo-500/50 bg-gradient-to-br from-blue-600 to-sky-500 dark:from-indigo-500 dark:to-purple-600 text-4xl font-bold text-white shadow-xl shadow-indigo-500/25"
+                      >
+                        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleAvatarUpload} />
+                        {uploadingAvatar ? (
+                          <LoaderCircle className="z-10 h-8 w-8 animate-spin text-white" />
+                        ) : avatarUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="z-10">{initials}</span>
+                        )}
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                          <UploadCloud size={24} className="text-white drop-shadow-md" />
                         </div>
+                      </div>
 
-                        {/* Username: click to edit inline */}
-                        <div className="text-center">
-                          {editingName ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                autoFocus
-                                type="text"
-                                value={nameInput}
-                                onChange={(e) => setNameInput(e.target.value)}
-                                onKeyDown={(e) => { if (e.key === "Enter") saveName() }}
-                                className="w-40 rounded-xl border border-indigo-500/40 bg-white dark:bg-zinc-900 px-3 py-1.5 text-center text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20"
-                              />
-                              <button
-                                onClick={saveName}
-                                disabled={saving}
-                                className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-white hover:bg-indigo-400 disabled:opacity-50"
-                              >
-                                {saving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
-                              </button>
-                              <button
-                                onClick={() => setEditingName(false)}
-                                className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-zinc-700 text-gray-600 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-600"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ) : (
+                      {/* Username: click to edit inline */}
+                      <div className="text-center">
+                        {editingName ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={nameInput}
+                              onChange={(e) => setNameInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") saveName() }}
+                              className="w-40 rounded-lg border border-blue-600/50 dark:border-indigo-500/50 bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 text-center text-sm text-gray-900 dark:text-white outline-none"
+                            />
                             <button
-                              onClick={() => { setNameInput(username); setEditingName(true) }}
-                              className="group/name"
+                              onClick={saveName}
+                              disabled={saving}
+                              className="rounded-lg bg-blue-600 dark:bg-indigo-500 p-1.5 text-white hover:bg-blue-500 dark:hover:bg-indigo-400 disabled:opacity-50"
                             >
-                              <p className="text-xl font-bold text-gray-900 dark:text-white transition-colors group-hover/name:text-indigo-500">
-                                @{username || "…"}
-                              </p>
-                              <p className="text-[10px] text-gray-400 dark:text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
-                                Cliquer pour modifier
-                              </p>
+                              {saving ? <LoaderCircle size={14} className="animate-spin" /> : <Check size={14} />}
                             </button>
-                          )}
-                          <p className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-400 dark:text-zinc-500">
-                            <Mail size={11} /> {user?.email}
+                            <button onClick={() => setEditingName(false)} className="rounded-lg bg-gray-200 dark:bg-zinc-700 p-1.5 text-gray-600 dark:text-zinc-300 hover:bg-gray-300 dark:hover:bg-zinc-600">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => { setNameInput(username); setEditingName(true) }} className="group/name">
+                            <p className="text-base font-semibold transition-colors group-hover/name:text-blue-600 dark:group-hover/name:text-indigo-400">
+                              @{username || "…"}
+                            </p>
+                            <p className="text-[10px] text-gray-400 dark:text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
+                              Cliquer pour modifier
+                            </p>
+                          </button>
+                        )}
+                        <p className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-400 dark:text-zinc-500">
+                          <Mail size={11} /> {user?.email}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Stats (clickable) */}
+                    <div className="grid grid-cols-4 gap-2">
+                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
+                        <span className="text-lg font-bold">{spotsCount}</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
+                      </button>
+                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
+                        <span className="text-lg font-bold">{followersCount}</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnés</span>
+                      </button>
+                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
+                        <span className="text-lg font-bold">{followingCount}</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnements</span>
+                      </button>
+                      <button onClick={() => openSubView("likes")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
+                        <span className="text-red-500"><Heart size={14} className="fill-red-500" /></span>
+                        <span className="text-lg font-bold">{totalLikes}</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Likes reçus</span>
+                      </button>
+                    </div>
+
+                    {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
+
+                    {/* Ghost Mode */}
+                    <div className="border-t border-gray-200 dark:border-white/10 pt-5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-semibold">
+                            <Ghost size={14} className="text-gray-500 dark:text-zinc-400" /> Mode Fantôme
+                          </h3>
+                          <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
+                            Cache ta position sur la carte pour les autres.
                           </p>
                         </div>
-                      </div>
-
-                      {/* Stats (4 clickable) */}
-                      <div className="grid grid-cols-4 gap-2">
                         <button
-                          onClick={() => openSubView("spots")}
-                          className="flex flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/5"
+                          onClick={toggleGhostMode}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
                         >
-                          <MapPin size={14} className="text-indigo-500" />
-                          <span className="text-lg font-bold text-gray-900 dark:text-white">{spotsCount}</span>
-                          <span className="text-xs text-gray-500 dark:text-zinc-400">Spots</span>
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isGhostMode ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
-                        <button
-                          onClick={() => openSubView("followers")}
-                          className="flex flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/5"
-                        >
-                          <Users size={14} className="text-indigo-500" />
-                          <span className="text-lg font-bold text-gray-900 dark:text-white">{followersCount}</span>
-                          <span className="text-xs text-gray-500 dark:text-zinc-400">Abonnés</span>
-                        </button>
-                        <button
-                          onClick={() => openSubView("following")}
-                          className="flex flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-3 transition-colors hover:border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/5"
-                        >
-                          <Users size={14} className="text-indigo-500" />
-                          <span className="text-lg font-bold text-gray-900 dark:text-white">{followingCount}</span>
-                          <span className="text-xs text-gray-500 dark:text-zinc-400">Abonnements</span>
-                        </button>
-                        <div className="flex flex-col items-center gap-1 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 py-3">
-                          <Heart size={14} className="fill-red-500 text-red-500" />
-                          <span className="text-lg font-bold text-gray-900 dark:text-white">{totalLikes}</span>
-                          <span className="text-xs text-gray-500 dark:text-zinc-400">Likes</span>
-                        </div>
                       </div>
+                    </div>
 
-                      {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
-
-                      {/* Settings section */}
-                      <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 overflow-hidden">
-                        {/* Ghost Mode */}
-                        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100 dark:border-white/5">
-                          <div>
-                            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-                              <Ghost size={14} className="text-gray-500 dark:text-zinc-400" /> Mode Fantôme
-                            </h3>
-                            <p className="mt-0.5 max-w-[230px] text-[11px] text-gray-400 dark:text-zinc-500">
-                              Cache ta position sur la carte pour les autres.
-                            </p>
-                          </div>
-                          <button
-                            onClick={toggleGhostMode}
-                            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${isGhostMode ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-600"}`}
-                          >
-                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isGhostMode ? "translate-x-6" : "translate-x-1"}`} />
-                          </button>
+                    {/* Theme Toggle */}
+                    <div className="border-t border-gray-200 dark:border-white/10 pt-5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="flex items-center gap-2 text-sm font-semibold">
+                            {theme === "dark" ? <Moon size={14} className="text-gray-500 dark:text-zinc-400" /> : <Sun size={14} className="text-amber-400" />}
+                            Thème clair
+                          </h3>
+                          <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
+                            Passe du mode sombre au mode clair
+                          </p>
                         </div>
-
-                        {/* Theme Toggle */}
-                        <div className="flex items-center justify-between px-4 py-4">
-                          <div>
-                            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-                              {theme === "dark" ? <Moon size={14} className="text-gray-500 dark:text-zinc-400" /> : <Sun size={14} className="text-amber-400" />}
-                              Thème clair
-                            </h3>
-                            <p className="mt-0.5 max-w-[230px] text-[11px] text-gray-400 dark:text-zinc-500">
-                              Passe du mode sombre au mode clair
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${theme === "light" ? "bg-indigo-500" : "bg-gray-300 dark:bg-zinc-600"}`}
-                          >
-                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${theme === "light" ? "translate-x-6" : "translate-x-1"}`} />
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${theme === "light" ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
+                        >
+                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${theme === "light" ? "translate-x-6" : "translate-x-1"}`} />
+                        </button>
                       </div>
+                    </div>
 
                     </div>
 
                     {/* Log Out */}
-                    <div className="mt-6">
-                      <button
-                        onClick={() => {
-                          onSignOut?.()
-                          onClose()
-                        }}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 px-4 py-3 text-sm font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800"
-                      >
-                        <LogOut size={16} />
-                        Se déconnecter
-                      </button>
+                    <div className="mt-8">
+                       <button
+                         onClick={() => {
+                           onSignOut?.()
+                           onClose()
+                         }}
+                         className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 dark:bg-zinc-800/50 border border-gray-200 dark:border-white/5 px-4 py-3 text-sm font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-200 dark:hover:bg-zinc-800"
+                       >
+                         <LogOut size={16} />
+                         Se déconnecter
+                       </button>
                     </div>
 
                     {/* Delete Account */}
-                    <div className="mt-3 mb-4">
+                    <div className="mt-4 border-t border-red-500/20 pt-5 sm:mt-8">
                       <button
                         onClick={handleDeleteAccount}
                         disabled={deletingAccount}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-500 transition-colors hover:bg-red-500/20 disabled:opacity-50"
                       >
                         {deletingAccount ? <LoaderCircle size={16} className="animate-spin" /> : <Trash2 size={16} />}
                         Supprimer mon compte

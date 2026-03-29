@@ -538,7 +538,7 @@ export default function ExploreModal({
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
+            className="fixed inset-x-0 top-0 bottom-16 z-[70] sm:inset-0 bg-black/50 backdrop-blur-sm"
           />
 
           {/* Panel */}
