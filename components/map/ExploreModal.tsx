@@ -374,8 +374,7 @@ export default function ExploreModal({
   const [searchQuery, setSearchQuery]     = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
-  // null = all selected; Set<string> = only those IDs selected (empty Set = none = show nothing)
-  const [activeFriends, setActiveFriends] = useState<Set<string> | null>(null)
+  const [friendFilter, setFriendFilter] = useState<string | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef        = useRef<HTMLInputElement>(null)
   const lastPickedIdRef = useRef<string | null>(null)
@@ -390,7 +389,7 @@ export default function ExploreModal({
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery("")
-      setMode("explorer"); setCategoryFilter(null); setActiveFriends(null)
+      setMode("explorer"); setCategoryFilter(null); setFriendFilter(null)
       setSurpriseLoading(false)
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
@@ -400,7 +399,7 @@ export default function ExploreModal({
   // Toggle tab — click active tab → back to explorer
   const handleTab = (tab: "mine" | "friends") => {
     setMode((prev: Mode) => prev === tab ? "explorer" : tab)
-    setActiveFriends(null)
+    setFriendFilter(null)
   }
 
   // ─── Data derivations ──────────────────────────────────────────────────────
@@ -457,11 +456,7 @@ export default function ExploreModal({
   const filteredPool = useMemo(() => {
     let list: Spot[] = basePool
     if (categoryFilter) list = list.filter((s: Spot) => s.category === categoryFilter)
-    // Multi-select friend filter: null = all, empty Set = none
-    if (mode === "friends" && activeFriends !== null) {
-      if (activeFriends.size === 0) return []
-      list = list.filter((s: Spot) => activeFriends.has(s.user_id))
-    }
+    if (friendFilter) list = list.filter((s: Spot) => s.user_id === friendFilter)
     if (debouncedQuery.trim()) {
       const q = debouncedQuery.toLowerCase()
       list = list.filter((s: Spot) =>
@@ -472,7 +467,7 @@ export default function ExploreModal({
       )
     }
     return list
-  }, [basePool, categoryFilter, activeFriends, mode, debouncedQuery])
+  }, [basePool, categoryFilter, friendFilter, debouncedQuery])
 
   // With distances
   const withDist = useMemo(() => filteredPool.map((s: Spot): DistSpot => ({
@@ -515,7 +510,7 @@ export default function ExploreModal({
     if (!friendSpots.length) return
     setSurpriseLoading(true)
     setMode("friends")
-    setActiveFriends(null)
+    setFriendFilter(null)
     setTimeout(() => {
       let pool: { spot: Spot; distance: number | undefined }[] = friendSpots.map((s: Spot) => ({
         spot: s,
@@ -547,7 +542,7 @@ export default function ExploreModal({
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  const hasFilters = !!(categoryFilter || (activeFriends !== null && activeFriends.size < friendProfiles.length) || debouncedQuery.trim())
+  const hasFilters = !!(categoryFilter || friendFilter || debouncedQuery.trim())
 
   if (!isOpen) return null
 
@@ -804,30 +799,18 @@ export default function ExploreModal({
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
                           {friendProfiles.map((f: FriendProfile) => {
-                            // null = all active; otherwise check the Set
-                            const isActive = activeFriends === null || activeFriends.has(f.id)
+                            const isSelected = friendFilter === f.id
                             return (
                               <button
                                 key={f.id}
-                                onClick={() => {
-                                  setActiveFriends((prev: Set<string> | null) => {
-                                    // Start from full set if currently "all"
-                                    const base = prev ?? new Set(friendProfiles.map((p: FriendProfile) => p.id))
-                                    const next = new Set(base)
-                                    if (next.has(f.id)) next.delete(f.id)
-                                    else next.add(f.id)
-                                    // If all friends re-selected, go back to null (all)
-                                    if (next.size === friendProfiles.length) return null
-                                    return next
-                                  })
-                                }}
+                                onClick={() => setFriendFilter(isSelected ? null : f.id)}
                                 className="flex flex-shrink-0 flex-col items-center gap-1.5"
                               >
                                 <div className={cn(
                                   "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
-                                  isActive
+                                  isSelected
                                     ? "border-[3px] border-blue-500 scale-105"
-                                    : "opacity-40 border-2 border-white dark:border-zinc-800"
+                                    : "border-2 border-white dark:border-zinc-800"
                                 )}>
                                   {f.avatar_url
                                     // eslint-disable-next-line @next/next/no-img-element
@@ -839,7 +822,7 @@ export default function ExploreModal({
                                 </div>
                                 <span className={cn(
                                   "max-w-[3.5rem] truncate text-[10px]",
-                                  isActive ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-zinc-600"
+                                  isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
                                 )}>
                                   @{f.username ?? "ami"}
                                 </span>
