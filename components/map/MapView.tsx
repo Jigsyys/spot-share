@@ -1046,7 +1046,7 @@ export default function MapView() {
         if (error) throw error
       } else {
         const { error } = await supabaseRef.current.from("spot_reactions")
-          .insert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
+          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" }, { onConflict: "spot_id,user_id,type", ignoreDuplicates: true })
         if (error) throw error
       }
     } catch {
