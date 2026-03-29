@@ -2090,7 +2090,6 @@ export default function MapView() {
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
-        followingIds={followingIds}
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)

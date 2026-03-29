@@ -195,10 +195,6 @@ function SpotCard({
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
-// ─── Ranking ────────────────────────────────────────────────────────────────
-
-type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
-
 interface ExploreModalProps {
   isOpen: boolean
   onClose: () => void
@@ -209,13 +205,12 @@ interface ExploreModalProps {
   currentUserId?: string | null
   savedSpotIds?: Set<string>
   onSelectUser?: (userId: string) => void
-  followingIds?: string[]
 }
 
 // ─── ExploreModal ──────────────────────────────────────────────────────────
 
 export default function ExploreModal({
-  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, onSelectUser, followingIds,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, onSelectUser,
 }: ExploreModalProps) {
   const [searchQuery, setSearchQuery]         = useState("")
   const [debouncedQuery, setDebouncedQuery]   = useState("")
@@ -300,23 +295,6 @@ export default function ExploreModal({
   }, [spots, friendMode, debouncedQuery, nearbyMode, userLocation, currentUserId])
 
   useEffect(() => { displayedSpotsRef.current = displayedSpots }, [displayedSpots])
-
-  const monthlyRanking = useMemo<RankEntry[]>(() => {
-    if (!followingIds?.length) return []
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
-    spots.forEach(s => {
-      if (!followingIds.includes(s.user_id)) return
-      if (new Date(s.created_at) < startOfMonth) return
-      if (!counts[s.user_id]) counts[s.user_id] = { username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null, count: 0 }
-      counts[s.user_id].count++
-    })
-    return Object.entries(counts)
-      .map(([userId, v]) => ({ userId, ...v }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10)
-  }, [spots, followingIds])
 
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
@@ -482,34 +460,6 @@ export default function ExploreModal({
 
               {/* ── Contenu scrollable ── */}
               <div className="flex-1 overflow-y-auto">
-
-                {/* Classement du mois (onglet Amis/Découvrir sans recherche) */}
-                {!hasQuery && friendMode !== "mine" && monthlyRanking.length > 0 && (
-                  <div className="px-4 pt-3 pb-2">
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
-                      Classement du mois
-                    </p>
-                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
-                      {monthlyRanking.map((entry, i) => (
-                        <div key={entry.userId} className="flex-shrink-0 flex flex-col items-center gap-1">
-                          <div className="relative">
-                            <div className="h-9 w-9 overflow-hidden rounded-full bg-indigo-100 dark:bg-zinc-700 flex items-center justify-center text-sm font-bold text-gray-700 dark:text-zinc-200">
-                              {entry.avatar_url
-                                // eslint-disable-next-line @next/next/no-img-element
-                                ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                : entry.username?.[0]?.toUpperCase() ?? "?"}
-                            </div>
-                            <span className="absolute -top-1 -right-1 text-[11px] leading-none">
-                              {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span className="flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-gray-200 dark:bg-zinc-700 text-[8px] font-bold text-gray-500 px-0.5">#{i + 1}</span>}
-                            </span>
-                          </div>
-                          <span className="max-w-[44px] truncate text-[9px] text-gray-500 dark:text-zinc-400">{entry.username}</span>
-                          <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400">{entry.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Amis cette semaine (onglet Amis) */}
                 {showFriendsWeek && (
