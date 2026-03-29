@@ -289,6 +289,7 @@ export default function MapView() {
   const [publicProfileUserId, setPublicProfileUserId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [spots, setSpots] = useState<Spot[]>([])
+  const [likeCountsBySpotId, setLikeCountsBySpotId] = useState<Record<string, number>>({})
   const [followingIds, setFollowingIds] = useState<string[]>([])
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
   const visibleFriendIdsRef = useRef<string[]>([])
@@ -448,6 +449,19 @@ export default function MapView() {
     }
   }, [user])
 
+  const fetchLikeCounts = useCallback(async () => {
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_reactions")
+        .select("spot_id")
+        .eq("type", "love")
+      if (!data) return
+      const counts: Record<string, number> = {}
+      data.forEach((r: { spot_id: string }) => { counts[r.spot_id] = (counts[r.spot_id] ?? 0) + 1 })
+      setLikeCountsBySpotId(counts)
+    } catch { /* ignore */ }
+  }, [])
+
   const fetchFollowing = useCallback(async () => {
     if (!user) return
     try {
@@ -589,7 +603,8 @@ export default function MapView() {
   useEffect(() => {
     fetchSpots()
     fetchFollowing()
-  }, [fetchSpots, fetchFollowing])
+    fetchLikeCounts()
+  }, [fetchSpots, fetchFollowing, fetchLikeCounts])
 
   useEffect(() => {
     if (user) checkNewLikes()
@@ -1036,8 +1051,10 @@ export default function MapView() {
     const myReaction = { user_id: user.id, type: "love" as const, username: userProfile?.username ?? null, avatar_url: userProfile?.avatar_url ?? null }
     if (hasLoved) {
       setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
+      setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: Math.max(0, (prev[selectedSpot.id] ?? 1) - 1) }))
     } else {
       setReactions(prev => [...prev, myReaction])
+      setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: (prev[selectedSpot.id] ?? 0) + 1 }))
     }
     try {
       if (hasLoved) {
@@ -1052,8 +1069,10 @@ export default function MapView() {
     } catch {
       if (hasLoved) {
         setReactions(prev => [...prev, myReaction])
+        setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: (prev[selectedSpot.id] ?? 0) + 1 }))
       } else {
         setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
+        setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: Math.max(0, (prev[selectedSpot.id] ?? 1) - 1) }))
       }
       toast.error("Erreur lors de la mise à jour.")
     }
@@ -1205,6 +1224,7 @@ export default function MapView() {
             const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
             const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
             const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
+            const likeCount = likeCountsBySpotId[spot.id] ?? 0
             // Scale markers with zoom
             const markerScale = Math.min(1.4, Math.max(0.5, zoom / 15))
 
@@ -1238,6 +1258,13 @@ export default function MapView() {
                       ) : (
                         friendInitial
                       )}
+                    </div>
+                  )}
+                  {/* Badge likes */}
+                  {likeCount > 0 && (
+                    <div className="absolute -bottom-1 -left-1.5 z-10 flex items-center gap-0.5 rounded-full border border-white dark:border-zinc-900 bg-white dark:bg-zinc-800 px-1 py-[1px] shadow-sm">
+                      <span className="text-[8px] leading-none">❤️</span>
+                      <span className="text-[8px] font-bold leading-none text-red-500">{likeCount}</span>
                     </div>
                   )}
                   {/* Photo circulaire — fallback emoji coloré */}
