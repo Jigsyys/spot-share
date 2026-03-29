@@ -183,6 +183,7 @@ export default function FriendsModal({
   const [activeTab, setActiveTab] = useState<Tab>("amis")
   const [showCreateOuting, setShowCreateOuting] = useState(false)
   const [query, setQuery] = useState("")
+  const [invitationsSeen, setInvitationsSeen] = useState(false)
 
   // ── Data state ──────────────────────────────────────────────
   const [searchResults, setSearchResults] = useState<Profile[]>([])
@@ -229,13 +230,21 @@ export default function FriendsModal({
     async (customIds?: string[]) => {
       const ids = customIds ?? followingIds
       if (!currentUser || ids.length === 0) { setFollowing([]); return }
+      // Afficher immédiatement depuis le cache localStorage
+      try {
+        const cached = localStorage.getItem(`following_${currentUser.id}`)
+        if (cached) setFollowing(JSON.parse(cached))
+      } catch { /* ignore */ }
+      // Puis charger les données fraîches
       try {
         const { data } = await supabaseRef.current
           .from("profiles")
           .select("id, username, avatar_url, last_lat, last_lng, last_active_at, is_ghost_mode")
           .in("id", ids)
-        setFollowing((data as Profile[]) ?? [])
-      } catch { setFollowing([]) }
+        const profiles = (data as Profile[]) ?? []
+        setFollowing(profiles)
+        localStorage.setItem(`following_${currentUser.id}`, JSON.stringify(profiles))
+      } catch { /* ignore */ }
     },
     [currentUser, followingIds]
   )
@@ -711,6 +720,13 @@ export default function FriendsModal({
   // Total badge for Invitations tab
   const totalInvitations = incomingRequests.length + outingInvitations.length
 
+  // Reset seen state when new invitations arrive
+  const prevTotalRef = useRef(0)
+  useEffect(() => {
+    if (totalInvitations > prevTotalRef.current) setInvitationsSeen(false)
+    prevTotalRef.current = totalInvitations
+  }, [totalInvitations])
+
   // Upcoming + past outings split
   const upcomingOutings = outings.filter(o => !isOutingPast(o.scheduled_at) || !o.scheduled_at)
   const pastOutings = outings.filter(o => isOutingPast(o.scheduled_at))
@@ -743,7 +759,7 @@ export default function FriendsModal({
             exit={{ opacity: 0, y: 60 }}
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
             className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-0 sm:right-0 sm:bottom-0 sm:w-[360px]"
-            drag="y"
+            drag={showCreateOuting ? false : "y"}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.04, bottom: 0.35 }}
             dragMomentum={false}
@@ -796,7 +812,7 @@ export default function FriendsModal({
                   {tabs.map(tab => (
                     <button
                       key={tab.id}
-                      onClick={() => { setActiveTab(tab.id); setQuery("") }}
+                      onClick={() => { setActiveTab(tab.id as Tab); setQuery(""); if (tab.id === "invitations") setInvitationsSeen(true) }}
                       className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-semibold transition-all duration-200 ${
                         activeTab === tab.id
                           ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
@@ -805,7 +821,7 @@ export default function FriendsModal({
                     >
                       {tab.icon}
                       {tab.label}
-                      {tab.id === "invitations" && totalInvitations > 0 && (
+                      {tab.id === "invitations" && totalInvitations > 0 && !invitationsSeen && (
                         <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
                           {totalInvitations}
                         </span>
