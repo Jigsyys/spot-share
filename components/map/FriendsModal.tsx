@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X,
@@ -50,11 +50,18 @@ interface FriendRequest {
   profiles: { username: string | null; avatar_url: string | null }
 }
 
+interface SpotForRanking {
+  user_id: string
+  created_at: string
+  profiles?: { username?: string | null; avatar_url?: string | null } | null
+}
+
 interface FriendsModalProps {
   isOpen: boolean
   onClose: () => void
   currentUser: User | null
   followingIds: string[]
+  spots?: SpotForRanking[]
   onFollowingChange: (ids: string[]) => void
   visibleFriendIds: string[]
   setVisibleFriendIds: (ids: string[] | ((prev: string[]) => string[])) => void
@@ -68,6 +75,7 @@ export default function FriendsModal({
   onClose,
   currentUser,
   followingIds,
+  spots = [],
   onFollowingChange,
   visibleFriendIds,
   setVisibleFriendIds,
@@ -85,6 +93,23 @@ export default function FriendsModal({
   const [recommendations, setRecommendations] = useState<Profile[]>([])
   const supabaseRef = useRef(createClient())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Monthly ranking from spots prop
+  const monthlyRanking = useMemo(() => {
+    if (!spots.length || !followingIds.length) return []
+    const monthStart = new Date()
+    monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+    const friendSet = new Set(followingIds)
+    const counts = new Map<string, { userId: string; username: string | null; avatar_url: string | null; count: number }>()
+    for (const spot of spots) {
+      if (!friendSet.has(spot.user_id)) continue
+      if (new Date(spot.created_at) < monthStart) continue
+      const entry = counts.get(spot.user_id)
+      if (entry) { entry.count++ }
+      else { counts.set(spot.user_id, { userId: spot.user_id, username: spot.profiles?.username ?? null, avatar_url: spot.profiles?.avatar_url ?? null, count: 1 }) }
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 5)
+  }, [spots, followingIds])
 
   // --------------- Loaders ---------------
 
@@ -607,6 +632,31 @@ export default function FriendsModal({
                 )}
 
                 {/* Following list */}
+                {/* Classement mensuel */}
+                {monthlyRanking.length > 0 && (
+                  <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-3 py-2.5 mb-4">
+                    <span className="text-sm flex-shrink-0">🏆</span>
+                    <div className="no-scrollbar flex flex-1 items-center gap-3 overflow-x-auto">
+                      {monthlyRanking.map((entry, idx) => (
+                        <div key={entry.userId} className="flex flex-shrink-0 items-center gap-1.5">
+                          <span className="text-xs leading-none">{idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`}</span>
+                          <div className="h-6 w-6 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-[10px] font-bold text-white flex items-center justify-center">
+                            {entry.avatar_url
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                              : (entry.username ?? "?")[0]?.toUpperCase()
+                            }
+                          </div>
+                          <span className="truncate max-w-[4rem] text-[11px] font-semibold text-gray-700 dark:text-zinc-300">
+                            {entry.username ?? "ami"}
+                          </span>
+                          <span className="text-[10px] font-bold text-indigo-500">{entry.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
                     Amis ({followingIds.length})

@@ -2164,6 +2164,7 @@ export default function MapView() {
         onClose={() => setShowFriendsModal(false)}
         currentUser={user}
         followingIds={followingIds}
+        spots={spots}
         onFollowingChange={(newIds) => {
           setFollowingIds(newIds)
           setVisibleFriendIds((prev) => [...new Set([...prev, ...newIds])])
