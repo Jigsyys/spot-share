@@ -342,6 +342,10 @@ function SpotListRow({
   )
 }
 
+type DistSpot = { spot: Spot; distance: number | undefined }
+type FriendProfile = { id: string; username: string | null; avatar_url: string | null }
+type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
+
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface ExploreModalProps {
@@ -353,8 +357,10 @@ interface ExploreModalProps {
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
   followingIds?: string[]
+  surprisePin?: { spot: Spot; expiresAt: number } | null
   savedSpotIds?: Set<string>
   onSelectUser?: (userId: string) => void
+  onSurprise?: (spot: Spot) => void
 }
 
 // ─── ExploreModal ─────────────────────────────────────────────────────────────
@@ -362,7 +368,7 @@ interface ExploreModalProps {
 type Mode = "explorer" | "mine" | "friends"
 
 export default function ExploreModal({
-  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], onSelectUser,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], surprisePin, onSelectUser, onSurprise,
 }: ExploreModalProps) {
   const [mode, setMode]                   = useState<Mode>("explorer")
   const [searchQuery, setSearchQuery]     = useState("")
@@ -403,7 +409,7 @@ export default function ExploreModal({
   const friendProfiles = useMemo(() => {
     const friendSet = new Set(followingIds)
     const seen = new Set<string>()
-    const result: { id: string; username: string | null; avatar_url: string | null }[] = []
+    const result: FriendProfile[] = []
     for (const s of spots) {
       if (friendSet.has(s.user_id) && !seen.has(s.user_id)) {
         seen.add(s.user_id)
@@ -469,7 +475,7 @@ export default function ExploreModal({
   }, [basePool, categoryFilter, activeFriends, mode, debouncedQuery])
 
   // With distances
-  const withDist = useMemo(() => filteredPool.map(s => ({
+  const withDist = useMemo(() => filteredPool.map((s: Spot): DistSpot => ({
     spot: s,
     distance: userLocation ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) : undefined,
   })), [filteredPool, userLocation])
@@ -494,19 +500,24 @@ export default function ExploreModal({
     if (mode !== "friends") return []
     const weekAgo = Date.now() - 7 * 24 * 3600_000
     return filteredPool
-      .filter(s => new Date(s.created_at).getTime() > weekAgo)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .filter((s: Spot) => new Date(s.created_at).getTime() > weekAgo)
+      .sort((a: Spot, b: Spot) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 10)
   }, [filteredPool, mode])
 
-  // Surprise
+  // Surprise — picks from friends' spots only, switches to Amis tab
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
-    const base = allSpots ?? spots
-    if (!base.length) return
+    const friendSet = new Set(followingIds)
+    const friendSpots = (allSpots ?? spots).filter((s: Spot) =>
+      friendSet.has(s.user_id) && (!s.expires_at || new Date(s.expires_at).getTime() > Date.now())
+    )
+    if (!friendSpots.length) return
     setSurpriseLoading(true)
+    setMode("friends")
+    setActiveFriends(null)
     setTimeout(() => {
-      let pool: { spot: Spot; distance: number | undefined }[] = base.map(s => ({
+      let pool: { spot: Spot; distance: number | undefined }[] = friendSpots.map((s: Spot) => ({
         spot: s,
         distance: userLocation
           ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng)
@@ -523,9 +534,9 @@ export default function ExploreModal({
       const picked = pool[Math.floor(Math.random() * pool.length)]
       lastPickedIdRef.current = picked.spot.id
       setSurpriseLoading(false)
-      onSelectSpot(picked.spot)
+      onSurprise?.(picked.spot)
     }, 600)
-  }, [surpriseLoading, userLocation, onSelectSpot, allSpots, spots])
+  }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots])
 
   // ─── Dropdown options ──────────────────────────────────────────────────────
 
@@ -676,7 +687,7 @@ export default function ExploreModal({
                       <div>
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">📍 Près de toi</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {nearbySpots.map(({ spot, distance }) => (
+                          {nearbySpots.map(({ spot, distance }: DistSpot) => (
                             <SpotHCard
                               key={spot.id}
                               spot={spot}
@@ -703,11 +714,11 @@ export default function ExploreModal({
                               {recentSpots.length} résultat{recentSpots.length > 1 ? "s" : ""}
                             </p>
                           )}
-                          {recentSpots.map(({ spot, distance }) => (
+                          {recentSpots.map(({ spot, distance }: DistSpot) => (
                             <SpotListRow
                               key={spot.id}
                               spot={spot}
-                              distance={nearbySpots.some(n => n.spot.id === spot.id) ? distance : undefined}
+                              distance={nearbySpots.some((n: DistSpot) => n.spot.id === spot.id) ? distance : undefined}
                               showAuthor
                               onSelect={() => onSelectSpot(spot)}
                               onSelectUser={onSelectUser}
@@ -730,7 +741,7 @@ export default function ExploreModal({
                           {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
-                          {filteredPool.map(spot => (
+                          {filteredPool.map((spot: Spot) => (
                             <SpotGridCard
                               key={spot.id}
                               spot={spot}
@@ -747,6 +758,21 @@ export default function ExploreModal({
                 {mode === "friends" && (
                   <div className="space-y-6">
 
+                    {/* Surprise pin active banner */}
+                    {surprisePin && surprisePin.expiresAt > Date.now() && (
+                      <button
+                        onClick={() => onSelectSpot(surprisePin.spot)}
+                        className="w-full flex items-center gap-3 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3 text-left"
+                      >
+                        <span className="text-2xl">🎲</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-white">{surprisePin.spot.title}</p>
+                          <p className="text-xs text-white/70">Spot surprise · expire dans {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))} min</p>
+                        </div>
+                        <MapPin size={16} className="flex-shrink-0 text-white/80" />
+                      </button>
+                    )}
+
                     {/* Classement mensuel */}
                     {!hasFilters && (
                       <div>
@@ -759,7 +785,7 @@ export default function ExploreModal({
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {monthlyRanking.map((entry, idx) => (
+                            {monthlyRanking.map((entry: RankEntry, idx: number) => (
                               <div key={entry.userId} className="flex items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3">
                                 <span className="w-6 flex-shrink-0 text-center text-lg leading-none">
                                   {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : <span className="text-xs font-bold text-gray-400 dark:text-zinc-500">{idx + 1}</span>}
@@ -790,16 +816,16 @@ export default function ExploreModal({
                       <div>
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendProfiles.map((f: { id: string; username: string | null; avatar_url: string | null }) => {
+                          {friendProfiles.map((f: FriendProfile) => {
                             // null = all active; otherwise check the Set
                             const isActive = activeFriends === null || activeFriends.has(f.id)
                             return (
                               <button
                                 key={f.id}
                                 onClick={() => {
-                                  setActiveFriends(prev => {
+                                  setActiveFriends((prev: Set<string> | null) => {
                                     // Start from full set if currently "all"
-                                    const base = prev ?? new Set(friendProfiles.map((p: { id: string }) => p.id))
+                                    const base = prev ?? new Set(friendProfiles.map((p: FriendProfile) => p.id))
                                     const next = new Set(base)
                                     if (next.has(f.id)) next.delete(f.id)
                                     else next.add(f.id)
@@ -842,7 +868,7 @@ export default function ExploreModal({
                       <div>
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Cette semaine</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendsThisWeek.map(spot => (
+                          {friendsThisWeek.map((spot: Spot) => (
                             <SpotHCard
                               key={spot.id}
                               spot={spot}
@@ -868,7 +894,7 @@ export default function ExploreModal({
                               {filteredPool.length} résultat{filteredPool.length > 1 ? "s" : ""}
                             </p>
                           )}
-                          {recentSpots.map(({ spot }) => (
+                          {recentSpots.map(({ spot }: DistSpot) => (
                             <SpotListRow
                               key={spot.id}
                               spot={spot}

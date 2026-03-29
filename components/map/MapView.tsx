@@ -294,6 +294,7 @@ export default function MapView() {
   const [incomingCount, setIncomingCount] = useState(0)
   const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
+  const [surprisePin, setSurprisePin] = useState<{ spot: Spot; expiresAt: number } | null>(null)
   const [userLocation, setUserLocation] = useState<{
     lat: number
     lng: number
@@ -591,6 +592,15 @@ export default function MapView() {
     fetchSpots()
     fetchFollowing()
   }, [fetchSpots, fetchFollowing])
+
+  // Auto-clear surprise pin after expiry
+  useEffect(() => {
+    if (!surprisePin) return
+    const remaining = surprisePin.expiresAt - Date.now()
+    if (remaining <= 0) { setSurprisePin(null); return }
+    const t = setTimeout(() => setSurprisePin(null), remaining)
+    return () => clearTimeout(t)
+  }, [surprisePin])
 
   useEffect(() => {
     if (user) checkNewLikes()
@@ -1038,7 +1048,7 @@ export default function MapView() {
           .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", "love")
       } else {
         await supabaseRef.current.from("spot_reactions")
-          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
+          .insert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
       }
     } catch {
       if (hasLoved) {
@@ -1545,6 +1555,35 @@ export default function MapView() {
           <Plus size={18} /> Ajouter un spot
         </motion.button>
       </div>
+
+      {/* Surprise pin countdown badge */}
+      <AnimatePresence>
+        {surprisePin && (
+          <motion.button
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            onClick={() => {
+              setSelectedSpot(surprisePin.spot)
+              mapRef.current?.flyTo({ center: [surprisePin.spot.lng, surprisePin.spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
+              setShowExploreModal(true)
+            }}
+            className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl bg-violet-600/90 backdrop-blur-md px-4 py-2.5 text-sm font-bold text-white shadow-xl shadow-violet-600/30"
+          >
+            <span className="animate-pulse">🎲</span>
+            <span className="truncate max-w-[150px]">{surprisePin.spot.title}</span>
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">
+              {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))}min
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setSurprisePin(null) }}
+              className="ml-1 opacity-70 hover:opacity-100"
+            >
+              <X size={14} />
+            </button>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Bouton 3D (En bas à gauche) */}
       <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-8">
@@ -2085,6 +2124,7 @@ export default function MapView() {
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
         followingIds={followingIds}
+        surprisePin={surprisePin}
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
@@ -2095,6 +2135,11 @@ export default function MapView() {
             offset: [0, 100],
             duration: 800,
           })
+        }}
+        onSurprise={(spot) => {
+          setSurprisePin({ spot, expiresAt: Date.now() + 30 * 60 * 1000 })
+          setSelectedSpot(spot)
+          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
         }}
       />
 
