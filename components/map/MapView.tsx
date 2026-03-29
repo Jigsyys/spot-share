@@ -1267,13 +1267,6 @@ export default function MapView() {
                       )}
                     </div>
                   )}
-                  {/* Badge likes */}
-                  {likeCount > 0 && (
-                    <div className="absolute -bottom-1 -left-1.5 z-10 flex items-center gap-0.5 rounded-full border border-white dark:border-zinc-900 bg-white dark:bg-zinc-800 px-1 py-[1px] shadow-sm">
-                      <span className="text-[8px] leading-none">❤️</span>
-                      <span className="text-[8px] font-bold leading-none text-red-500">{likeCount}</span>
-                    </div>
-                  )}
                   {/* Photo circulaire — fallback emoji coloré */}
                   <div
                     className={cn(
@@ -1800,7 +1793,7 @@ export default function MapView() {
                       )}
                     >
                       <Heart size={15} className={hasLoved ? "fill-current" : ""} />
-                      {loveList.length > 0 && <span className="text-xs font-bold">{loveList.length}</span>}
+                      <span className="text-xs font-bold">{loveList.length}</span>
                     </button>
                   )
                 })()}
