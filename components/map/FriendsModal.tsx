@@ -23,6 +23,7 @@ import {
   CalendarX,
   ChevronRight,
   Trophy,
+  Heart,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
@@ -210,6 +211,11 @@ export default function FriendsModal({
   const [locationResults, setLocationResults] = useState<LocationResult[]>([])
   const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
+
+  // ── Top liked spots ─────────────────────────────────────────
+  type TopSpot = { id: string; title: string; image_url: string | null; username: string | null; likeCount: number }
+  const [topSpots, setTopSpots] = useState<TopSpot[]>([])
+  const [topSpotsLoading, setTopSpotsLoading] = useState(false)
 
   const supabaseRef = useRef(createClient())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -447,6 +453,34 @@ export default function FriendsModal({
       .sort((a, b) => b.count - a.count)
       .slice(0, 10)
   }, [spots, followingIds, currentUser, userProfile])
+
+  // ─── Effect: fetch top liked spots when classement tab opens ───
+
+  useEffect(() => {
+    if (activeTab !== "classement" || !isOpen) return
+    setTopSpotsLoading(true)
+    supabaseRef.current
+      .from("spot_reactions")
+      .select("spot_id, spots(id, title, image_url, profiles(username))")
+      .eq("type", "love")
+      .then(({ data }) => {
+        if (!data) { setTopSpots([]); setTopSpotsLoading(false); return }
+        const counts: Record<string, { id: string; title: string; image_url: string | null; username: string | null; count: number }> = {}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data.forEach((r: any) => {
+          const spot = Array.isArray(r.spots) ? r.spots[0] : r.spots
+          if (!spot) return
+          if (!counts[r.spot_id]) {
+            const profile = Array.isArray(spot.profiles) ? spot.profiles[0] : spot.profiles
+            counts[r.spot_id] = { id: spot.id, title: spot.title, image_url: spot.image_url ?? null, username: profile?.username ?? null, count: 0 }
+          }
+          counts[r.spot_id].count++
+        })
+        const top3 = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 3)
+        setTopSpots(top3.map(s => ({ id: s.id, title: s.title, image_url: s.image_url, username: s.username, likeCount: s.count })))
+        setTopSpotsLoading(false)
+      })
+  }, [activeTab, isOpen])
 
   // ─── Effect: load on open ────────────────────────────────────
 
@@ -988,7 +1022,57 @@ export default function FriendsModal({
 
                 {/* ════ CLASSEMENT ══════════════════════════════ */}
                 {activeTab === "classement" && (
-                  <div className="space-y-3">
+                  <div className="space-y-5">
+                    {/* Top 3 lieux les plus likés */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-widest mb-2">
+                        Top lieux les plus aimés
+                      </p>
+                      {topSpotsLoading ? (
+                        <div className="flex justify-center py-3">
+                          <LoaderCircle size={16} className="animate-spin text-gray-400" />
+                        </div>
+                      ) : topSpots.length === 0 ? (
+                        <p className="text-[12px] text-gray-400 dark:text-zinc-600 py-1">Aucun like pour l&apos;instant</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {topSpots.map((spot, i) => (
+                            <div key={spot.id} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+                              i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
+                              i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
+                              "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20"
+                            }`}>
+                              <span className="text-lg leading-none w-7 text-center flex-shrink-0">
+                                {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
+                              </span>
+                              {spot.image_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={spot.image_url} alt={spot.title} className="h-9 w-9 flex-shrink-0 rounded-lg object-cover" />
+                              ) : (
+                                <div className="h-9 w-9 flex-shrink-0 rounded-lg bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                                  <MapPin size={14} className="text-gray-400 dark:text-zinc-600" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+                                <p className="text-[10px] text-gray-400 dark:text-zinc-600">par @{spot.username ?? "?"}</p>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Heart size={12} className="fill-red-500 text-red-500" />
+                                <span className={`text-[14px] font-bold ${
+                                  i === 0 ? "text-amber-500" :
+                                  i === 1 ? "text-gray-400 dark:text-zinc-500" :
+                                  "text-orange-400"
+                                }`}>{spot.likeCount}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Classement mensuel */}
+                    <div className="space-y-3">
                     {monthlyRanking.length === 0 ? (
                       <EmptyState
                         icon={<Trophy size={24} />}
@@ -1046,6 +1130,7 @@ export default function FriendsModal({
                         })}
                       </>
                     )}
+                    </div>
                   </div>
                 )}
 

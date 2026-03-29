@@ -1041,11 +1041,13 @@ export default function MapView() {
     }
     try {
       if (hasLoved) {
-        await supabaseRef.current.from("spot_reactions").delete()
+        const { error } = await supabaseRef.current.from("spot_reactions").delete()
           .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", "love")
+        if (error) throw error
       } else {
-        await supabaseRef.current.from("spot_reactions")
-          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
+        const { error } = await supabaseRef.current.from("spot_reactions")
+          .insert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
+        if (error) throw error
       }
     } catch {
       if (hasLoved) {
