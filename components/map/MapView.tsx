@@ -1520,16 +1520,8 @@ export default function MapView() {
         </AnimatePresence>
       </div>
 
-      {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-8">
-        <motion.button
-          whileTap={{ scale: 0.92 }}
-          onClick={() => setShowExploreModal(true)}
-          className="pointer-events-auto hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-3 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800 sm:flex"
-          title="Explorer"
-        >
-          <Search size={20} />
-        </motion.button>
+      {/* Floating Action Buttons (Locate) */}
+      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3">
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={locateUser}
@@ -1963,9 +1955,9 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Bottom Navigation Bar */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[60] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:hidden"
+        className="fixed right-0 bottom-0 left-0 z-[100] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">
@@ -2092,7 +2084,7 @@ export default function MapView() {
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
-
+        followingIds={followingIds}
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
@@ -2188,6 +2180,11 @@ export default function MapView() {
         isOpen={!!publicProfileUserId}
         onClose={() => setPublicProfileUserId(null)}
         userId={publicProfileUserId}
+        currentUserId={user?.id ?? null}
+        followingIds={followingIds}
+        onFollowChange={(targetId, nowFollowing) => {
+          setFollowingIds(prev => nowFollowing ? [...prev, targetId] : prev.filter(id => id !== targetId))
+        }}
         onLocateSpot={(spotId, lat, lng) => {
           setPublicProfileUserId(null)
           if (publicProfileUserId === user?.id) {

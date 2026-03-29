@@ -352,6 +352,7 @@ interface ExploreModalProps {
   userLocation: { lat: number; lng: number } | null
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
+  followingIds?: string[]
   savedSpotIds?: Set<string>
   onSelectUser?: (userId: string) => void
 }
@@ -361,13 +362,14 @@ interface ExploreModalProps {
 type Mode = "explorer" | "mine" | "friends"
 
 export default function ExploreModal({
-  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, onSelectUser,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], onSelectUser,
 }: ExploreModalProps) {
   const [mode, setMode]                   = useState<Mode>("explorer")
   const [searchQuery, setSearchQuery]     = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
-  const [friendFilter, setFriendFilter]     = useState<string | null>(null)
+  // null = all selected; Set<string> = only those IDs selected (empty Set = none = show nothing)
+  const [activeFriends, setActiveFriends] = useState<Set<string> | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef        = useRef<HTMLInputElement>(null)
   const lastPickedIdRef = useRef<string | null>(null)
@@ -382,7 +384,7 @@ export default function ExploreModal({
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery("")
-      setMode("explorer"); setCategoryFilter(null); setFriendFilter(null)
+      setMode("explorer"); setCategoryFilter(null); setActiveFriends(null)
       setSurpriseLoading(false)
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
@@ -391,18 +393,19 @@ export default function ExploreModal({
 
   // Toggle tab — click active tab → back to explorer
   const handleTab = (tab: "mine" | "friends") => {
-    setMode(prev => prev === tab ? "explorer" : tab)
-    setFriendFilter(null)
+    setMode((prev: Mode) => prev === tab ? "explorer" : tab)
+    setActiveFriends(null)
   }
 
   // ─── Data derivations ──────────────────────────────────────────────────────
 
-  // All friend profiles (from spots list)
+  // Only actual friends (people the user follows)
   const friendProfiles = useMemo(() => {
+    const friendSet = new Set(followingIds)
     const seen = new Set<string>()
     const result: { id: string; username: string | null; avatar_url: string | null }[] = []
     for (const s of spots) {
-      if (s.user_id !== currentUserId && !seen.has(s.user_id)) {
+      if (friendSet.has(s.user_id) && !seen.has(s.user_id)) {
         seen.add(s.user_id)
         result.push({
           id: s.user_id,
@@ -412,22 +415,23 @@ export default function ExploreModal({
       }
     }
     return result
-  }, [spots, currentUserId])
+  }, [spots, followingIds])
 
   // Classement mensuel des amis
   const monthlyRanking = useMemo(() => {
     const monthStart = new Date()
     monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+    const friendSet = new Set(followingIds)
     const counts = new Map<string, { userId: string; username: string | null; avatar_url: string | null; count: number }>()
     for (const spot of spots) {
-      if (!currentUserId || spot.user_id === currentUserId) continue
+      if (!friendSet.has(spot.user_id)) continue
       if (new Date(spot.created_at) < monthStart) continue
       const entry = counts.get(spot.user_id)
       if (entry) { entry.count++ }
       else { counts.set(spot.user_id, { userId: spot.user_id, username: spot.profiles?.username ?? null, avatar_url: spot.profiles?.avatar_url ?? null, count: 1 }) }
     }
-    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 5)
-  }, [spots, currentUserId])
+    return [...counts.values()].sort((a: { count: number }, b: { count: number }) => b.count - a.count).slice(0, 5)
+  }, [spots, followingIds])
 
   // Filter expired spots
   const now = useMemo(() => Date.now(), [])
@@ -435,19 +439,26 @@ export default function ExploreModal({
   // Base pool for the current mode
   const basePool = useMemo(() => {
     const notExpired = (s: Spot) => !s.expires_at || new Date(s.expires_at).getTime() > now
-    if (mode === "mine")    return spots.filter(s => s.user_id === currentUserId && notExpired(s))
-    if (mode === "friends") return spots.filter(s => (currentUserId ? s.user_id !== currentUserId : false) && notExpired(s))
+    if (mode === "mine") return spots.filter((s: Spot) => s.user_id === currentUserId && notExpired(s))
+    if (mode === "friends") {
+      const friendSet = new Set(followingIds)
+      return spots.filter((s: Spot) => friendSet.has(s.user_id) && notExpired(s))
+    }
     return (allSpots ?? spots).filter(notExpired)
-  }, [mode, spots, allSpots, currentUserId, now])
+  }, [mode, spots, allSpots, currentUserId, followingIds, now])
 
   // Apply category + friend + search filters
   const filteredPool = useMemo(() => {
-    let list = basePool
-    if (categoryFilter) list = list.filter(s => s.category === categoryFilter)
-    if (friendFilter)   list = list.filter(s => s.user_id === friendFilter)
+    let list: Spot[] = basePool
+    if (categoryFilter) list = list.filter((s: Spot) => s.category === categoryFilter)
+    // Multi-select friend filter: null = all, empty Set = none
+    if (mode === "friends" && activeFriends !== null) {
+      if (activeFriends.size === 0) return []
+      list = list.filter((s: Spot) => activeFriends.has(s.user_id))
+    }
     if (debouncedQuery.trim()) {
       const q = debouncedQuery.toLowerCase()
-      list = list.filter(s =>
+      list = list.filter((s: Spot) =>
         s.title.toLowerCase().includes(q) ||
         (s.address ?? "").toLowerCase().includes(q) ||
         (s.description ?? "").toLowerCase().includes(q) ||
@@ -455,7 +466,7 @@ export default function ExploreModal({
       )
     }
     return list
-  }, [basePool, categoryFilter, friendFilter, debouncedQuery])
+  }, [basePool, categoryFilter, activeFriends, mode, debouncedQuery])
 
   // With distances
   const withDist = useMemo(() => filteredPool.map(s => ({
@@ -525,7 +536,7 @@ export default function ExploreModal({
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  const hasFilters = !!(categoryFilter || friendFilter || debouncedQuery.trim())
+  const hasFilters = !!(categoryFilter || (activeFriends !== null && activeFriends.size < friendProfiles.length) || debouncedQuery.trim())
 
   if (!isOpen) return null
 
@@ -553,9 +564,9 @@ export default function ExploreModal({
             onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+            className="fixed inset-x-0 bottom-16 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+            <div className="flex h-[calc(92vh-4rem)] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 
               {/* Drag handle */}
               <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700 sm:hidden" />
@@ -779,19 +790,31 @@ export default function ExploreModal({
                       <div>
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendProfiles.map(f => {
-                            const isSelected = friendFilter === f.id
+                          {friendProfiles.map((f: { id: string; username: string | null; avatar_url: string | null }) => {
+                            // null = all active; otherwise check the Set
+                            const isActive = activeFriends === null || activeFriends.has(f.id)
                             return (
                               <button
                                 key={f.id}
-                                onClick={() => setFriendFilter(isSelected ? null : f.id)}
+                                onClick={() => {
+                                  setActiveFriends(prev => {
+                                    // Start from full set if currently "all"
+                                    const base = prev ?? new Set(friendProfiles.map((p: { id: string }) => p.id))
+                                    const next = new Set(base)
+                                    if (next.has(f.id)) next.delete(f.id)
+                                    else next.add(f.id)
+                                    // If all friends re-selected, go back to null (all)
+                                    if (next.size === friendProfiles.length) return null
+                                    return next
+                                  })
+                                }}
                                 className="flex flex-shrink-0 flex-col items-center gap-1.5"
                               >
                                 <div className={cn(
                                   "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
-                                  isSelected
+                                  isActive
                                     ? "border-[3px] border-blue-500 scale-105"
-                                    : "border-2 border-white dark:border-zinc-800"
+                                    : "opacity-40 border-2 border-white dark:border-zinc-800"
                                 )}>
                                   {f.avatar_url
                                     // eslint-disable-next-line @next/next/no-img-element
@@ -803,7 +826,7 @@ export default function ExploreModal({
                                 </div>
                                 <span className={cn(
                                   "max-w-[3.5rem] truncate text-[10px]",
-                                  isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
+                                  isActive ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-zinc-600"
                                 )}>
                                   @{f.username ?? "ami"}
                                 </span>
@@ -836,14 +859,6 @@ export default function ExploreModal({
                       {!hasFilters && (
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tous leurs spots</p>
                       )}
-                      {friendFilter && (() => {
-                        const f = friendProfiles.find(p => p.id === friendFilter)
-                        return f ? (
-                          <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
-                            Spots de @{f.username ?? "ami"}
-                          </p>
-                        ) : null
-                      })()}
                       {filteredPool.length === 0 ? (
                         <EmptyState mode="friends" hasQuery={!!debouncedQuery} />
                       ) : (

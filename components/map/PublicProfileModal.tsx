@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, MapPin, Users, LoaderCircle, Heart } from "lucide-react"
+import { X, MapPin, Users, LoaderCircle, Heart, UserPlus, UserCheck } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 
 interface Spot {
@@ -19,6 +19,9 @@ interface PublicProfileModalProps {
   isOpen: boolean
   onClose: () => void
   userId: string | null
+  currentUserId?: string | null
+  followingIds?: string[]
+  onFollowChange?: (targetId: string, nowFollowing: boolean) => void
   onLocateSpot?: (id: string, lat: number, lng: number) => void
 }
 
@@ -42,6 +45,9 @@ export default function PublicProfileModal({
   isOpen,
   onClose,
   userId,
+  currentUserId,
+  followingIds = [],
+  onFollowChange,
   onLocateSpot,
 }: PublicProfileModalProps) {
   const [profile, setProfile] = useState<{ username: string; avatar_url: string | null; last_active_at: string | null } | null>(null)
@@ -49,7 +55,30 @@ export default function PublicProfileModal({
   const [followers, setFollowers] = useState(0)
   const [totalLikes, setTotalLikes] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [followLoading, setFollowLoading] = useState(false)
   const supabaseRef = useRef(createClient())
+
+  const isFollowing = userId ? followingIds.includes(userId) : false
+  const isSelf = userId === currentUserId
+
+  const handleToggleFollow = async () => {
+    if (!currentUserId || !userId || followLoading) return
+    setFollowLoading(true)
+    try {
+      if (isFollowing) {
+        await supabaseRef.current.from("followers").delete()
+          .eq("follower_id", currentUserId).eq("following_id", userId)
+        setFollowers(f => Math.max(0, f - 1))
+        onFollowChange?.(userId, false)
+      } else {
+        await supabaseRef.current.from("followers").insert({ follower_id: currentUserId, following_id: userId })
+        setFollowers(f => f + 1)
+        onFollowChange?.(userId, true)
+      }
+    } catch { /* ignore */ } finally {
+      setFollowLoading(false)
+    }
+  }
 
   const loadData = useCallback(async () => {
     if (!userId) return
@@ -172,6 +201,25 @@ export default function PublicProfileModal({
                         <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-gray-50 dark:border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-400"}`} />
                       </div>
                       <p className="text-xl font-bold text-gray-900 dark:text-white">@{profile?.username || "utilisateur"}</p>
+                      {currentUserId && !isSelf && (
+                        <button
+                          onClick={handleToggleFollow}
+                          disabled={followLoading}
+                          className={`flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold transition-all disabled:opacity-50 ${
+                            isFollowing
+                              ? "bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
+                              : "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-400"
+                          }`}
+                        >
+                          {followLoading ? (
+                            <LoaderCircle size={16} className="animate-spin" />
+                          ) : isFollowing ? (
+                            <><UserCheck size={16} /> Abonné</>
+                          ) : (
+                            <><UserPlus size={16} /> Suivre</>
+                          )}
+                        </button>
+                      )}
                     </div>
 
                     {/* Stats */}
