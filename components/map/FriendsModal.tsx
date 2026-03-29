@@ -155,6 +155,7 @@ interface FriendsModalProps {
   onRefreshFollowing?: () => void
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
+  onSelectSpot?: (spotId: string) => void
   spots?: Array<{ user_id: string; created_at: string; profiles?: { username: string | null; avatar_url: string | null } }>
   userProfile?: { username: string | null; avatar_url: string | null } | null
 }
@@ -174,6 +175,7 @@ export default function FriendsModal({
   onRefreshFollowing,
   onLocateFriend,
   onSelectUser,
+  onSelectSpot,
   spots,
   userProfile,
 }: FriendsModalProps) {
@@ -1037,7 +1039,7 @@ export default function FriendsModal({
                       ) : (
                         <div className="space-y-2">
                           {topSpots.map((spot, i) => (
-                            <div key={spot.id} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+                            <button key={spot.id} onClick={() => onSelectSpot?.(spot.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all active:scale-[0.99] ${onSelectSpot ? "cursor-pointer" : "cursor-default"} ${
                               i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
                               i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
                               "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20"
@@ -1065,7 +1067,7 @@ export default function FriendsModal({
                                   "text-orange-400"
                                 }`}>{spot.likeCount}</span>
                               </div>
-                            </div>
+                            </button>
                           ))}
                         </div>
                       )}

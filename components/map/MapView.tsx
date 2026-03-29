@@ -453,15 +453,16 @@ export default function MapView() {
 
   const fetchLikeCounts = useCallback(async () => {
     try {
-      const { data } = await supabaseRef.current
+      const { data, error } = await supabaseRef.current
         .from("spot_reactions")
         .select("spot_id")
         .eq("type", "love")
+      if (error) { console.error("fetchLikeCounts:", error); return }
       if (!data) return
       const counts: Record<string, number> = {}
       data.forEach((r: { spot_id: string }) => { counts[r.spot_id] = (counts[r.spot_id] ?? 0) + 1 })
       setLikeCountsBySpotId(counts)
-    } catch { /* ignore */ }
+    } catch (e) { console.error("fetchLikeCounts exception:", e) }
   }, [])
 
   const fetchFollowing = useCallback(async () => {
@@ -605,8 +606,11 @@ export default function MapView() {
   useEffect(() => {
     fetchSpots()
     fetchFollowing()
+  }, [fetchSpots, fetchFollowing])
+
+  useEffect(() => {
     fetchLikeCounts()
-  }, [fetchSpots, fetchFollowing, fetchLikeCounts])
+  }, [fetchLikeCounts, user])
 
   useEffect(() => {
     if (user) checkNewLikes()
@@ -2218,6 +2222,13 @@ export default function MapView() {
           })
         }}
         onSelectUser={setPublicProfileUserId}
+        onSelectSpot={(spotId) => {
+          const spot = spots.find(s => s.id === spotId)
+          if (!spot) return
+          setShowFriendsModal(false)
+          setSelectedSpot(spot)
+          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
+        }}
         spots={spots}
         userProfile={userProfile}
       />
