@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { X, Search, Shuffle, ChevronDown, Check, MapPin } from "lucide-react"
+import { motion, AnimatePresence, useDragControls } from "framer-motion"
+import { X, Search, LocateFixed, Shuffle, MapPin, User } from "lucide-react"
 import type { Spot } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { CATEGORY_EMOJIS, CATEGORIES } from "@/lib/categories"
+import { CATEGORY_EMOJIS } from "@/lib/categories"
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371
@@ -38,17 +38,6 @@ function timeSince(date: string): string {
   return `il y a ${d}j`
 }
 
-/** Returns a human-readable countdown badge string, or null if not ephemeral */
-function expiresIn(expiresAt: string | null | undefined): string | null {
-  if (!expiresAt) return null
-  const ms = new Date(expiresAt).getTime() - Date.now()
-  if (ms <= 0) return null
-  const days = Math.ceil(ms / 86_400_000)
-  if (days <= 1) return "⏳ Expire demain"
-  if (days <= 7) return `⏳ ${days}j restants`
-  return null
-}
-
 function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
   if (!weekdayDescriptions?.length) return null
   const now = new Date()
@@ -71,207 +60,9 @@ function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
   return false
 }
 
-// ─── Dropdown filter ─────────────────────────────────────────────────────────
+// ─── SpotRow (liste) ────────────────────────────────────────────────────────
 
-interface DropdownOption {
-  label: string
-  value: string | null
-  emoji?: string
-  avatar?: string | null
-}
-
-function FilterDropdown({
-  label, options, value, onChange,
-}: {
-  label: string
-  options: DropdownOption[]
-  value: string | null
-  onChange: (v: string | null) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [open])
-
-  const selected = options.find(o => o.value === value)
-  const isActive = value !== null
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((v: boolean) => !v)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all",
-          isActive
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-500/20 dark:border-blue-500/50 text-blue-700 dark:text-blue-300"
-            : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800"
-        )}
-      >
-        {selected?.emoji && <span className="text-sm">{selected.emoji}</span>}
-        {selected?.avatar !== undefined && selected.avatar && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={selected.avatar} alt="" className="h-4 w-4 rounded-full object-cover" />
-        )}
-        <span>{isActive ? selected?.label : label}</span>
-        <ChevronDown
-          size={12}
-          className={cn("flex-shrink-0 transition-transform duration-200", open && "rotate-180")}
-        />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.96 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-xl shadow-black/20"
-          >
-            {options.map(opt => (
-              <button
-                key={opt.value ?? "__all__"}
-                onClick={() => { onChange(opt.value); setOpen(false) }}
-                className={cn(
-                  "flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors",
-                  opt.value === value
-                    ? "bg-blue-50 dark:bg-blue-500/20 font-semibold text-blue-700 dark:text-blue-300"
-                    : "text-gray-700 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                )}
-              >
-                {opt.emoji && <span className="text-base">{opt.emoji}</span>}
-                {opt.avatar !== undefined && (
-                  opt.avatar
-                    ? // eslint-disable-next-line @next/next/no-img-element
-                      <img src={opt.avatar} alt="" className="h-5 w-5 rounded-full object-cover" />
-                    : <div className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-400 text-[9px] font-bold text-white">
-                        {opt.label[0]?.toUpperCase()}
-                      </div>
-                )}
-                <span className="flex-1 truncate">{opt.label}</span>
-                {opt.value === value && <Check size={14} className="flex-shrink-0 text-blue-600" />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-// ─── Spot cards ──────────────────────────────────────────────────────────────
-
-/** Grille 2 colonnes — mode Moi */
-function SpotGridCard({ spot, onSelect }: { spot: Spot; onSelect: () => void }) {
-  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
-  const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
-  const novel = isNew(spot.created_at)
-  const countdown = expiresIn(spot.expires_at)
-
-  return (
-    <button
-      onClick={onSelect}
-      className="group relative aspect-square w-full overflow-hidden rounded-2xl bg-gray-100 active:scale-[0.97] transition-transform"
-    >
-      {imageUrl
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-        : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
-      }
-      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
-      {novel && !countdown && (
-        <span className="absolute top-2 left-2 rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white">
-          NEW
-        </span>
-      )}
-      {countdown && (
-        <span className="absolute top-2 left-2 rounded-full bg-amber-500 px-2 py-0.5 text-[9px] font-bold text-white">
-          {countdown}
-        </span>
-      )}
-      <div className="absolute bottom-0 left-0 right-0 p-2.5">
-        <p className="line-clamp-2 text-[12px] font-bold leading-tight text-white">{spot.title}</p>
-        {spot.address && (
-          <p className="mt-0.5 truncate text-[10px] text-white/60">{spot.address}</p>
-        )}
-      </div>
-    </button>
-  )
-}
-
-/** Card horizontale — carrousels */
-function SpotHCard({
-  spot, distance, onSelect, onSelectUser,
-}: {
-  spot: Spot
-  distance?: number
-  onSelect: () => void
-  onSelectUser?: (id: string) => void
-}) {
-  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
-  const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
-  const novel = isNew(spot.created_at)
-  const countdown = expiresIn(spot.expires_at)
-  const username = spot.profiles?.username ?? null
-  const avatar = spot.profiles?.avatar_url ?? null
-
-  return (
-    <button
-      onClick={onSelect}
-      className="flex-shrink-0 w-38 overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 text-left active:scale-[0.97] transition-transform"
-      style={{ width: "9.5rem" }}
-    >
-      <div className="relative h-28 w-full overflow-hidden bg-gray-100">
-        {imageUrl
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-          : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
-        }
-        {novel && !countdown && (
-          <span className="absolute top-1.5 left-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
-            NEW
-          </span>
-        )}
-        {countdown && (
-          <span className="absolute top-1.5 left-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
-            {countdown}
-          </span>
-        )}
-        {distance !== undefined && (
-          <span className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-            <MapPin size={8} /> {fmtDist(distance)}
-          </span>
-        )}
-      </div>
-      <div className="p-2.5">
-        <p className="line-clamp-2 text-xs font-semibold leading-tight text-gray-900 dark:text-white">{spot.title}</p>
-        {username && (
-          <button
-            onClick={e => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
-            className="mt-1 flex items-center gap-1 hover:opacity-70 transition-opacity"
-          >
-            {avatar
-              // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={avatar} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-              : <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-400 text-[7px] font-bold text-white">{username[0]?.toUpperCase()}</div>
-            }
-            <span className="truncate text-[10px] text-gray-400">@{username}</span>
-          </button>
-        )}
-      </div>
-    </button>
-  )
-}
-
-/** Ligne liste — vue détaillée */
-function SpotListRow({
+function SpotRow({
   spot, distance, showAuthor, onSelect, onSelectUser,
 }: {
   spot: Spot
@@ -281,43 +72,42 @@ function SpotListRow({
   onSelectUser?: (id: string) => void
 }) {
   const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
-  const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
-  const open = isOpenNow(spot.weekday_descriptions ?? null)
-  const countdown = expiresIn(spot.expires_at)
+  const emoji    = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+  const open     = isOpenNow(spot.weekday_descriptions ?? null)
+  const novel    = isNew(spot.created_at)
   const username = spot.profiles?.username ?? null
-  const avatar = spot.profiles?.avatar_url ?? null
+  const avatar   = spot.profiles?.avatar_url ?? null
 
   return (
     <button
       onClick={onSelect}
-      className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-3 text-left active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800 transition-all"
+      className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800/60"
     >
-      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100">
+      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-zinc-800">
         {imageUrl
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
-          : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>
-        }
+          : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>}
+        {novel && (
+          <span className="absolute top-1 left-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[8px] font-bold text-white leading-none">
+            NEW
+          </span>
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{spot.title}</p>
         {spot.address && (
           <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-zinc-500">{spot.address}</p>
         )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          {countdown && (
-            <span className="rounded-full bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
-              {countdown}
-            </span>
-          )}
+        <div className="mt-1.5 flex items-center gap-2.5">
           {distance !== undefined && (
-            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-blue-600">
-              <MapPin size={9} /> {fmtDist(distance)}
+            <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-indigo-400">
+              <LocateFixed size={10} />{fmtDist(distance)}
             </span>
           )}
           {open === true && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Ouvert
+            <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Ouvert
             </span>
           )}
           {open === false && (
@@ -325,15 +115,14 @@ function SpotListRow({
           )}
           {showAuthor && username && (
             <button
-              onClick={e => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
-              className="flex items-center gap-1 hover:opacity-70 transition-opacity"
+              className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
+              onClick={(e) => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
             >
               {avatar
                 // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={avatar} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-                : <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-400 text-[7px] font-bold text-white">{username[0]?.toUpperCase()}</div>
-              }
-              <span className="text-[11px] text-gray-400">@{username} · {timeSince(spot.created_at)}</span>
+                : <User size={10} />}
+              @{username}
             </button>
           )}
         </div>
@@ -342,10 +131,73 @@ function SpotListRow({
   )
 }
 
-type DistSpot = { spot: Spot; distance: number | undefined }
-type FriendProfile = { id: string; username: string | null; avatar_url: string | null }
+// ─── SpotCard (grille découverte) ───────────────────────────────────────────
 
-// ─── Props ───────────────────────────────────────────────────────────────────
+function SpotCard({
+  spot, distance, onSelect, onSelectUser,
+}: {
+  spot: Spot
+  distance?: number
+  onSelect: () => void
+  onSelectUser?: (id: string) => void
+}) {
+  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const emoji    = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+  const username = spot.profiles?.username ?? null
+  const avatar   = spot.profiles?.avatar_url ?? null
+  const novel    = isNew(spot.created_at)
+
+  return (
+    <button
+      onClick={onSelect}
+      className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 dark:border-white/5 bg-white dark:bg-zinc-900/80 text-left transition-all active:scale-[0.97] hover:shadow-md"
+    >
+      {/* Image */}
+      <div className="relative aspect-[4/3] w-full overflow-hidden bg-gray-100 dark:bg-zinc-800">
+        {imageUrl
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+          : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>}
+        {novel && (
+          <span className="absolute top-2 left-2 rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-sm">
+            NEW
+          </span>
+        )}
+        {distance !== undefined && (
+          <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+            <LocateFixed size={9} />{fmtDist(distance)}
+          </span>
+        )}
+      </div>
+
+      {/* Texte */}
+      <div className="px-3 py-2.5">
+        <p className="line-clamp-1 text-sm font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+        {spot.address && (
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-gray-400 dark:text-zinc-500">{spot.address}</p>
+        )}
+        {username && (
+          <button
+            className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-zinc-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
+            onClick={(e) => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
+          >
+            {avatar
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={avatar} alt="" className="h-4 w-4 rounded-full object-cover" />
+              : <div className="flex h-4 w-4 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white">{username[0]?.toUpperCase()}</div>}
+            <span>@{username}</span>
+          </button>
+        )}
+      </div>
+    </button>
+  )
+}
+
+// ─── Props ─────────────────────────────────────────────────────────────────
+
+// ─── Ranking ────────────────────────────────────────────────────────────────
+
+type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
 
 interface ExploreModalProps {
   isOpen: boolean
@@ -355,152 +207,126 @@ interface ExploreModalProps {
   userLocation: { lat: number; lng: number } | null
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
-  followingIds?: string[]
-  surprisePin?: { spot: Spot; expiresAt: number } | null
   savedSpotIds?: Set<string>
   onSelectUser?: (userId: string) => void
-  onSurprise?: (spot: Spot) => void
+  followingIds?: string[]
 }
 
-// ─── ExploreModal ─────────────────────────────────────────────────────────────
-
-type Mode = "explorer" | "mine" | "friends"
+// ─── ExploreModal ──────────────────────────────────────────────────────────
 
 export default function ExploreModal({
-  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], surprisePin, onSelectUser, onSurprise,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, onSelectUser, followingIds,
 }: ExploreModalProps) {
-  const [mode, setMode]                   = useState<Mode>("explorer")
-  const [searchQuery, setSearchQuery]     = useState("")
-  const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
-  const [friendFilter, setFriendFilter] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery]         = useState("")
+  const [debouncedQuery, setDebouncedQuery]   = useState("")
+  const [friendMode, setFriendMode]           = useState<"mine" | "friends" | "all">("mine")
+  const [nearbyMode, setNearbyMode]           = useState(false)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
-  const inputRef        = useRef<HTMLInputElement>(null)
-  const lastPickedIdRef = useRef<string | null>(null)
+  const inputRef          = useRef<HTMLInputElement>(null)
+  const lastPickedIdRef   = useRef<string | null>(null)
+  const displayedSpotsRef = useRef<{ spot: Spot; distance?: number }[]>([])
+  const dragControls      = useDragControls()
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery), 300)
     return () => clearTimeout(t)
   }, [searchQuery])
 
-  // Reset on close
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery("")
-      setMode("explorer"); setCategoryFilter(null); setFriendFilter(null)
-      setSurpriseLoading(false)
+      setNearbyMode(false); setSurpriseLoading(false); setFriendMode("mine")
     } else {
-      setTimeout(() => inputRef.current?.focus(), 200)
+      setTimeout(() => inputRef.current?.focus(), 250)
     }
   }, [isOpen])
 
-  // Toggle tab — click active tab → back to explorer
-  const handleTab = (tab: "mine" | "friends") => {
-    setMode((prev: Mode) => prev === tab ? "explorer" : tab)
-    setFriendFilter(null)
-  }
-
-  // ─── Data derivations ──────────────────────────────────────────────────────
-
-  // Only actual friends (people the user follows)
   const friendProfiles = useMemo(() => {
-    const friendSet = new Set(followingIds)
     const seen = new Set<string>()
-    const result: FriendProfile[] = []
+    const result: { id: string; username: string | null; avatar_url: string | null }[] = []
     for (const s of spots) {
-      if (friendSet.has(s.user_id) && !seen.has(s.user_id)) {
+      if (s.user_id !== currentUserId && !seen.has(s.user_id)) {
         seen.add(s.user_id)
-        result.push({
-          id: s.user_id,
-          username: s.profiles?.username ?? null,
-          avatar_url: s.profiles?.avatar_url ?? null,
-        })
+        result.push({ id: s.user_id, username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null })
       }
     }
     return result
-  }, [spots, followingIds])
+  }, [spots, currentUserId])
 
+  const friendsThisWeek = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 3600_000
+    return spots
+      .filter(s => s.user_id !== currentUserId && new Date(s.created_at).getTime() > weekAgo)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10)
+  }, [spots, currentUserId])
 
-  // Filter expired spots
-  const now = useMemo(() => Date.now(), [])
+  const { displayedSpots, nearbyCount } = useMemo(() => {
+    const withDist = spots.map(s => ({
+      spot: s,
+      distance: userLocation ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) : undefined,
+    }))
 
-  // Base pool for the current mode
-  const basePool = useMemo(() => {
-    const notExpired = (s: Spot) => !s.expires_at || new Date(s.expires_at).getTime() > now
-    if (mode === "mine") return spots.filter((s: Spot) => s.user_id === currentUserId && notExpired(s))
-    if (mode === "friends") {
-      const friendSet = new Set(followingIds)
-      return spots.filter((s: Spot) => friendSet.has(s.user_id) && notExpired(s))
+    const nearbyCount = userLocation
+      ? withDist.filter(({ distance }) => distance !== undefined && distance < 2).length
+      : 0
+
+    let list = withDist
+
+    if (friendMode === "mine") {
+      list = list.filter(({ spot }) => spot.user_id === currentUserId)
+    } else if (friendMode === "friends") {
+      list = list.filter(({ spot }) => spot.user_id !== currentUserId)
     }
-    return (allSpots ?? spots).filter(notExpired)
-  }, [mode, spots, allSpots, currentUserId, followingIds, now])
 
-  // Apply category + friend + search filters
-  const filteredPool = useMemo(() => {
-    let list: Spot[] = basePool
-    if (categoryFilter) list = list.filter((s: Spot) => s.category === categoryFilter)
-    if (friendFilter) list = list.filter((s: Spot) => s.user_id === friendFilter)
     if (debouncedQuery.trim()) {
-      const q = debouncedQuery.toLowerCase()
-      list = list.filter((s: Spot) =>
-        s.title.toLowerCase().includes(q) ||
-        (s.address ?? "").toLowerCase().includes(q) ||
-        (s.description ?? "").toLowerCase().includes(q) ||
-        (s.profiles?.username ?? "").toLowerCase().includes(q)
+      const q = debouncedQuery.trim().toLowerCase()
+      list = list.filter(({ spot }) =>
+        spot.title.toLowerCase().includes(q) ||
+        (spot.address ?? "").toLowerCase().includes(q) ||
+        (spot.description ?? "").toLowerCase().includes(q)
       )
     }
-    return list
-  }, [basePool, categoryFilter, friendFilter, debouncedQuery])
 
-  // With distances
-  const withDist = useMemo(() => filteredPool.map((s: Spot): DistSpot => ({
-    spot: s,
-    distance: userLocation ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) : undefined,
-  })), [filteredPool, userLocation])
+    if (nearbyMode && userLocation) {
+      list = [...list].sort((a, b) => (a.distance ?? 99999) - (b.distance ?? 99999))
+    } else {
+      list = [...list].sort((a, b) =>
+        new Date(b.spot.created_at).getTime() - new Date(a.spot.created_at).getTime()
+      )
+    }
 
-  // Explorer sections
-  const nearbySpots = useMemo(() => {
-    if (!userLocation) return []
-    return [...withDist]
-      .filter(({ distance }) => distance !== undefined && distance < 15)
-      .sort((a, b) => (a.distance ?? 99999) - (b.distance ?? 99999))
-      .slice(0, 12)
-  }, [withDist, userLocation])
+    return { displayedSpots: list, nearbyCount }
+  }, [spots, friendMode, debouncedQuery, nearbyMode, userLocation, currentUserId])
 
-  const recentSpots = useMemo(() =>
-    [...withDist].sort((a, b) =>
-      new Date(b.spot.created_at).getTime() - new Date(a.spot.created_at).getTime()
-    ),
-  [withDist])
+  useEffect(() => { displayedSpotsRef.current = displayedSpots }, [displayedSpots])
 
-  // Amis — cette semaine
-  const friendsThisWeek = useMemo(() => {
-    if (mode !== "friends") return []
-    const weekAgo = Date.now() - 7 * 24 * 3600_000
-    return filteredPool
-      .filter((s: Spot) => new Date(s.created_at).getTime() > weekAgo)
-      .sort((a: Spot, b: Spot) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  const monthlyRanking = useMemo<RankEntry[]>(() => {
+    if (!followingIds?.length) return []
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
+    spots.forEach(s => {
+      if (!followingIds.includes(s.user_id)) return
+      if (new Date(s.created_at) < startOfMonth) return
+      if (!counts[s.user_id]) counts[s.user_id] = { username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null, count: 0 }
+      counts[s.user_id].count++
+    })
+    return Object.entries(counts)
+      .map(([userId, v]) => ({ userId, ...v }))
+      .sort((a, b) => b.count - a.count)
       .slice(0, 10)
-  }, [filteredPool, mode])
+  }, [spots, followingIds])
 
-  // Surprise — picks from friends' spots only, switches to Amis tab
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
-    const friendSet = new Set(followingIds)
-    const friendSpots = (allSpots ?? spots).filter((s: Spot) =>
-      friendSet.has(s.user_id) && (!s.expires_at || new Date(s.expires_at).getTime() > Date.now())
-    )
-    if (!friendSpots.length) return
+    const base = allSpots ?? spots
+    if (!base.length) return
     setSurpriseLoading(true)
-    setMode("friends")
-    setFriendFilter(null)
     setTimeout(() => {
-      let pool: { spot: Spot; distance: number | undefined }[] = friendSpots.map((s: Spot) => ({
+      let pool = base.map(s => ({
         spot: s,
-        distance: userLocation
-          ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng)
-          : undefined,
+        distance: userLocation ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) : undefined,
       }))
       if (userLocation) {
         const nearby = pool.filter(({ distance }) => distance !== undefined && distance < 50)
@@ -513,22 +339,30 @@ export default function ExploreModal({
       const picked = pool[Math.floor(Math.random() * pool.length)]
       lastPickedIdRef.current = picked.spot.id
       setSurpriseLoading(false)
-      onSurprise?.(picked.spot)
+      onSelectSpot(picked.spot)
     }, 600)
-  }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots])
-
-  // ─── Dropdown options ──────────────────────────────────────────────────────
-
-  const categoryOptions: DropdownOption[] = [
-    { label: "Toutes catégories", value: null },
-    ...CATEGORIES.map(c => ({ label: c.label, value: c.key, emoji: c.emoji })),
-  ]
-
-  // ─── Helpers ───────────────────────────────────────────────────────────────
-
-  const hasFilters = !!(categoryFilter || friendFilter || debouncedQuery.trim())
+  }, [surpriseLoading, userLocation, onSelectSpot, allSpots, spots])
 
   if (!isOpen) return null
+
+  const hasLocation    = userLocation !== null
+  const hasQuery       = !!debouncedQuery.trim()
+  const hasFriends     = friendProfiles.length > 0
+  const showFriendsWeek = friendMode === "friends" && !hasQuery && friendsThisWeek.length > 0
+
+  const tabs = [
+    { id: "mine" as const,    label: "Moi",       emoji: "👤" },
+    ...(hasFriends ? [{ id: "friends" as const, label: "Amis", emoji: "👥" }] : []),
+    { id: "all" as const,     label: "Découvrir", emoji: "🌍" },
+  ]
+
+  const emptyMessage = hasQuery
+    ? { icon: "🔍", title: "Aucun résultat", sub: "Essaie un autre mot-clé" }
+    : friendMode === "friends"
+      ? { icon: "👥", title: "Aucun spot d'ami", sub: "Tes amis n'ont pas encore ajouté de spots" }
+      : friendMode === "all"
+        ? { icon: "🌍", title: "Aucun spot", sub: "Aucun spot disponible pour l'instant" }
+        : { icon: "📍", title: "Aucun spot", sub: "Ajoute ton premier lieu favori !" }
 
   return (
     <AnimatePresence>
@@ -545,335 +379,231 @@ export default function ExploreModal({
           <motion.div
             initial={{ opacity: 0, y: 80 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 100 }}
-            transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            exit={{ opacity: 0, y: 80 }}
+            transition={{ type: "spring", stiffness: 400, damping: 36 }}
             drag="y"
+            dragControls={dragControls}
+            dragListener={false}
             dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0.05, bottom: 0.4 }}
+            dragElastic={{ top: 0.02, bottom: 0.35 }}
             dragMomentum={false}
-            onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
-              if (offset.y > 120 || velocity.y > 400) onClose()
+            onDragEnd={(_e, { offset, velocity }) => {
+              if (offset.y > 100 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 bottom-16 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+            className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[calc(92vh-4rem)] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 
-              {/* Drag handle */}
-              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700 sm:hidden" />
+              {/* ── Handle ── */}
+              <div
+                className="flex touch-none cursor-grab justify-center pt-3 pb-2 sm:hidden"
+                onPointerDown={(e) => dragControls.start(e)}
+              >
+                <div className="h-1 w-10 rounded-full bg-gray-300 dark:bg-zinc-700" />
+              </div>
 
-              {/* ── Header ── */}
-              <div className="flex-shrink-0 px-5 pt-3 pb-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Explorer</h2>
-                  <button
-                    onClick={onClose}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-white/20 transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                {/* ── Tabs Moi / Amis ── */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => handleTab("mine")}
-                    className={cn(
-                      "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
-                      mode === "mine"
-                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
-                        : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                    )}
-                  >
-                    Mes spots
-                  </button>
-                  <button
-                    onClick={() => handleTab("friends")}
-                    className={cn(
-                      "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
-                      mode === "friends"
-                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
-                        : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                    )}
-                  >
-                    Amis
-                  </button>
-                </div>
-
-                {/* ── Search ── */}
-                <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3 mb-3">
-                  <Search size={15} className="flex-shrink-0 text-gray-400 dark:text-zinc-500" />
+              {/* ── Search bar ── */}
+              <div className="flex-shrink-0 px-4 pb-3 pt-1 sm:pt-4">
+                <div className="flex items-center gap-3 rounded-2xl bg-white dark:bg-zinc-900 px-4 py-3 shadow-sm border border-gray-100 dark:border-white/5">
+                  <Search size={16} className="flex-shrink-0 text-gray-400 dark:text-zinc-500" />
                   <input
                     ref={inputRef}
                     type="text"
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Spot, adresse ou @ami..."
-                    className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-600"
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cherche un spot ou une adresse…"
+                    className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500"
                   />
-                  {searchQuery && (
-                    <button
-                      onClick={() => { setSearchQuery(""); setDebouncedQuery("") }}
-                      className="text-gray-300 dark:text-zinc-600 hover:text-gray-500 dark:hover:text-zinc-400 transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-
-                {/* ── Dropdown catégorie uniquement ── */}
-                <div className="flex items-center gap-2">
-                  <FilterDropdown
-                    label="Catégorie"
-                    options={categoryOptions}
-                    value={categoryFilter}
-                    onChange={setCategoryFilter}
-                  />
+                  {searchQuery
+                    ? <button onClick={() => { setSearchQuery(""); setDebouncedQuery("") }} className="text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300"><X size={14} /></button>
+                    : <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300"><X size={16} /></button>
+                  }
                 </div>
               </div>
+
+              {/* ── Tabs ── */}
+              <div className="flex flex-shrink-0 items-center gap-1 px-4 pb-3">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setFriendMode(tab.id)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-semibold transition-all",
+                      friendMode === tab.id
+                        ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm"
+                        : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+                    )}
+                  >
+                    <span>{tab.emoji}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ── Sort row (sous les tabs) ── */}
+              {!hasQuery && (
+                <div className="flex flex-shrink-0 items-center gap-2 px-4 pb-3">
+                  <button
+                    onClick={() => hasLocation && setNearbyMode(v => !v)}
+                    disabled={!hasLocation}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
+                      nearbyMode
+                        ? "bg-blue-100 dark:bg-indigo-500/20 text-blue-700 dark:text-indigo-300"
+                        : "bg-white dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 hover:text-gray-800 dark:hover:text-white disabled:opacity-40 shadow-sm border border-gray-100 dark:border-white/5"
+                    )}
+                  >
+                    <LocateFixed size={11} />
+                    {nearbyMode
+                      ? `Proches${nearbyCount > 0 ? ` (${nearbyCount})` : ""}`
+                      : "Récents"}
+                  </button>
+
+                  <div className="flex-1" />
+
+                  <button
+                    onClick={handleSurprise}
+                    disabled={surpriseLoading || displayedSpots.length === 0}
+                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-purple-500/25 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <motion.div
+                      animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
+                      transition={surpriseLoading ? { duration: 0.5, ease: "linear", repeat: Infinity } : {}}
+                    >
+                      <Shuffle size={12} />
+                    </motion.div>
+                    {surpriseLoading ? "…" : "Surprise !"}
+                  </button>
+                </div>
+              )}
+
+              {/* ── Séparateur ── */}
+              <div className="mx-4 mb-1 h-px flex-shrink-0 bg-gray-100 dark:bg-white/5" />
 
               {/* ── Contenu scrollable ── */}
-              <div className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
+              <div className="flex-1 overflow-y-auto">
 
-                {/* ════ MODE EXPLORER ════ */}
-                {mode === "explorer" && (
-                  <div className="space-y-6">
-
-                    {/* Surprise CTA */}
-                    {!hasFilters && (
-                      <button
-                        onClick={handleSurprise}
-                        disabled={surpriseLoading}
-                        className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-left transition-all active:scale-[0.98] disabled:opacity-60"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
-                            <p className="mt-0.5 text-sm text-white/70">Un spot inattendu t&apos;attend</p>
+                {/* Classement du mois (onglet Amis/Découvrir sans recherche) */}
+                {!hasQuery && friendMode !== "mine" && monthlyRanking.length > 0 && (
+                  <div className="px-4 pt-3 pb-2">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
+                      Classement du mois
+                    </p>
+                    <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                      {monthlyRanking.map((entry, i) => (
+                        <div key={entry.userId} className="flex-shrink-0 flex flex-col items-center gap-1">
+                          <div className="relative">
+                            <div className="h-9 w-9 overflow-hidden rounded-full bg-indigo-100 dark:bg-zinc-700 flex items-center justify-center text-sm font-bold text-gray-700 dark:text-zinc-200">
+                              {entry.avatar_url
+                                // eslint-disable-next-line @next/next/no-img-element
+                                ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                : entry.username?.[0]?.toUpperCase() ?? "?"}
+                            </div>
+                            <span className="absolute -top-1 -right-1 text-[11px] leading-none">
+                              {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span className="flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-gray-200 dark:bg-zinc-700 text-[8px] font-bold text-gray-500 px-0.5">#{i + 1}</span>}
+                            </span>
                           </div>
-                          <motion.div
-                            animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
-                            transition={surpriseLoading ? { duration: 0.6, ease: "linear", repeat: Infinity } : {}}
-                            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+                          <span className="max-w-[44px] truncate text-[9px] text-gray-500 dark:text-zinc-400">{entry.username}</span>
+                          <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400">{entry.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Amis cette semaine (onglet Amis) */}
+                {showFriendsWeek && (
+                  <div className="px-4 pt-4 pb-2">
+                    <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">
+                      Ajoutés cette semaine
+                    </p>
+                    <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-1">
+                      {friendsThisWeek.map(spot => {
+                        const img      = spot.image_url?.split(",")[0]?.trim() || null
+                        const emoji    = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+                        const avatar   = spot.profiles?.avatar_url
+                        const username = spot.profiles?.username ?? "Ami"
+                        return (
+                          <button
+                            key={spot.id}
+                            onClick={() => onSelectSpot(spot)}
+                            className="flex-shrink-0 w-36 overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 shadow-sm border border-gray-100 dark:border-white/5 text-left transition-all active:scale-[0.97]"
                           >
-                            <Shuffle size={22} className="text-white" />
-                          </motion.div>
-                        </div>
-                      </button>
-                    )}
-
-                    {/* Près de toi */}
-                    {nearbySpots.length > 0 && !debouncedQuery && (
-                      <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">📍 Près de toi</p>
-                        <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {nearbySpots.map(({ spot, distance }: DistSpot) => (
-                            <SpotHCard
-                              key={spot.id}
-                              spot={spot}
-                              distance={distance}
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Récemment ajoutés */}
-                    <div>
-                      {!hasFilters && (
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Récemment ajoutés</p>
-                      )}
-                      {recentSpots.length === 0 ? (
-                        <EmptyState mode="explorer" hasQuery={!!debouncedQuery} />
-                      ) : (
-                        <div className="space-y-2">
-                          {hasFilters && (
-                            <p className="mb-2 text-xs text-gray-400">
-                              {recentSpots.length} résultat{recentSpots.length > 1 ? "s" : ""}
-                            </p>
-                          )}
-                          {recentSpots.map(({ spot, distance }: DistSpot) => (
-                            <SpotListRow
-                              key={spot.id}
-                              spot={spot}
-                              distance={nearbySpots.some((n: DistSpot) => n.spot.id === spot.id) ? distance : undefined}
-                              showAuthor
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ════ MODE MES SPOTS ════ */}
-                {mode === "mine" && (
-                  <div>
-                    {filteredPool.length === 0 ? (
-                      <EmptyState mode="mine" hasQuery={!!debouncedQuery} />
-                    ) : (
-                      <>
-                        <p className="mb-3 text-xs text-gray-400 dark:text-zinc-600">
-                          {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {filteredPool.map((spot: Spot) => (
-                            <SpotGridCard
-                              key={spot.id}
-                              spot={spot}
-                              onSelect={() => onSelectSpot(spot)}
-                            />
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* ════ MODE AMIS ════ */}
-                {mode === "friends" && (
-                  <div className="space-y-6">
-
-                    {/* Surprise pin active banner */}
-                    {surprisePin && surprisePin.expiresAt > Date.now() && (
-                      <button
-                        onClick={() => onSelectSpot(surprisePin.spot)}
-                        className="w-full flex items-center gap-3 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3 text-left"
-                      >
-                        <span className="text-2xl">🎲</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold text-white">{surprisePin.spot.title}</p>
-                          <p className="text-xs text-white/70">Spot surprise · expire dans {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))} min</p>
-                        </div>
-                        <MapPin size={16} className="flex-shrink-0 text-white/80" />
-                      </button>
-                    )}
-
-
-                    {/* Avatars amis — clic pour filtrer inline */}
-                    {friendProfiles.length > 0 && (
-                      <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
-                        <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendProfiles.map((f: FriendProfile) => {
-                            const isSelected = friendFilter === f.id
-                            return (
-                              <button
-                                key={f.id}
-                                onClick={() => setFriendFilter(isSelected ? null : f.id)}
-                                className="flex flex-shrink-0 flex-col items-center gap-1.5"
+                            <div className="relative h-20 w-full overflow-hidden bg-gray-100 dark:bg-zinc-800">
+                              {img
+                                // eslint-disable-next-line @next/next/no-img-element
+                                ? <img src={img} alt={spot.title} className="h-full w-full object-cover" />
+                                : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>}
+                              <span className="absolute top-1.5 right-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[8px] font-bold text-white">NEW</span>
+                            </div>
+                            <div className="p-2">
+                              <p className="truncate text-xs font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+                              <div
+                                className="mt-1 flex items-center gap-1"
+                                onClick={(e) => { e.stopPropagation(); onSelectUser?.(spot.user_id) }}
                               >
-                                <div className={cn(
-                                  "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
-                                  isSelected
-                                    ? "border-[3px] border-blue-500 scale-105"
-                                    : "border-2 border-white dark:border-zinc-800"
-                                )}>
-                                  {f.avatar_url
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    ? <img src={f.avatar_url} alt="" className="h-full w-full object-cover" />
-                                    : <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white">
-                                        {(f.username ?? "?")[0]?.toUpperCase()}
-                                      </div>
-                                  }
-                                </div>
-                                <span className={cn(
-                                  "max-w-[3.5rem] truncate text-[10px]",
-                                  isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
-                                )}>
-                                  @{f.username ?? "ami"}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Cette semaine */}
-                    {friendsThisWeek.length > 0 && !hasFilters && (
-                      <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Cette semaine</p>
-                        <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendsThisWeek.map((spot: Spot) => (
-                            <SpotHCard
-                              key={spot.id}
-                              spot={spot}
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tous leurs spots */}
-                    <div>
-                      {!hasFilters && (
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tous leurs spots</p>
-                      )}
-                      {filteredPool.length === 0 ? (
-                        <EmptyState mode="friends" hasQuery={!!debouncedQuery} />
-                      ) : (
-                        <div className="space-y-2">
-                          {hasFilters && (
-                            <p className="mb-2 text-xs text-gray-400">
-                              {filteredPool.length} résultat{filteredPool.length > 1 ? "s" : ""}
-                            </p>
-                          )}
-                          {recentSpots.map(({ spot }: DistSpot) => (
-                            <SpotListRow
-                              key={spot.id}
-                              spot={spot}
-                              showAuthor
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
-                        </div>
-                      )}
+                                {avatar
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={avatar} alt={username} className="h-3.5 w-3.5 rounded-full object-cover" />
+                                  : <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-500 text-[7px] font-bold text-white">{username[0]?.toUpperCase()}</div>}
+                                <span className="truncate text-[10px] text-gray-400 dark:text-zinc-500">{timeSince(spot.created_at)}</span>
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
 
+                {/* Empty state */}
+                {displayedSpots.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 px-4 py-16 text-center">
+                    <span className="text-5xl">{emptyMessage.icon}</span>
+                    <p className="text-sm font-semibold text-gray-700 dark:text-zinc-300">{emptyMessage.title}</p>
+                    <p className="text-xs text-gray-400 dark:text-zinc-500">{emptyMessage.sub}</p>
+                  </div>
+                ) : friendMode === "all" && !hasQuery ? (
+                  /* ── Découvrir : grille 2 colonnes ── */
+                  <div className="grid grid-cols-2 gap-3 px-4 pt-3 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
+                    {displayedSpots.map(({ spot, distance }) => (
+                      <SpotCard
+                        key={spot.id}
+                        spot={spot}
+                        distance={nearbyMode ? distance : undefined}
+                        onSelect={() => onSelectSpot(spot)}
+                        onSelectUser={onSelectUser}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  /* ── Moi / Amis : liste ── */
+                  <div className="px-4 pt-2 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-5">
+                    {displayedSpots.length > 0 && (
+                      <p className="mb-1 text-xs text-gray-400 dark:text-zinc-500">
+                        {displayedSpots.length} spot{displayedSpots.length > 1 ? "s" : ""}
+                      </p>
+                    )}
+                    <div className="divide-y divide-gray-100 dark:divide-white/5">
+                      {displayedSpots.map(({ spot, distance }) => (
+                        <SpotRow
+                          key={spot.id}
+                          spot={spot}
+                          distance={nearbyMode ? distance : undefined}
+                          showAuthor={friendMode === "friends"}
+                          onSelect={() => onSelectSpot(spot)}
+                          onSelectUser={onSelectUser}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+
             </div>
           </motion.div>
         </>
       )}
     </AnimatePresence>
-  )
-}
-
-// ─── Empty state ─────────────────────────────────────────────────────────────
-
-function EmptyState({ mode, hasQuery }: { mode: Mode; hasQuery: boolean }) {
-  const messages: Record<Mode, { icon: string; title: string; sub: string }> = {
-    explorer: {
-      icon: "🌍",
-      title: "Aucun spot trouvé",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Aucun spot disponible",
-    },
-    mine: {
-      icon: "📍",
-      title: "Aucun spot",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Tu n'as pas encore ajouté de spots",
-    },
-    friends: {
-      icon: "👥",
-      title: "Rien pour l'instant",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Tes amis n'ont pas encore ajouté de spots",
-    },
-  }
-  const m = messages[mode]
-  return (
-    <div className="flex flex-col items-center gap-3 py-14 text-center">
-      <span className="text-4xl">{m.icon}</span>
-      <p className="text-sm font-semibold text-gray-600 dark:text-zinc-400">{m.title}</p>
-      <p className="text-xs text-gray-400 dark:text-zinc-600">{m.sub}</p>
-    </div>
   )
 }

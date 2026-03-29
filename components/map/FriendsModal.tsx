@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X,
@@ -16,13 +16,13 @@ import {
   UserCheck,
   MapPin,
   UserMinus,
-  TrendingUp,
   CalendarPlus,
   ArrowLeft,
   Calendar,
   CalendarCheck,
   CalendarX,
   ChevronRight,
+  Trophy,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
@@ -129,7 +129,19 @@ interface OutingInvitationFull {
   }
 }
 
-type Tab = "amis" | "decouvrir" | "invitations"
+type Tab = "amis" | "classement" | "invitations"
+
+type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
+
+interface LocationResult {
+  id: string
+  label: string
+  sublabel?: string
+  lat: number
+  lng: number
+  isAppSpot?: boolean
+  spotId?: string
+}
 
 interface FriendsModalProps {
   isOpen: boolean
@@ -142,6 +154,7 @@ interface FriendsModalProps {
   onRefreshFollowing?: () => void
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
+  spots?: Array<{ user_id: string; created_at: string; profiles?: { username: string | null; avatar_url: string | null } }>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,6 +172,7 @@ export default function FriendsModal({
   onRefreshFollowing,
   onLocateFriend,
   onSelectUser,
+  spots,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
@@ -183,15 +197,21 @@ export default function FriendsModal({
   const [createForm, setCreateForm] = useState({
     title: "",
     description: "",
-    location_name: "",
     scheduled_at: "",
   })
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
+  // ── Location search ─────────────────────────────────────────
+  const [locationQuery, setLocationQuery] = useState("")
+  const [locationResults, setLocationResults] = useState<LocationResult[]>([])
+  const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null)
+  const [locationLoading, setLocationLoading] = useState(false)
+
   const supabaseRef = useRef(createClient())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ─── Loaders ────────────────────────────────────────────────
 
@@ -235,37 +255,50 @@ export default function FriendsModal({
     if (!currentUser) return
     setSuggestionsLoading(true)
     try {
-      const excludeIds = [currentUser.id, ...followingIds]
-      if (followingIds.length > 0) {
+      if (followingIds.length === 0) {
+        // No friends yet — show recently active users
         const { data } = await supabaseRef.current
-          .from("followers").select("following_id")
-          .in("follower_id", followingIds)
-          .not("following_id", "in", `(${excludeIds.join(",")})`)
-          .limit(60)
-        if (data && data.length > 0) {
-          const counts: Record<string, number> = {}
-          data.forEach((r: { following_id: string }) => {
-            counts[r.following_id] = (counts[r.following_id] || 0) + 1
-          })
-          const sortedIds = Object.entries(counts)
-            .sort(([, a], [, b]) => b - a).slice(0, 10).map(([id]) => id)
-          const { data: profiles } = await supabaseRef.current
-            .from("profiles")
-            .select("id, username, avatar_url, last_active_at, is_ghost_mode")
-            .in("id", sortedIds)
-          if (profiles && profiles.length > 0) {
-            const enriched: SuggestionProfile[] = (profiles as Profile[]).map(p => ({
-              ...p, mutualCount: counts[p.id] || 0,
-            })).sort((a, b) => (b.mutualCount ?? 0) - (a.mutualCount ?? 0))
-            setSuggestions(enriched)
-            setSuggestionsLoading(false)
-            return
-          }
+          .from("profiles").select("id, username, avatar_url, last_active_at")
+          .neq("id", currentUser.id)
+          .not("last_active_at", "is", null)
+          .order("last_active_at", { ascending: false }).limit(10)
+        setSuggestions((data ?? []).map(u => ({ ...(u as Profile), mutualCount: 0 })))
+        setSuggestionsLoading(false)
+        return
+      }
+
+      const excludeIds = [currentUser.id, ...followingIds]
+      const { data } = await supabaseRef.current
+        .from("followers").select("following_id")
+        .in("follower_id", followingIds)
+        .not("following_id", "in", `(${excludeIds.join(",")})`)
+        .limit(60)
+
+      if (data && data.length > 0) {
+        const counts: Record<string, number> = {}
+        data.forEach((r: { following_id: string }) => {
+          counts[r.following_id] = (counts[r.following_id] || 0) + 1
+        })
+        const sortedIds = Object.entries(counts)
+          .sort(([, a], [, b]) => b - a).slice(0, 10).map(([id]) => id)
+        const { data: profiles } = await supabaseRef.current
+          .from("profiles")
+          .select("id, username, avatar_url, last_active_at, is_ghost_mode")
+          .in("id", sortedIds)
+        if (profiles && profiles.length > 0) {
+          const enriched: SuggestionProfile[] = (profiles as Profile[]).map(p => ({
+            ...p, mutualCount: counts[p.id] || 0,
+          })).sort((a, b) => (b.mutualCount ?? 0) - (a.mutualCount ?? 0))
+          setSuggestions(enriched)
+          setSuggestionsLoading(false)
+          return
         }
       }
+
+      // Fallback: recently active users
       const { data: recent } = await supabaseRef.current
         .from("profiles").select("id, username, avatar_url, last_active_at")
-        .not("id", "in", `(${[currentUser.id, ...followingIds].join(",")})`)
+        .not("id", "in", `(${excludeIds.join(",")})`)
         .not("last_active_at", "is", null)
         .order("last_active_at", { ascending: false }).limit(10)
       if (recent) setSuggestions(recent as SuggestionProfile[])
@@ -339,6 +372,69 @@ export default function FriendsModal({
     } catch {}
   }, [currentUser])
 
+  // ─── Location search ────────────────────────────────────────
+
+  const searchLocations = useCallback(async (q: string) => {
+    if (q.length < 2) { setLocationResults([]); return }
+    setLocationLoading(true)
+    const results: LocationResult[] = []
+    try {
+      const { data: appSpots } = await supabaseRef.current
+        .from("spots")
+        .select("id, title, lat, lng, profiles(username)")
+        .ilike("title", `%${q}%`)
+        .limit(5)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      appSpots?.forEach((s: any) => results.push({
+        id: `spot-${s.id}`,
+        label: s.title,
+        sublabel: `Spot · ${s.profiles?.username ?? "?"}`,
+        lat: s.lat,
+        lng: s.lng,
+        isAppSpot: true,
+        spotId: s.id,
+      }))
+    } catch {}
+    try {
+      const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (token) {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${token}&limit=5&language=fr`
+        )
+        const geo = await res.json()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        geo.features?.forEach((f: any) => results.push({
+          id: f.id,
+          label: f.text,
+          sublabel: f.place_name,
+          lat: f.center[1],
+          lng: f.center[0],
+        }))
+      }
+    } catch {}
+    setLocationResults(results)
+    setLocationLoading(false)
+  }, [])
+
+  // ─── Monthly ranking ─────────────────────────────────────────
+
+  const monthlyRanking = useMemo<RankEntry[]>(() => {
+    if (!spots?.length || !followingIds.length) return []
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
+    spots.forEach(s => {
+      if (!followingIds.includes(s.user_id)) return
+      if (new Date(s.created_at) < startOfMonth) return
+      if (!counts[s.user_id]) counts[s.user_id] = { username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null, count: 0 }
+      counts[s.user_id].count++
+    })
+    return Object.entries(counts)
+      .map(([userId, v]) => ({ userId, ...v }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+  }, [spots, followingIds])
+
   // ─── Effect: load on open ────────────────────────────────────
 
   useEffect(() => {
@@ -352,7 +448,7 @@ export default function FriendsModal({
     loadOutingInvitations()
 
     const channel = supabaseRef.current
-      .channel("friends_realtime")
+      .channel(`friends-modal-${currentUser.id}`)
       .on("postgres_changes", {
         event: "*", schema: "public", table: "friend_requests",
         filter: `to_id=eq.${currentUser.id}`,
@@ -486,7 +582,10 @@ export default function FriendsModal({
           creator_id: currentUser.id,
           title: createForm.title.trim(),
           description: createForm.description.trim() || null,
-          location_name: createForm.location_name.trim() || null,
+          location_name: selectedLocation?.label ?? null,
+          lat: selectedLocation?.lat ?? null,
+          lng: selectedLocation?.lng ?? null,
+          spot_id: selectedLocation?.spotId ?? null,
           scheduled_at: createForm.scheduled_at || null,
           status: "active",
         })
@@ -501,8 +600,11 @@ export default function FriendsModal({
       if (invErr) throw invErr
 
       setShowCreateOuting(false)
-      setCreateForm({ title: "", description: "", location_name: "", scheduled_at: "" })
+      setCreateForm({ title: "", description: "", scheduled_at: "" })
       setSelectedFriendIds([])
+      setSelectedLocation(null)
+      setLocationQuery("")
+      setLocationResults([])
       loadOutings()
     } catch (e: any) {
       setCreateError(e?.message?.includes("relation")
@@ -541,12 +643,16 @@ export default function FriendsModal({
   const isFollowingUser = (id: string) => followingIds.includes(id)
   const isPending = (id: string) => pendingSent.includes(id)
 
-  const sortedFollowing = [...following].sort((a, b) => {
+  const sortedFollowing = useMemo(() => [...following].sort((a, b) => {
     const aOn = isOnline(a.last_active_at, a.is_ghost_mode) ? 1 : 0
     const bOn = isOnline(b.last_active_at, b.is_ghost_mode) ? 1 : 0
     return bOn - aOn
-  })
-  const onlineCount = following.filter(f => isOnline(f.last_active_at, f.is_ghost_mode)).length
+  }), [following])
+
+  const onlineCount = useMemo(
+    () => following.filter(f => isOnline(f.last_active_at, f.is_ghost_mode)).length,
+    [following]
+  )
 
   const toggleFriendSelection = (id: string) =>
     setSelectedFriendIds(prev =>
@@ -566,7 +672,7 @@ export default function FriendsModal({
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "amis", label: "Amis", icon: <UserCheck size={12} /> },
-    { id: "decouvrir", label: "Découvrir", icon: <Sparkles size={12} /> },
+    { id: "classement", label: "Classement", icon: <Trophy size={12} /> },
     { id: "invitations", label: "Invitations", icon: <Bell size={12} /> },
   ]
 
@@ -661,7 +767,7 @@ export default function FriendsModal({
               </div>
 
               {/* ── Search bar ──────────────────────────────────── */}
-              {(activeTab === "amis" || activeTab === "decouvrir") && (
+              {activeTab === "amis" && (
                 <div className="flex-shrink-0 px-4 pb-3">
                   <div className="relative">
                     <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600" />
@@ -771,7 +877,7 @@ export default function FriendsModal({
                       <EmptyState
                         icon={<Users size={24} />}
                         text="Aucun ami pour l'instant"
-                        sub="Va dans Découvrir pour trouver des gens à suivre !"
+                        sub="Trouve des gens à suivre dans l'onglet Classement !"
                       />
                     ) : (
                       <>
@@ -820,72 +926,107 @@ export default function FriendsModal({
                         </Section>
                       </>
                     )}
+                    {/* Suggestions carousel (only when not searching) */}
+                    {query.length < 2 && suggestions.length > 0 && (
+                      <div>
+                        <div className="mb-2 flex items-center gap-1.5">
+                          <Sparkles size={10} className="text-gray-400 dark:text-zinc-600" />
+                          <p className="text-[10px] font-semibold tracking-widest text-gray-400 dark:text-zinc-600 uppercase">
+                            Suggestions
+                          </p>
+                        </div>
+                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+                          {suggestions.slice(0, 8).map(profile => (
+                            <div key={profile.id} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[60px]">
+                              <div className="relative">
+                                <div className="h-11 w-11 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                                  {profile.avatar_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                                  ) : initials(profile.username)}
+                                </div>
+                                {(profile.mutualCount ?? 0) > 0 && (
+                                  <span className="absolute -bottom-0.5 -right-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full border border-white dark:border-[#0e0e12] bg-indigo-500 text-[8px] font-bold text-white px-0.5">
+                                    {profile.mutualCount}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="w-full truncate text-center text-[9px] font-medium text-gray-500 dark:text-zinc-500">
+                                {profile.username ?? "?"}
+                              </span>
+                              <button
+                                onClick={() => !isPending(profile.id) ? sendRequest(profile.id) : cancelRequest(profile.id)}
+                                disabled={loadingId === profile.id}
+                                className={`w-full rounded-lg px-1 py-1 text-[9px] font-bold transition-all active:scale-95 disabled:opacity-50 ${
+                                  isPending(profile.id)
+                                    ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500"
+                                    : "bg-indigo-500 text-white hover:bg-indigo-400"
+                                }`}
+                              >
+                                {loadingId === profile.id ? "…" : isPending(profile.id) ? "✓ Envoyé" : "+ Suivre"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* ════ DÉCOUVRIR ═══════════════════════════════ */}
-                {activeTab === "decouvrir" && (
-                  <div className="space-y-5">
-                    {query.length >= 2 ? (
-                      <Section title="Résultats" icon={<Search size={10} />}>
-                        {searchResults.length === 0 && !searchLoading ? (
-                          <EmptyState icon={<Search size={22} />} text="Aucun résultat" />
-                        ) : (
-                          searchResults.filter(r => !isFollowingUser(r.id)).map(profile => (
-                            <SuggestionRow
-                              key={profile.id} profile={profile}
-                              initials={initials(profile.username)}
-                              isPending={isPending(profile.id)}
-                              loading={loadingId === profile.id}
-                              onSendRequest={() => sendRequest(profile.id)}
-                              onCancelRequest={() => cancelRequest(profile.id)}
-                            />
-                          ))
-                        )}
-                      </Section>
-                    ) : suggestionsLoading ? (
-                      <div className="flex justify-center py-12">
-                        <LoaderCircle size={20} className="animate-spin text-indigo-400" />
-                      </div>
-                    ) : suggestions.length === 0 ? (
+                {/* ════ CLASSEMENT ══════════════════════════════ */}
+                {activeTab === "classement" && (
+                  <div className="space-y-3">
+                    {monthlyRanking.length === 0 ? (
                       <EmptyState
-                        icon={<Sparkles size={24} />} text="Aucune suggestion"
-                        sub="Ajoute des amis pour voir leur réseau !"
+                        icon={<Trophy size={24} />}
+                        text="Aucun classement ce mois-ci"
+                        sub="Le classement apparaît quand tes amis ajoutent des spots !"
                       />
                     ) : (
                       <>
-                        {suggestions.some(s => (s.mutualCount ?? 0) > 0) && (
-                          <Section
-                            title="Amis de tes amis" icon={<Users size={10} />}
-                            badge={<span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Recommandé</span>}
-                          >
-                            {suggestions.filter(s => (s.mutualCount ?? 0) > 0).map(profile => (
-                              <SuggestionRow
-                                key={profile.id} profile={profile}
-                                initials={initials(profile.username)}
-                                isPending={isPending(profile.id)}
-                                loading={loadingId === profile.id}
-                                mutualCount={profile.mutualCount}
-                                onSendRequest={() => sendRequest(profile.id)}
-                                onCancelRequest={() => cancelRequest(profile.id)}
-                              />
-                            ))}
-                          </Section>
-                        )}
-                        {suggestions.some(s => !(s.mutualCount ?? 0)) && (
-                          <Section title="Actifs récemment" icon={<TrendingUp size={10} />}>
-                            {suggestions.filter(s => !(s.mutualCount ?? 0)).map(profile => (
-                              <SuggestionRow
-                                key={profile.id} profile={profile}
-                                initials={initials(profile.username)}
-                                isPending={isPending(profile.id)}
-                                loading={loadingId === profile.id}
-                                onSendRequest={() => sendRequest(profile.id)}
-                                onCancelRequest={() => cancelRequest(profile.id)}
-                              />
-                            ))}
-                          </Section>
-                        )}
+                        <p className="text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-widest">
+                          Spots ajoutés en {new Date().toLocaleDateString("fr-FR", { month: "long" })}
+                        </p>
+                        {monthlyRanking.map((entry, i) => {
+                          const medals = ["🥇", "🥈", "🥉"]
+                          const medal = medals[i]
+                          return (
+                            <div key={entry.userId} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
+                              i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
+                              i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
+                              i === 2 ? "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20" :
+                              "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+                            }`}>
+                              <div className="w-7 flex-shrink-0 text-center">
+                                {medal
+                                  ? <span className="text-lg leading-none">{medal}</span>
+                                  : <span className="text-[11px] font-bold text-gray-400 dark:text-zinc-600">#{i + 1}</span>}
+                              </div>
+                              <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                                {entry.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={entry.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                                ) : (entry.username?.[0]?.toUpperCase() ?? "?")}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">
+                                  @{entry.username ?? "utilisateur"}
+                                </p>
+                                <p className="text-[10px] text-gray-400 dark:text-zinc-600">
+                                  {entry.count} spot{entry.count > 1 ? "s" : ""} ce mois
+                                </p>
+                              </div>
+                              <span className={`text-[15px] font-bold ${
+                                i === 0 ? "text-amber-500" :
+                                i === 1 ? "text-gray-400 dark:text-zinc-500" :
+                                i === 2 ? "text-orange-400" :
+                                "text-gray-500 dark:text-zinc-500"
+                              }`}>
+                                {entry.count}
+                              </span>
+                            </div>
+                          )
+                        })}
                       </>
                     )}
                   </div>
@@ -977,7 +1118,13 @@ export default function FriendsModal({
                     {/* Header */}
                     <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-5 pt-5 pb-4">
                       <button
-                        onClick={() => { setShowCreateOuting(false); setCreateError(null) }}
+                        onClick={() => {
+                          setShowCreateOuting(false)
+                          setCreateError(null)
+                          setSelectedLocation(null)
+                          setLocationQuery("")
+                          setLocationResults([])
+                        }}
                         className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 dark:text-zinc-400 transition-all hover:bg-gray-100 dark:hover:bg-white/8"
                       >
                         <ArrowLeft size={16} />
@@ -1028,17 +1175,72 @@ export default function FriendsModal({
                         <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
                           Lieu <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
                         </label>
-                        <div className="relative">
-                          <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600" />
-                          <input
-                            type="text"
-                            placeholder="Parc de Bercy, Café de Flore…"
-                            value={createForm.location_name}
-                            onChange={e => setCreateForm(f => ({ ...f, location_name: e.target.value }))}
-                            maxLength={100}
-                            className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-3.5 pl-9 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
-                          />
-                        </div>
+                        {selectedLocation ? (
+                          <div className="flex items-center gap-2.5 rounded-xl border border-indigo-300/60 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/[0.05] px-3.5 py-2.5">
+                            <MapPin size={14} className="flex-shrink-0 text-indigo-500 dark:text-indigo-400" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-gray-900 dark:text-white">{selectedLocation.label}</p>
+                              {selectedLocation.sublabel && (
+                                <p className="truncate text-[11px] text-gray-400 dark:text-zinc-600">{selectedLocation.sublabel}</p>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setSelectedLocation(null); setLocationQuery("") }}
+                              className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600 z-10" />
+                            <input
+                              type="text"
+                              placeholder="Chercher un spot ou un lieu…"
+                              value={locationQuery}
+                              onChange={e => {
+                                const val = e.target.value
+                                setLocationQuery(val)
+                                if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current)
+                                locationDebounceRef.current = setTimeout(() => searchLocations(val), 400)
+                              }}
+                              className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-8 pl-9 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                            />
+                            {locationLoading && (
+                              <LoaderCircle size={14} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
+                            )}
+                            {locationResults.length > 0 && (
+                              <div className="absolute top-full left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-zinc-900 shadow-xl">
+                                {locationResults.map((r, i) => (
+                                  <button
+                                    key={r.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedLocation(r)
+                                      setLocationQuery("")
+                                      setLocationResults([])
+                                    }}
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors ${i > 0 ? "border-t border-gray-100 dark:border-white/[0.04]" : ""}`}
+                                  >
+                                    <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${r.isAppSpot ? "bg-indigo-100 dark:bg-indigo-500/15" : "bg-gray-100 dark:bg-zinc-800"}`}>
+                                      <MapPin size={12} className={r.isAppSpot ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-600"} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-[12px] font-semibold text-gray-900 dark:text-white">{r.label}</p>
+                                      {r.sublabel && <p className="truncate text-[10px] text-gray-400 dark:text-zinc-600">{r.sublabel}</p>}
+                                    </div>
+                                    {r.isAppSpot && (
+                                      <span className="flex-shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                        App
+                                      </span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Description */}

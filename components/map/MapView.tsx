@@ -735,8 +735,8 @@ export default function MapView() {
 
   const visibleSpots = useMemo(() => {
     if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
-    const base = spots.filter((s) => s.user_id === user?.id || visibleFriendIds.includes(s.user_id))
-    if (friendFilterIds.size > 0) return base.filter((s) => s.user_id === user?.id || friendFilterIds.has(s.user_id))
+    const base = spots.filter((s) => visibleFriendIds.includes(s.user_id))
+    if (friendFilterIds.size > 0) return base.filter((s) => friendFilterIds.has(s.user_id))
     return base
   }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds])
 
@@ -2090,7 +2090,7 @@ export default function MapView() {
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
-
+        followingIds={followingIds}
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
@@ -2141,6 +2141,7 @@ export default function MapView() {
           })
         }}
         onSelectUser={setPublicProfileUserId}
+        spots={spots}
       />
       <ProfileModal
         isOpen={showProfileModal}
