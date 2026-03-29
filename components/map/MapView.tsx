@@ -294,7 +294,6 @@ export default function MapView() {
   const [incomingCount, setIncomingCount] = useState(0)
   const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
-  const [surprisePin, setSurprisePin] = useState<{ spot: Spot; expiresAt: number } | null>(null)
   const [userLocation, setUserLocation] = useState<{
     lat: number
     lng: number
@@ -382,9 +381,7 @@ export default function MapView() {
         throw error
       }
 
-      const now = Date.now()
-      const filterExpired = (list: Spot[]) => list.filter(s => !s.expires_at || new Date(s.expires_at).getTime() > now)
-      const firstPage = data && data.length > 0 ? filterExpired(data as Spot[]) : DEMO_SPOTS
+      const firstPage = data && data.length > 0 ? (data as Spot[]) : DEMO_SPOTS
       setSpots(firstPage)
 
       // Charger les pages suivantes en arrière-plan si la première tranche était pleine
@@ -400,7 +397,7 @@ export default function MapView() {
           if (!more || more.length === 0) { hasMore = false; break }
           setSpots(prev => {
             const existingIds = new Set(prev.map(s => s.id))
-            const fresh = filterExpired(more as Spot[]).filter(s => !existingIds.has(s.id))
+            const fresh = (more as Spot[]).filter(s => !existingIds.has(s.id))
             return fresh.length > 0 ? [...prev, ...fresh] : prev
           })
           offset += PAGE_SIZE
@@ -592,15 +589,6 @@ export default function MapView() {
     fetchSpots()
     fetchFollowing()
   }, [fetchSpots, fetchFollowing])
-
-  // Auto-clear surprise pin after expiry
-  useEffect(() => {
-    if (!surprisePin) return
-    const remaining = surprisePin.expiresAt - Date.now()
-    if (remaining <= 0) { setSurprisePin(null); return }
-    const t = setTimeout(() => setSurprisePin(null), remaining)
-    return () => clearTimeout(t)
-  }, [surprisePin])
 
   useEffect(() => {
     if (user) checkNewLikes()
@@ -847,7 +835,6 @@ export default function MapView() {
     opening_hours: Record<string, string> | null
     weekday_descriptions: string[] | null
     maps_url: string | null
-    expires_at: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
 
@@ -1048,7 +1035,7 @@ export default function MapView() {
           .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", "love")
       } else {
         await supabaseRef.current.from("spot_reactions")
-          .insert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
+          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" })
       }
     } catch {
       if (hasLoved) {
@@ -1377,6 +1364,7 @@ export default function MapView() {
             user={user}
             userProfile={userProfile}
             incomingCount={incomingCount}
+            followingCount={followingIds.length}
             onSignOut={signOut}
             onOpenProfile={() => setShowProfileModal(true)}
             onOpenFriends={() => {
@@ -1530,8 +1518,16 @@ export default function MapView() {
         </AnimatePresence>
       </div>
 
-      {/* Floating Action Buttons (Locate) */}
-      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3">
+      {/* Floating Action Buttons (Desktop overrides & Locate) */}
+      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-8">
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          onClick={() => setShowExploreModal(true)}
+          className="pointer-events-auto hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-3 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800 sm:flex"
+          title="Explorer"
+        >
+          <Search size={20} />
+        </motion.button>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={locateUser}
@@ -1555,35 +1551,6 @@ export default function MapView() {
           <Plus size={18} /> Ajouter un spot
         </motion.button>
       </div>
-
-      {/* Surprise pin countdown badge */}
-      <AnimatePresence>
-        {surprisePin && (
-          <motion.button
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            onClick={() => {
-              setSelectedSpot(surprisePin.spot)
-              mapRef.current?.flyTo({ center: [surprisePin.spot.lng, surprisePin.spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
-              setShowExploreModal(true)
-            }}
-            className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl bg-violet-600/90 backdrop-blur-md px-4 py-2.5 text-sm font-bold text-white shadow-xl shadow-violet-600/30"
-          >
-            <span className="animate-pulse">🎲</span>
-            <span className="truncate max-w-[150px]">{surprisePin.spot.title}</span>
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">
-              {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))}min
-            </span>
-            <button
-              onClick={(e) => { e.stopPropagation(); setSurprisePin(null) }}
-              className="ml-1 opacity-70 hover:opacity-100"
-            >
-              <X size={14} />
-            </button>
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       {/* Bouton 3D (En bas à gauche) */}
       <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-8">
@@ -1994,14 +1961,12 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar — mobile: full-width bar | desktop: floating pill dock */}
+      {/* Mobile Bottom Navigation Bar */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[100] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:right-auto sm:bottom-6 sm:left-1/2 sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-gray-200/80 dark:sm:border-white/[0.08] sm:bg-white/95 dark:sm:bg-zinc-900/95 sm:shadow-2xl sm:shadow-black/[0.12] dark:sm:shadow-black/60 sm:backdrop-blur-2xl"
+        className="fixed right-0 bottom-0 left-0 z-[60] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="flex h-16 items-center justify-around px-2 sm:h-[3.75rem] sm:items-center sm:justify-normal sm:gap-1 sm:px-2">
-
-          {/* Carte */}
+        <div className="flex h-16 items-center justify-around px-2">
           <button
             onClick={() => {
               setSelectedSpot(null)
@@ -2011,17 +1976,23 @@ export default function MapView() {
               setShowExploreModal(false)
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
-              !showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal
-                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
+               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
+               !showProfileModal && !showFriendsModal && !showAddModal
+                 ? "text-blue-600 dark:text-indigo-400"
+                 : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
-            <MapPin size={22} className="sm:h-[18px] sm:w-[18px]" />
-            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Carte</span>
+            <MapPin
+              size={22}
+              className={
+                !selectedSpot && !showProfileModal && !showFriendsModal && !showAddModal
+                  ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
+                  : ""
+              }
+            />
+            <span className="text-[10px] font-medium">Carte</span>
           </button>
 
-          {/* Amis */}
           <button
             onClick={() => {
               fetchFollowing()
@@ -2031,25 +2002,22 @@ export default function MapView() {
               setShowFriendsModal(true)
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
-              showFriendsModal
-                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
+               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
+               showFriendsModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <div className="relative">
-              <Users size={22} className="sm:h-[18px] sm:w-[18px]" />
+              <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
               {incomingCount > 0 && (
                 <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {incomingCount}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Amis</span>
+            <span className="text-[10px] font-medium">Amis</span>
           </button>
 
-          {/* Add — floating on mobile, inline pill on desktop */}
-          <div className="relative -top-5 sm:top-0 sm:mx-1">
+          <div className="relative -top-5">
             <button
               onClick={() => {
                 setShowProfileModal(false)
@@ -2057,14 +2025,12 @@ export default function MapView() {
                 setShowExploreModal(false)
                 handleOpenAddSpot()
               }}
-              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95 sm:h-9 sm:w-9 sm:rounded-xl sm:border-0"
+              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
             >
-              <Plus size={24} strokeWidth={3} className="sm:hidden" />
-              <Plus size={18} strokeWidth={2.5} className="hidden sm:block" />
+              <Plus size={24} strokeWidth={3} />
             </button>
           </div>
 
-          {/* Explorer */}
           <button
             onClick={() => {
               setShowProfileModal(false)
@@ -2073,17 +2039,16 @@ export default function MapView() {
               setShowExploreModal(true)
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
+              "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
               showExploreModal
-                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
+                ? "text-blue-600 dark:text-indigo-400"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
-            <Search size={22} className="sm:h-[18px] sm:w-[18px]" />
-            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Explorer</span>
+            <Search size={22} className={showExploreModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+            <span className="text-[10px] font-medium">Explorer</span>
           </button>
 
-          {/* Profil */}
           <button
             onClick={() => {
               setShowFriendsModal(false)
@@ -2093,23 +2058,20 @@ export default function MapView() {
               markLikesSeen()
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
-              showProfileModal
-                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
+               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
+               showProfileModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
             )}
           >
             <div className="relative">
-              <User size={22} className="sm:h-[18px] sm:w-[18px]" />
+              <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
               {newLikesCount > 0 && (
                 <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {newLikesCount > 9 ? "9+" : newLikesCount}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Profil</span>
+            <span className="text-[10px] font-medium">Profil</span>
           </button>
-
         </div>
       </div>
 
@@ -2128,8 +2090,7 @@ export default function MapView() {
         allSpots={spots}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
-        followingIds={followingIds}
-        surprisePin={surprisePin}
+
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
@@ -2140,11 +2101,6 @@ export default function MapView() {
             offset: [0, 100],
             duration: 800,
           })
-        }}
-        onSurprise={(spot) => {
-          setSurprisePin({ spot, expiresAt: Date.now() + 30 * 60 * 1000 })
-          setSelectedSpot(spot)
-          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
         }}
       />
 
@@ -2169,7 +2125,6 @@ export default function MapView() {
         onClose={() => setShowFriendsModal(false)}
         currentUser={user}
         followingIds={followingIds}
-        spots={spots}
         onFollowingChange={(newIds) => {
           setFollowingIds(newIds)
           setVisibleFriendIds((prev) => [...new Set([...prev, ...newIds])])
@@ -2231,11 +2186,6 @@ export default function MapView() {
         isOpen={!!publicProfileUserId}
         onClose={() => setPublicProfileUserId(null)}
         userId={publicProfileUserId}
-        currentUserId={user?.id ?? null}
-        followingIds={followingIds}
-        onFollowChange={(targetId, nowFollowing) => {
-          setFollowingIds(prev => nowFollowing ? [...prev, targetId] : prev.filter(id => id !== targetId))
-        }}
         onLocateSpot={(spotId, lat, lng) => {
           setPublicProfileUserId(null)
           if (publicProfileUserId === user?.id) {

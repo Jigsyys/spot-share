@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X,
@@ -12,9 +12,24 @@ import {
   Check,
   Bell,
   Trash2,
+  Sparkles,
+  UserCheck,
+  MapPin,
+  UserMinus,
+  TrendingUp,
+  CalendarPlus,
+  ArrowLeft,
+  Calendar,
+  CalendarCheck,
+  CalendarX,
+  ChevronRight,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
 
 function timeAgo(dateString?: string) {
   if (!dateString) return ""
@@ -32,6 +47,36 @@ function isOnline(dateString?: string, ghost?: boolean) {
   return Date.now() - new Date(dateString).getTime() < 15 * 60000
 }
 
+function formatOutingDate(dateString?: string | null): string {
+  if (!dateString) return "Date à confirmer"
+  const d = new Date(dateString)
+  const now = new Date()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const timeStr = d.toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  if (d.toDateString() === now.toDateString()) return `Aujourd'hui · ${timeStr}`
+  if (d.toDateString() === tomorrow.toDateString()) return `Demain · ${timeStr}`
+  return (
+    d.toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    }) + ` · ${timeStr}`
+  )
+}
+
+function isOutingPast(dateString?: string | null): boolean {
+  if (!dateString) return false
+  return new Date(dateString) < new Date()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface Profile {
   id: string
   username: string | null
@@ -42,6 +87,10 @@ interface Profile {
   avatar_url?: string | null
 }
 
+interface SuggestionProfile extends Profile {
+  mutualCount?: number
+}
+
 interface FriendRequest {
   id: string
   from_id: string
@@ -50,18 +99,43 @@ interface FriendRequest {
   profiles: { username: string | null; avatar_url: string | null }
 }
 
-interface SpotForRanking {
-  user_id: string
-  created_at: string
-  profiles?: { username?: string | null; avatar_url?: string | null } | null
+interface OutingInviteStatus {
+  id: string
+  invitee_id: string
+  status: "pending" | "accepted" | "declined"
+  profiles?: { username: string | null; avatar_url: string | null }
 }
+
+interface Outing {
+  id: string
+  creator_id: string
+  title: string
+  description?: string | null
+  location_name?: string | null
+  scheduled_at?: string | null
+  status: "active" | "cancelled" | "completed"
+  created_at: string
+  profiles?: { username: string | null; avatar_url: string | null }
+  outing_invitations?: OutingInviteStatus[]
+}
+
+interface OutingInvitationFull {
+  id: string
+  outing_id: string
+  invitee_id: string
+  status: "pending" | "accepted" | "declined"
+  outings?: Outing & {
+    profiles?: { username: string | null; avatar_url: string | null }
+  }
+}
+
+type Tab = "amis" | "decouvrir" | "invitations"
 
 interface FriendsModalProps {
   isOpen: boolean
   onClose: () => void
   currentUser: User | null
   followingIds: string[]
-  spots?: SpotForRanking[]
   onFollowingChange: (ids: string[]) => void
   visibleFriendIds: string[]
   setVisibleFriendIds: (ids: string[] | ((prev: string[]) => string[])) => void
@@ -70,12 +144,15 @@ interface FriendsModalProps {
   onSelectUser?: (id: string) => void
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function FriendsModal({
   isOpen,
   onClose,
   currentUser,
   followingIds,
-  spots = [],
   onFollowingChange,
   visibleFriendIds,
   setVisibleFriendIds,
@@ -83,68 +160,64 @@ export default function FriendsModal({
   onLocateFriend,
   onSelectUser,
 }: FriendsModalProps) {
+  // ── UI state ────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<Tab>("amis")
+  const [showCreateOuting, setShowCreateOuting] = useState(false)
   const [query, setQuery] = useState("")
+
+  // ── Data state ──────────────────────────────────────────────
   const [searchResults, setSearchResults] = useState<Profile[]>([])
   const [following, setFollowing] = useState<Profile[]>([])
+  const [pendingSent, setPendingSent] = useState<string[]>([])
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
+  const [suggestions, setSuggestions] = useState<SuggestionProfile[]>([])
+  const [outings, setOutings] = useState<Outing[]>([])
+  const [outingInvitations, setOutingInvitations] = useState<OutingInvitationFull[]>([])
+
+  // ── Loading state ───────────────────────────────────────────
   const [searchLoading, setSearchLoading] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
-  const [pendingSent, setPendingSent] = useState<string[]>([]) // IDs we sent requests to
-  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
-  const [recommendations, setRecommendations] = useState<Profile[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+
+  // ── Create outing form ──────────────────────────────────────
+  const [createForm, setCreateForm] = useState({
+    title: "",
+    description: "",
+    location_name: "",
+    scheduled_at: "",
+  })
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
   const supabaseRef = useRef(createClient())
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Monthly ranking from spots prop
-  const monthlyRanking = useMemo(() => {
-    if (!spots.length || !followingIds.length) return []
-    const monthStart = new Date()
-    monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
-    const friendSet = new Set(followingIds)
-    const counts = new Map<string, { userId: string; username: string | null; avatar_url: string | null; count: number }>()
-    for (const spot of spots) {
-      if (!friendSet.has(spot.user_id)) continue
-      if (new Date(spot.created_at) < monthStart) continue
-      const entry = counts.get(spot.user_id)
-      if (entry) { entry.count++ }
-      else { counts.set(spot.user_id, { userId: spot.user_id, username: spot.profiles?.username ?? null, avatar_url: spot.profiles?.avatar_url ?? null, count: 1 }) }
-    }
-    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 5)
-  }, [spots, followingIds])
+  // ─── Loaders ────────────────────────────────────────────────
 
-  // --------------- Loaders ---------------
-
-  const loadFollowing = useCallback(async (customIds?: string[]) => {
-    const idsToLoad = customIds || followingIds
-    if (!currentUser || idsToLoad.length === 0) {
-      setFollowing([])
-      return
-    }
-    try {
-      const { data, error } = await supabaseRef.current
-        .from("profiles")
-        .select(
-          "id, username, avatar_url, last_lat, last_lng, last_active_at, is_ghost_mode"
-        )
-        .in("id", idsToLoad)
-      if (error) throw error
-      setFollowing((data as Profile[]) ?? [])
-    } catch {
-      setFollowing([])
-    }
-  }, [currentUser, followingIds])
+  const loadFollowing = useCallback(
+    async (customIds?: string[]) => {
+      const ids = customIds ?? followingIds
+      if (!currentUser || ids.length === 0) { setFollowing([]); return }
+      try {
+        const { data } = await supabaseRef.current
+          .from("profiles")
+          .select("id, username, avatar_url, last_lat, last_lng, last_active_at, is_ghost_mode")
+          .in("id", ids)
+        setFollowing((data as Profile[]) ?? [])
+      } catch { setFollowing([]) }
+    },
+    [currentUser, followingIds]
+  )
 
   const loadSentRequests = useCallback(async () => {
     if (!currentUser) return
     try {
       const { data } = await supabaseRef.current
-        .from("friend_requests")
-        .select("to_id")
-        .eq("from_id", currentUser.id)
-        .eq("status", "pending")
+        .from("friend_requests").select("to_id")
+        .eq("from_id", currentUser.id).eq("status", "pending")
       if (data) setPendingSent(data.map((r: { to_id: string }) => r.to_id))
-    } catch {
-      /* table might not exist */
-    }
+    } catch {}
   }, [currentUser])
 
   const loadIncomingRequests = useCallback(async () => {
@@ -152,546 +225,916 @@ export default function FriendsModal({
     try {
       const { data } = await supabaseRef.current
         .from("friend_requests")
-        .select(
-          "id, from_id, to_id, status, profiles!friend_requests_from_id_fkey(username, avatar_url)"
-        )
-        .eq("to_id", currentUser.id)
-        .eq("status", "pending")
+        .select("id, from_id, to_id, status, profiles!friend_requests_from_id_fkey(username, avatar_url)")
+        .eq("to_id", currentUser.id).eq("status", "pending")
       if (data) setIncomingRequests(data as unknown as FriendRequest[])
-    } catch {
-      /* table might not exist */
-    }
+    } catch {}
   }, [currentUser])
 
-  const loadRecommendations = useCallback(async () => {
+  const loadSuggestions = useCallback(async () => {
     if (!currentUser) return
+    setSuggestionsLoading(true)
     try {
-      // Friends of friends
+      const excludeIds = [currentUser.id, ...followingIds]
       if (followingIds.length > 0) {
         const { data } = await supabaseRef.current
-          .from("followers")
-          .select("following_id")
+          .from("followers").select("following_id")
           .in("follower_id", followingIds)
-          .not(
-            "following_id",
-            "in",
-            `(${[currentUser.id, ...followingIds].join(",")})`
-          )
-          .limit(20)
-
+          .not("following_id", "in", `(${excludeIds.join(",")})`)
+          .limit(60)
         if (data && data.length > 0) {
-          const ids = [
-            ...new Set(
-              data.map((r: { following_id: string }) => r.following_id)
-            ),
-          ].slice(0, 5)
-          const { data: profiles, error } = await supabaseRef.current
+          const counts: Record<string, number> = {}
+          data.forEach((r: { following_id: string }) => {
+            counts[r.following_id] = (counts[r.following_id] || 0) + 1
+          })
+          const sortedIds = Object.entries(counts)
+            .sort(([, a], [, b]) => b - a).slice(0, 10).map(([id]) => id)
+          const { data: profiles } = await supabaseRef.current
             .from("profiles")
             .select("id, username, avatar_url, last_active_at, is_ghost_mode")
-            .in("id", ids)
-          if (error) throw error
+            .in("id", sortedIds)
           if (profiles && profiles.length > 0) {
-            setRecommendations(profiles as Profile[])
+            const enriched: SuggestionProfile[] = (profiles as Profile[]).map(p => ({
+              ...p, mutualCount: counts[p.id] || 0,
+            })).sort((a, b) => (b.mutualCount ?? 0) - (a.mutualCount ?? 0))
+            setSuggestions(enriched)
+            setSuggestionsLoading(false)
             return
           }
         }
       }
-      // Fallback: recently active users
       const { data: recent } = await supabaseRef.current
-        .from("profiles")
-        .select("id, username, avatar_url, last_active_at")
+        .from("profiles").select("id, username, avatar_url, last_active_at")
         .not("id", "in", `(${[currentUser.id, ...followingIds].join(",")})`)
         .not("last_active_at", "is", null)
-        .order("last_active_at", { ascending: false })
-        .limit(5)
-      if (recent) setRecommendations(recent as Profile[])
-    } catch {
-      /* ignore */
-    }
+        .order("last_active_at", { ascending: false }).limit(10)
+      if (recent) setSuggestions(recent as SuggestionProfile[])
+    } catch {}
+    setSuggestionsLoading(false)
   }, [currentUser, followingIds])
+
+  const loadOutings = useCallback(async () => {
+    if (!currentUser) return
+    try {
+      // Sorties que j'ai créées (actives)
+      const { data: created } = await supabaseRef.current
+        .from("outings")
+        .select(`
+          *,
+          profiles!outings_creator_id_fkey(username, avatar_url),
+          outing_invitations(
+            id, invitee_id, status,
+            profiles!outing_invitations_invitee_id_fkey(username, avatar_url)
+          )
+        `)
+        .eq("creator_id", currentUser.id)
+        .eq("status", "active")
+        .order("scheduled_at", { ascending: true })
+
+      // Sorties auxquelles j'ai accepté d'aller (mais pas créées par moi)
+      const { data: attending } = await supabaseRef.current
+        .from("outing_invitations")
+        .select(`
+          outing_id,
+          outings(
+            *,
+            profiles!outings_creator_id_fkey(username, avatar_url),
+            outing_invitations(
+              id, invitee_id, status,
+              profiles!outing_invitations_invitee_id_fkey(username, avatar_url)
+            )
+          )
+        `)
+        .eq("invitee_id", currentUser.id)
+        .eq("status", "accepted")
+
+      const all: Outing[] = []
+      if (created) all.push(...(created as unknown as Outing[]))
+      if (attending) {
+        for (const inv of attending as any[]) {
+          const o = inv.outings as Outing
+          if (o && !all.find(a => a.id === o.id)) all.push(o)
+        }
+      }
+      all.sort((a, b) => {
+        if (!a.scheduled_at) return 1
+        if (!b.scheduled_at) return -1
+        return new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+      })
+      setOutings(all)
+    } catch {
+      // Table pas encore créée — fonctionnera après la migration SQL
+    }
+  }, [currentUser])
+
+  const loadOutingInvitations = useCallback(async () => {
+    if (!currentUser) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("outing_invitations")
+        .select("*, outings(*, profiles!outings_creator_id_fkey(username, avatar_url))")
+        .eq("invitee_id", currentUser.id)
+        .eq("status", "pending")
+      if (data) setOutingInvitations(data as unknown as OutingInvitationFull[])
+    } catch {}
+  }, [currentUser])
+
+  // ─── Effect: load on open ────────────────────────────────────
 
   useEffect(() => {
     if (!isOpen || !currentUser) return
-
     onRefreshFollowing?.()
     loadFollowing()
     loadSentRequests()
     loadIncomingRequests()
-    loadRecommendations()
+    loadSuggestions()
+    loadOutings()
+    loadOutingInvitations()
 
-    // S'abonner aux requêtes d'amis en temps réel (Realtime Supabase)
     const channel = supabaseRef.current
-      .channel("friend_requests_realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "friend_requests",
-          filter: `to_id=eq.${currentUser.id}`,
-        },
-        () => loadIncomingRequests()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "friend_requests",
-          filter: `from_id=eq.${currentUser.id}`,
-        },
-        () => loadSentRequests()
-      )
+      .channel("friends_realtime")
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "friend_requests",
+        filter: `to_id=eq.${currentUser.id}`,
+      }, () => loadIncomingRequests())
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "friend_requests",
+        filter: `from_id=eq.${currentUser.id}`,
+      }, () => loadSentRequests())
       .subscribe()
 
-    return () => {
-      supabaseRef.current.removeChannel(channel)
-    }
+    return () => { supabaseRef.current.removeChannel(channel) }
   }, [
-    isOpen,
-    currentUser,
-    loadFollowing,
-    loadSentRequests,
-    loadIncomingRequests,
-    loadRecommendations,
-    onRefreshFollowing,
+    isOpen, currentUser,
+    loadFollowing, loadSentRequests, loadIncomingRequests,
+    loadSuggestions, loadOutings, loadOutingInvitations, onRefreshFollowing,
   ])
 
-  // --------------- Search ---------------
+  // ─── Search ──────────────────────────────────────────────────
 
-  const searchUsers = useCallback(
-    async (q: string) => {
-      if (q.length < 2) {
-        setSearchResults([])
-        return
-      }
-      setSearchLoading(true)
-      try {
-        const { data, error } = await supabaseRef.current
-          .from("profiles")
-          .select("id, username, avatar_url, last_active_at, is_ghost_mode")
-          .ilike("username", `%${q}%`)
-          .neq("id", currentUser?.id ?? "")
-          .limit(8)
-        if (error) throw error
-        setSearchResults((data as Profile[]) ?? [])
-      } catch {
-        setSearchResults([])
-      } finally {
-        setSearchLoading(false)
-      }
-    },
-    [currentUser]
-  )
+  const searchUsers = useCallback(async (q: string) => {
+    if (q.length < 2) { setSearchResults([]); return }
+    setSearchLoading(true)
+    try {
+      const { data } = await supabaseRef.current
+        .from("profiles")
+        .select("id, username, avatar_url, last_active_at, is_ghost_mode")
+        .ilike("username", `%${q}%`).neq("id", currentUser?.id ?? "").limit(8)
+      setSearchResults((data as Profile[]) ?? [])
+    } catch { setSearchResults([]) }
+    setSearchLoading(false)
+  }, [currentUser])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchUsers(query), 400)
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
-    }
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [query, searchUsers])
 
-  // --------------- Actions ---------------
+  // ─── Friend actions ──────────────────────────────────────────
 
   const sendRequest = async (targetId: string) => {
     if (!currentUser) return
     setLoadingId(targetId)
     try {
-      // Nettoyer toute ancienne demande orpheline (accepted sans followers, ou declined)
-      await supabaseRef.current
-        .from("friend_requests")
-        .delete()
+      await supabaseRef.current.from("friend_requests").delete()
         .or(`status.eq.accepted,status.eq.declined`)
-        .eq("from_id", currentUser.id)
-        .eq("to_id", targetId)
-      // Nettoyer aussi dans l'autre sens
-      await supabaseRef.current
-        .from("friend_requests")
-        .delete()
+        .eq("from_id", currentUser.id).eq("to_id", targetId)
+      await supabaseRef.current.from("friend_requests").delete()
         .or(`status.eq.accepted,status.eq.declined`)
-        .eq("from_id", targetId)
-        .eq("to_id", currentUser.id)
-
-      const { error } = await supabaseRef.current
-        .from("friend_requests")
-        .insert({
-          from_id: currentUser.id,
-          to_id: targetId,
-          status: "pending",
-        })
-      if (error) {
-        console.error("sendRequest insert error:", error.message)
-        // Si le UNIQUE constraint échoue encore, la demande existe déjà en pending
-      }
-      setPendingSent((prev) => [...prev, targetId])
-    } catch (e) {
-      console.error("sendRequest error:", e)
-    } finally {
-      setLoadingId(null)
-    }
+        .eq("from_id", targetId).eq("to_id", currentUser.id)
+      const { error } = await supabaseRef.current.from("friend_requests")
+        .insert({ from_id: currentUser.id, to_id: targetId, status: "pending" })
+      if (error) console.error("sendRequest:", error.message)
+      setPendingSent(prev => [...prev, targetId])
+    } catch (e) { console.error(e) }
+    setLoadingId(null)
   }
 
   const cancelRequest = async (targetId: string) => {
     if (!currentUser) return
     setLoadingId(targetId)
     try {
-      await supabaseRef.current
-        .from("friend_requests")
-        .delete()
-        .eq("from_id", currentUser.id)
-        .eq("to_id", targetId)
-      setPendingSent((prev) => prev.filter((id) => id !== targetId))
-    } catch {
-      /* ignore */
-    } finally {
-      setLoadingId(null)
-    }
+      await supabaseRef.current.from("friend_requests").delete()
+        .eq("from_id", currentUser.id).eq("to_id", targetId)
+      setPendingSent(prev => prev.filter(id => id !== targetId))
+    } catch {}
+    setLoadingId(null)
   }
 
   const acceptRequest = async (req: FriendRequest) => {
     if (!currentUser) return
     setLoadingId(req.from_id)
     try {
-      // Essaie d'abord via la fonction sécurisée (contourne les RLS restrictives)
       const { error: rpcError } = await supabaseRef.current.rpc(
-        "accept_friend_request",
-        { request_id: req.id }
+        "accept_friend_request", { request_id: req.id }
       )
-
       if (rpcError) {
-        // Fallback manuel si la fonction RPC n'existe pas encore
-        console.warn("RPC unavailable, falling back to direct upsert:", rpcError.message)
-        const { error: updErr } = await supabaseRef.current
-          .from("friend_requests")
-          .update({ status: "accepted" })
-          .eq("id", req.id)
-        if (updErr) throw new Error("Erreur update demande: " + updErr.message)
-
-        const { error: follErr } = await supabaseRef.current
-          .from("followers")
-          .upsert([
-            { follower_id: currentUser.id, following_id: req.from_id },
-            { follower_id: req.from_id, following_id: currentUser.id },
-          ])
-        if (follErr) throw new Error("Erreur upsert followers: " + follErr.message)
+        const { error: updErr } = await supabaseRef.current.from("friend_requests")
+          .update({ status: "accepted" }).eq("id", req.id)
+        if (updErr) throw new Error(updErr.message)
+        const { error: follErr } = await supabaseRef.current.from("followers").upsert([
+          { follower_id: currentUser.id, following_id: req.from_id },
+          { follower_id: req.from_id, following_id: currentUser.id },
+        ])
+        if (follErr) throw new Error(follErr.message)
       }
-
       const newIds = [...new Set([...followingIds, req.from_id])]
       onFollowingChange(newIds)
-      setIncomingRequests((prev) => prev.filter((r) => r.id !== req.id))
+      setIncomingRequests(prev => prev.filter(r => r.id !== req.id))
       await loadFollowing(newIds)
-    } catch (e) {
-      console.error("acceptRequest error:", e)
-    } finally {
-      setLoadingId(null)
-    }
+    } catch (e) { console.error("acceptRequest:", e) }
+    setLoadingId(null)
   }
 
   const declineRequest = async (req: FriendRequest) => {
     if (!currentUser) return
     setLoadingId(req.from_id)
     try {
-      await supabaseRef.current
-        .from("friend_requests")
-        .update({ status: "declined" })
-        .eq("id", req.id)
-      setIncomingRequests((prev) => prev.filter((r) => r.id !== req.id))
-    } catch {
-      /* ignore */
-    } finally {
-      setLoadingId(null)
-    }
+      await supabaseRef.current.from("friend_requests")
+        .update({ status: "declined" }).eq("id", req.id)
+      setIncomingRequests(prev => prev.filter(r => r.id !== req.id))
+    } catch {}
+    setLoadingId(null)
   }
 
   const unfollow = async (targetId: string) => {
     if (!currentUser) return
     setLoadingId(targetId)
     try {
-      await supabaseRef.current
-        .from("followers")
-        .delete()
-        .eq("follower_id", currentUser.id)
-        .eq("following_id", targetId)
-      const newIds = followingIds.filter((id) => id !== targetId)
+      await supabaseRef.current.from("followers").delete()
+        .eq("follower_id", currentUser.id).eq("following_id", targetId)
+      const newIds = followingIds.filter(id => id !== targetId)
       onFollowingChange(newIds)
-      setFollowing((prev) => prev.filter((p) => p.id !== targetId))
-    } catch {
-      /* ignore */
-    } finally {
-      setLoadingId(null)
-    }
+      setFollowing(prev => prev.filter(p => p.id !== targetId))
+    } catch {}
+    setLoadingId(null)
   }
+
+  // ─── Outing actions ──────────────────────────────────────────
+
+  const createOuting = async () => {
+    if (!currentUser) return
+    setCreateError(null)
+    if (!createForm.title.trim()) { setCreateError("Un titre est requis."); return }
+    if (selectedFriendIds.length === 0) { setCreateError("Invite au moins un ami."); return }
+    setCreating(true)
+    try {
+      const { data: outing, error } = await supabaseRef.current
+        .from("outings")
+        .insert({
+          creator_id: currentUser.id,
+          title: createForm.title.trim(),
+          description: createForm.description.trim() || null,
+          location_name: createForm.location_name.trim() || null,
+          scheduled_at: createForm.scheduled_at || null,
+          status: "active",
+        })
+        .select().single()
+      if (error) throw error
+
+      const { error: invErr } = await supabaseRef.current
+        .from("outing_invitations")
+        .insert(selectedFriendIds.map(id => ({
+          outing_id: outing.id, invitee_id: id, status: "pending",
+        })))
+      if (invErr) throw invErr
+
+      setShowCreateOuting(false)
+      setCreateForm({ title: "", description: "", location_name: "", scheduled_at: "" })
+      setSelectedFriendIds([])
+      loadOutings()
+    } catch (e: any) {
+      setCreateError(e?.message?.includes("relation")
+        ? "La fonctionnalité sortie n'est pas encore activée. Lance la migration SQL outings."
+        : "Erreur lors de la création. Réessaie.")
+      console.error("createOuting:", e)
+    }
+    setCreating(false)
+  }
+
+  const cancelOuting = async (outingId: string) => {
+    if (!currentUser) return
+    try {
+      await supabaseRef.current.from("outings")
+        .update({ status: "cancelled" })
+        .eq("id", outingId).eq("creator_id", currentUser.id)
+      setOutings(prev => prev.filter(o => o.id !== outingId))
+    } catch {}
+  }
+
+  const respondToOuting = async (invitationId: string, status: "accepted" | "declined") => {
+    try {
+      await supabaseRef.current.from("outing_invitations")
+        .update({ status, responded_at: new Date().toISOString() })
+        .eq("id", invitationId)
+      setOutingInvitations(prev => prev.filter(i => i.id !== invitationId))
+      if (status === "accepted") loadOutings()
+    } catch (e) { console.error("respondToOuting:", e) }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────
 
   const initials = (username: string | null) =>
     username ? username.charAt(0).toUpperCase() : "?"
 
-  const isFollowing = (id: string) => followingIds.includes(id)
+  const isFollowingUser = (id: string) => followingIds.includes(id)
   const isPending = (id: string) => pendingSent.includes(id)
 
+  const sortedFollowing = [...following].sort((a, b) => {
+    const aOn = isOnline(a.last_active_at, a.is_ghost_mode) ? 1 : 0
+    const bOn = isOnline(b.last_active_at, b.is_ghost_mode) ? 1 : 0
+    return bOn - aOn
+  })
+  const onlineCount = following.filter(f => isOnline(f.last_active_at, f.is_ghost_mode)).length
+
+  const toggleFriendSelection = (id: string) =>
+    setSelectedFriendIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+
+  // Total badge for Invitations tab
+  const totalInvitations = incomingRequests.length + outingInvitations.length
+
+  // Upcoming + past outings split
+  const upcomingOutings = outings.filter(o => !isOutingPast(o.scheduled_at) || !o.scheduled_at)
+  const pastOutings = outings.filter(o => isOutingPast(o.scheduled_at))
+
+  const minDateTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)
+
   if (!isOpen) return null
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "amis", label: "Amis", icon: <UserCheck size={12} /> },
+    { id: "decouvrir", label: "Découvrir", icon: <Sparkles size={12} /> },
+    { id: "invitations", label: "Invitations", icon: <Bell size={12} /> },
+  ]
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
+          {/* Backdrop */}
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[2px] sm:bg-black/25"
           />
+
+          {/* Panel */}
           <motion.div
-            initial={{ opacity: 0, y: 100, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 120, scale: 0.97 }}
-            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+            initial={{ opacity: 0, y: 60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 60 }}
+            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-0 sm:right-0 sm:bottom-0 sm:w-[360px]"
             drag="y"
             dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0.05, bottom: 0.4 }}
+            dragElastic={{ top: 0.04, bottom: 0.35 }}
             dragMomentum={false}
-            onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
-              if (offset.y > 120 || velocity.y > 400) onClose()
+            onDragEnd={(_e, { offset, velocity }) => {
+              if (offset.y > 110 || velocity.y > 380) onClose()
             }}
-            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="pb-safe flex h-[90vh] flex-col overflow-hidden rounded-t-[2rem] border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
-
+            <div className="relative flex h-[92vh] flex-col overflow-hidden
+              rounded-t-[2rem] border border-gray-200/80 dark:border-white/[0.06]
+              bg-white dark:bg-[#0e0e12] shadow-2xl
+              sm:h-full sm:rounded-none sm:rounded-l-2xl
+              sm:border-l sm:border-y-0 sm:border-r-0
+              sm:shadow-[-12px_0_48px_rgba(0,0,0,0.15)] dark:sm:shadow-[-12px_0_48px_rgba(0,0,0,0.4)]"
+            >
               {/* Drag handle */}
-              <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700" />
+              <div className="mx-auto mt-3.5 mb-0 h-1 w-10 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-800 sm:hidden" />
 
-              {/* Header */}
-              <div className="flex flex-shrink-0 items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Amis</h2>
-                  {incomingRequests.length > 0 && (
-                    <span className="flex items-center gap-1 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                      <Bell size={10} /> {incomingRequests.length}
-                    </span>
-                  )}
+              {/* ── Header ──────────────────────────────────────── */}
+              <div className="flex flex-shrink-0 items-center justify-between px-5 pt-4 pb-3 sm:pt-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15">
+                    <Users size={16} className="text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-[15px] font-bold tracking-tight text-gray-900 dark:text-white">
+                      Réseau
+                    </h2>
+                    <p className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-zinc-600">
+                      <span>{followingIds.length} ami{followingIds.length !== 1 ? "s" : ""}</span>
+                      {onlineCount > 0 && (
+                        <span className="flex items-center gap-1 text-green-500 dark:text-green-400">
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {onlineCount} en ligne
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={onClose}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-300 dark:hover:bg-white/20"
+                  className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 dark:text-zinc-600 transition-all hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-700 dark:hover:text-white"
                 >
-                  <X size={16} />
+                  <X size={15} />
                 </button>
               </div>
 
-              {/* Search Bar */}
-              <div className="flex-shrink-0 px-5 pb-3">
-                <div className="relative">
-                  <Search
-                    size={15}
-                    className="absolute top-1/2 left-4 -translate-y-1/2 text-gray-400 dark:text-zinc-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Rechercher par nom d'utilisateur..."
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-4 py-3 pl-10 text-[16px] text-gray-900 dark:text-white transition-all outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 sm:text-sm"
-                  />
-                  {searchLoading && (
-                    <LoaderCircle
-                      size={15}
-                      className="absolute top-1/2 right-4 -translate-y-1/2 animate-spin text-indigo-400"
-                    />
-                  )}
+              {/* ── Tabs ────────────────────────────────────────── */}
+              <div className="flex-shrink-0 px-4 pb-3">
+                <div className="flex gap-0.5 rounded-xl bg-gray-100/80 dark:bg-zinc-900/80 p-1">
+                  {tabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => { setActiveTab(tab.id); setQuery("") }}
+                      className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-semibold transition-all duration-200 ${
+                        activeTab === tab.id
+                          ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
+                          : "text-gray-500 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+                      }`}
+                    >
+                      {tab.icon}
+                      {tab.label}
+                      {tab.id === "invitations" && totalInvitations > 0 && (
+                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
+                          {totalInvitations}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Scrollable content */}
-              <div className="flex-1 space-y-5 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
-
-                {/* Incoming Requests */}
-                {incomingRequests.length > 0 && query.length < 2 && (
-                  <div>
-                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
-                      Invitations ({incomingRequests.length})
-                    </p>
-                    <div className="space-y-2">
-                      {incomingRequests.map((req) => (
-                        <div
-                          key={req.id}
-                          className="flex items-center gap-3 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 p-3"
-                        >
-                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
-                            {req.profiles?.avatar_url ? (
-                              /* eslint-disable-next-line @next/next/no-img-element */
-                              <img
-                                src={req.profiles.avatar_url}
-                                alt="avatar"
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              (req.profiles?.username ?? "?")
-                                .charAt(0)
-                                .toUpperCase()
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                              @{req.profiles?.username ?? "utilisateur"}
-                            </p>
-                            <p className="text-[10px] text-gray-500 dark:text-zinc-400">
-                              veut être ton ami
-                            </p>
-                          </div>
-                          <div className="flex gap-1.5">
-                            <button
-                              onClick={() => acceptRequest(req)}
-                              disabled={loadingId === req.from_id}
-                              className="flex items-center gap-1 rounded-xl bg-green-500 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-green-400 disabled:opacity-50"
-                            >
-                              {loadingId === req.from_id ? (
-                                <LoaderCircle size={12} className="animate-spin" />
-                              ) : (
-                                <>
-                                  <Check size={12} /> Accepter
-                                </>
-                              )}
-                            </button>
-                            <button
-                              onClick={() => declineRequest(req)}
-                              disabled={loadingId === req.from_id}
-                              className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-100 dark:hover:bg-red-500/20 hover:text-red-500 disabled:opacity-50"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+              {/* ── Search bar ──────────────────────────────────── */}
+              {(activeTab === "amis" || activeTab === "decouvrir") && (
+                <div className="flex-shrink-0 px-4 pb-3">
+                  <div className="relative">
+                    <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher un utilisateur…"
+                      value={query}
+                      onChange={e => setQuery(e.target.value)}
+                      className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-4 pl-9 text-[16px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                    />
+                    {searchLoading && (
+                      <LoaderCircle size={14} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
+                    )}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Search Results */}
-                {query.length >= 2 && (
-                  <div>
-                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
-                      Résultats
-                    </p>
-                    {searchResults.length === 0 && !searchLoading ? (
-                      <p className="py-4 text-center text-sm text-gray-500 dark:text-zinc-500">
-                        Aucun utilisateur trouvé
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {searchResults.map((profile) => (
-                          <UserRow
-                            key={profile.id}
-                            profile={profile}
-                            initials={initials(profile.username)}
-                            isFollowing={isFollowing(profile.id)}
-                            isPending={isPending(profile.id)}
-                            loading={loadingId === profile.id}
-                            onSendRequest={() => sendRequest(profile.id)}
-                            onCancelRequest={() => cancelRequest(profile.id)}
-                            onUnfollow={() => unfollow(profile.id)}
-                            onSelectUser={() => {
-                              onSelectUser?.(profile.id)
-                              onClose()
-                            }}
+              {/* ── Scrollable content ──────────────────────────── */}
+              <div className="flex-1 overflow-y-auto px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:pb-6">
+
+                {/* ════ AMIS ════════════════════════════════════ */}
+                {activeTab === "amis" && (
+                  <div className="space-y-5">
+
+                    {/* CTA Proposer une sortie */}
+                    <button
+                      onClick={() => setShowCreateOuting(true)}
+                      className="group w-full flex items-center gap-3 rounded-xl border-2 border-dashed border-indigo-300/60 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/[0.04] px-4 py-3 text-left transition-all hover:border-indigo-400/80 dark:hover:border-indigo-500/50 hover:bg-indigo-50 dark:hover:bg-indigo-500/[0.08] active:scale-[0.99]"
+                    >
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 transition-colors group-hover:bg-indigo-500/20">
+                        <CalendarPlus size={16} className="text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
+                          Proposer une sortie
+                        </p>
+                        <p className="text-[11px] text-indigo-500/70 dark:text-indigo-400/60">
+                          Invite tes amis à un spot ou un endroit
+                        </p>
+                      </div>
+                      <ChevronRight size={14} className="text-indigo-400 dark:text-indigo-600 flex-shrink-0" />
+                    </button>
+
+                    {/* Sorties à venir */}
+                    {upcomingOutings.length > 0 && query.length < 2 && (
+                      <Section
+                        title="Sorties à venir"
+                        icon={<CalendarCheck size={10} />}
+                        badge={
+                          <span className="rounded-full bg-green-500/10 dark:bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400">
+                            {upcomingOutings.length}
+                          </span>
+                        }
+                      >
+                        {upcomingOutings.map(outing => (
+                          <OutingCard
+                            key={outing.id}
+                            outing={outing}
+                            currentUserId={currentUser?.id ?? ""}
+                            onCancel={cancelOuting}
                           />
                         ))}
-                      </div>
+                      </Section>
+                    )}
+
+                    {/* Sorties passées (collapsed by default) */}
+                    {pastOutings.length > 0 && query.length < 2 && (
+                      <Section title="Sorties passées" icon={<Clock size={10} />}>
+                        {pastOutings.map(outing => (
+                          <OutingCard
+                            key={outing.id}
+                            outing={outing}
+                            currentUserId={currentUser?.id ?? ""}
+                            onCancel={cancelOuting}
+                            past
+                          />
+                        ))}
+                      </Section>
+                    )}
+
+                    {/* Search results */}
+                    {query.length >= 2 ? (
+                      <Section title="Résultats" icon={<Search size={10} />}>
+                        {searchResults.length === 0 && !searchLoading ? (
+                          <EmptyState icon={<Search size={22} />} text="Aucun utilisateur trouvé" />
+                        ) : (
+                          searchResults.map(profile => (
+                            <UserRow
+                              key={profile.id}
+                              profile={profile}
+                              initials={initials(profile.username)}
+                              isFollowing={isFollowingUser(profile.id)}
+                              isPending={isPending(profile.id)}
+                              loading={loadingId === profile.id}
+                              onSendRequest={() => sendRequest(profile.id)}
+                              onCancelRequest={() => cancelRequest(profile.id)}
+                              onUnfollow={() => unfollow(profile.id)}
+                              onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
+                              onLocate={profile.last_lat && profile.last_lng
+                                ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
+                                : undefined}
+                            />
+                          ))
+                        )}
+                      </Section>
+                    ) : sortedFollowing.length === 0 ? (
+                      <EmptyState
+                        icon={<Users size={24} />}
+                        text="Aucun ami pour l'instant"
+                        sub="Va dans Découvrir pour trouver des gens à suivre !"
+                      />
+                    ) : (
+                      <>
+                        {onlineCount > 0 && (
+                          <Section title="En ligne" icon={<span className="h-1.5 w-1.5 rounded-full bg-green-500" />}>
+                            {sortedFollowing
+                              .filter(f => isOnline(f.last_active_at, f.is_ghost_mode))
+                              .map(profile => (
+                                <UserRow
+                                  key={profile.id} profile={profile}
+                                  initials={initials(profile.username)}
+                                  isFollowing isPending={false}
+                                  loading={loadingId === profile.id}
+                                  onSendRequest={() => sendRequest(profile.id)}
+                                  onCancelRequest={() => cancelRequest(profile.id)}
+                                  onUnfollow={() => unfollow(profile.id)}
+                                  onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
+                                  onLocate={profile.last_lat && profile.last_lng
+                                    ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
+                                    : undefined}
+                                />
+                              ))}
+                          </Section>
+                        )}
+                        <Section
+                          title={onlineCount > 0 ? "Hors ligne" : `Tous les amis (${following.length})`}
+                          icon={<Clock size={10} />}
+                        >
+                          {sortedFollowing
+                            .filter(f => !isOnline(f.last_active_at, f.is_ghost_mode))
+                            .map(profile => (
+                              <UserRow
+                                key={profile.id} profile={profile}
+                                initials={initials(profile.username)}
+                                isFollowing isPending={false}
+                                loading={loadingId === profile.id}
+                                onSendRequest={() => sendRequest(profile.id)}
+                                onCancelRequest={() => cancelRequest(profile.id)}
+                                onUnfollow={() => unfollow(profile.id)}
+                                onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
+                                onLocate={profile.last_lat && profile.last_lng
+                                  ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
+                                  : undefined}
+                              />
+                            ))}
+                        </Section>
+                      </>
                     )}
                   </div>
                 )}
 
-                {/* Recommendations (only when actively searching) */}
-                {query.length >= 2 && searchResults.length === 0 && !searchLoading && recommendations.length > 0 && (
-                  <div>
-                    <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
-                      Suggestions
-                    </p>
-                    <div className="space-y-2">
-                      {recommendations
-                        .filter((r) => !isFollowing(r.id))
-                        .map((profile) => (
-                          <UserRow
-                            key={profile.id}
-                            profile={profile}
-                            initials={initials(profile.username)}
-                            isFollowing={false}
-                            isPending={isPending(profile.id)}
-                            loading={loadingId === profile.id}
-                            onSendRequest={() => sendRequest(profile.id)}
-                            onCancelRequest={() => cancelRequest(profile.id)}
-                            onUnfollow={() => unfollow(profile.id)}
-                            onSelectUser={() => {
-                              onSelectUser?.(profile.id)
-                              onClose()
-                            }}
+                {/* ════ DÉCOUVRIR ═══════════════════════════════ */}
+                {activeTab === "decouvrir" && (
+                  <div className="space-y-5">
+                    {query.length >= 2 ? (
+                      <Section title="Résultats" icon={<Search size={10} />}>
+                        {searchResults.length === 0 && !searchLoading ? (
+                          <EmptyState icon={<Search size={22} />} text="Aucun résultat" />
+                        ) : (
+                          searchResults.filter(r => !isFollowingUser(r.id)).map(profile => (
+                            <SuggestionRow
+                              key={profile.id} profile={profile}
+                              initials={initials(profile.username)}
+                              isPending={isPending(profile.id)}
+                              loading={loadingId === profile.id}
+                              onSendRequest={() => sendRequest(profile.id)}
+                              onCancelRequest={() => cancelRequest(profile.id)}
+                            />
+                          ))
+                        )}
+                      </Section>
+                    ) : suggestionsLoading ? (
+                      <div className="flex justify-center py-12">
+                        <LoaderCircle size={20} className="animate-spin text-indigo-400" />
+                      </div>
+                    ) : suggestions.length === 0 ? (
+                      <EmptyState
+                        icon={<Sparkles size={24} />} text="Aucune suggestion"
+                        sub="Ajoute des amis pour voir leur réseau !"
+                      />
+                    ) : (
+                      <>
+                        {suggestions.some(s => (s.mutualCount ?? 0) > 0) && (
+                          <Section
+                            title="Amis de tes amis" icon={<Users size={10} />}
+                            badge={<span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Recommandé</span>}
+                          >
+                            {suggestions.filter(s => (s.mutualCount ?? 0) > 0).map(profile => (
+                              <SuggestionRow
+                                key={profile.id} profile={profile}
+                                initials={initials(profile.username)}
+                                isPending={isPending(profile.id)}
+                                loading={loadingId === profile.id}
+                                mutualCount={profile.mutualCount}
+                                onSendRequest={() => sendRequest(profile.id)}
+                                onCancelRequest={() => cancelRequest(profile.id)}
+                              />
+                            ))}
+                          </Section>
+                        )}
+                        {suggestions.some(s => !(s.mutualCount ?? 0)) && (
+                          <Section title="Actifs récemment" icon={<TrendingUp size={10} />}>
+                            {suggestions.filter(s => !(s.mutualCount ?? 0)).map(profile => (
+                              <SuggestionRow
+                                key={profile.id} profile={profile}
+                                initials={initials(profile.username)}
+                                isPending={isPending(profile.id)}
+                                loading={loadingId === profile.id}
+                                onSendRequest={() => sendRequest(profile.id)}
+                                onCancelRequest={() => cancelRequest(profile.id)}
+                              />
+                            ))}
+                          </Section>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* ════ INVITATIONS ═════════════════════════════ */}
+                {activeTab === "invitations" && (
+                  <div className="space-y-5">
+                    {/* Invitations de sortie */}
+                    {outingInvitations.length > 0 && (
+                      <Section
+                        title="Sorties proposées"
+                        icon={<CalendarPlus size={10} />}
+                        badge={<span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-violet-500 px-1.5 text-[10px] font-bold text-white leading-none">{outingInvitations.length}</span>}
+                      >
+                        {outingInvitations.map(inv => (
+                          <OutingInvitationCard
+                            key={inv.id}
+                            invitation={inv}
+                            onAccept={() => respondToOuting(inv.id, "accepted")}
+                            onDecline={() => respondToOuting(inv.id, "declined")}
                           />
                         ))}
-                    </div>
-                  </div>
-                )}
+                      </Section>
+                    )}
 
-                {/* Following list */}
-                {/* Classement mensuel */}
-                {monthlyRanking.length > 0 && (
-                  <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-3 py-2.5 mb-4">
-                    <span className="text-sm flex-shrink-0">🏆</span>
-                    <div className="no-scrollbar flex flex-1 items-center gap-3 overflow-x-auto">
-                      {monthlyRanking.map((entry, idx) => (
-                        <div key={entry.userId} className="flex flex-shrink-0 items-center gap-1.5">
-                          <span className="text-xs leading-none">{idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`}</span>
-                          <div className="h-6 w-6 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-[10px] font-bold text-white flex items-center justify-center">
-                            {entry.avatar_url
-                              // eslint-disable-next-line @next/next/no-img-element
-                              ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                              : (entry.username ?? "?")[0]?.toUpperCase()
-                            }
+                    {/* Invitations d'amis */}
+                    {incomingRequests.length > 0 ? (
+                      <Section
+                        title="Demandes d'amis" icon={<Bell size={10} />}
+                        badge={<span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white leading-none">{incomingRequests.length}</span>}
+                      >
+                        {incomingRequests.map(req => (
+                          <InvitationRow
+                            key={req.id} req={req}
+                            loading={loadingId === req.from_id}
+                            onAccept={() => acceptRequest(req)}
+                            onDecline={() => declineRequest(req)}
+                          />
+                        ))}
+                      </Section>
+                    ) : outingInvitations.length === 0 ? (
+                      <EmptyState
+                        icon={<Bell size={24} />}
+                        text="Aucune invitation"
+                        sub="Les demandes d'amis et sorties apparaîtront ici"
+                      />
+                    ) : null}
+
+                    {/* Demandes envoyées */}
+                    {pendingSent.length > 0 && (
+                      <Section title="Demandes envoyées" icon={<Clock size={10} />}>
+                        {pendingSent.map(id => (
+                          <div key={id} className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-gray-50 dark:bg-zinc-900">
+                            <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+                              {id.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-gray-600 dark:text-zinc-400 truncate">{id.slice(0, 12)}…</p>
+                              <p className="text-[10px] text-gray-400 dark:text-zinc-600">En attente de réponse</p>
+                            </div>
+                            <button
+                              onClick={() => cancelRequest(id)}
+                              disabled={loadingId === id}
+                              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-gray-400 dark:text-zinc-600 transition-colors hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+                            >
+                              {loadingId === id ? <LoaderCircle size={11} className="animate-spin" /> : <><UserMinus size={11} /> Annuler</>}
+                            </button>
                           </div>
-                          <span className="truncate max-w-[4rem] text-[11px] font-semibold text-gray-700 dark:text-zinc-300">
-                            {entry.username ?? "ami"}
-                          </span>
-                          <span className="text-[10px] font-bold text-indigo-500">{entry.count}</span>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </Section>
+                    )}
                   </div>
                 )}
-
-                <div>
-                  <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
-                    Amis ({followingIds.length})
-                  </p>
-                  {following.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-gray-500 dark:text-zinc-500">
-                      Aucun ami pour l&apos;instant.
-                      <br />
-                      <span className="text-gray-400 dark:text-zinc-600">
-                        Recherche et envoie des invitations !
-                      </span>
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {following.map((profile) => (
-                        <UserRow
-                          key={profile.id}
-                          profile={profile}
-                          initials={initials(profile.username)}
-                          isFollowing={true}
-                          isPending={false}
-                          loading={loadingId === profile.id}
-                          onSendRequest={() => sendRequest(profile.id)}
-                          onCancelRequest={() => cancelRequest(profile.id)}
-                          onUnfollow={() => unfollow(profile.id)}
-                          onSelectUser={() => {
-                            onSelectUser?.(profile.id)
-                            onClose()
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
+
+              {/* ══ CREATE OUTING OVERLAY ══════════════════════════ */}
+              <AnimatePresence>
+                {showCreateOuting && (
+                  <motion.div
+                    initial={{ x: "100%" }}
+                    animate={{ x: 0 }}
+                    exit={{ x: "100%" }}
+                    transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                    className="absolute inset-0 z-20 flex flex-col overflow-hidden
+                      bg-white dark:bg-[#0e0e12]
+                      rounded-t-[2rem] sm:rounded-l-2xl sm:rounded-t-none"
+                  >
+                    {/* Header */}
+                    <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-5 pt-5 pb-4">
+                      <button
+                        onClick={() => { setShowCreateOuting(false); setCreateError(null) }}
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 dark:text-zinc-400 transition-all hover:bg-gray-100 dark:hover:bg-white/8"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <div>
+                        <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">
+                          Nouvelle sortie
+                        </h3>
+                        <p className="text-[11px] text-gray-400 dark:text-zinc-600">
+                          Propose un plan à tes amis
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Form */}
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 pb-32">
+                      {/* Title */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Titre *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Afterwork, soirée, randonnée…"
+                          value={createForm.title}
+                          onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))}
+                          maxLength={80}
+                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
+                      {/* Date & time */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Date et heure
+                        </label>
+                        <input
+                          type="datetime-local"
+                          min={minDateTime}
+                          value={createForm.scheduled_at}
+                          onChange={e => setCreateForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
+                      {/* Location */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Lieu <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
+                        </label>
+                        <div className="relative">
+                          <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600" />
+                          <input
+                            type="text"
+                            placeholder="Parc de Bercy, Café de Flore…"
+                            value={createForm.location_name}
+                            onChange={e => setCreateForm(f => ({ ...f, location_name: e.target.value }))}
+                            maxLength={100}
+                            className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-3.5 pl-9 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Message <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
+                        </label>
+                        <textarea
+                          placeholder="Donne envie ! Infos pratiques, dress code…"
+                          value={createForm.description}
+                          onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))}
+                          rows={3}
+                          maxLength={300}
+                          className="w-full resize-none rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
+                      {/* Friend selector */}
+                      <div>
+                        <label className="block mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Inviter *{" "}
+                          {selectedFriendIds.length > 0 && (
+                            <span className="normal-case text-indigo-600 dark:text-indigo-400">
+                              ({selectedFriendIds.length} sélectionné{selectedFriendIds.length > 1 ? "s" : ""})
+                            </span>
+                          )}
+                        </label>
+                        {following.length === 0 ? (
+                          <p className="text-[12px] text-gray-400 dark:text-zinc-600 py-3 text-center">
+                            Ajoute d&apos;abord des amis pour les inviter
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-4 gap-2">
+                            {following.map(friend => {
+                              const selected = selectedFriendIds.includes(friend.id)
+                              return (
+                                <button
+                                  key={friend.id}
+                                  type="button"
+                                  onClick={() => toggleFriendSelection(friend.id)}
+                                  className={`flex flex-col items-center gap-1.5 rounded-xl p-2 transition-all active:scale-95 ${
+                                    selected
+                                      ? "bg-indigo-500/10 dark:bg-indigo-500/15 ring-2 ring-indigo-500"
+                                      : "hover:bg-gray-50 dark:hover:bg-zinc-900"
+                                  }`}
+                                >
+                                  <div className="relative">
+                                    <div className="h-11 w-11 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                                      {friend.avatar_url ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={friend.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                                      ) : initials(friend.username)}
+                                    </div>
+                                    {selected && (
+                                      <div className="absolute -top-0.5 -right-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-white dark:border-[#0e0e12] bg-indigo-500">
+                                        <Check size={9} className="text-white" />
+                                      </div>
+                                    )}
+                                    {isOnline(friend.last_active_at, friend.is_ghost_mode) && !selected && (
+                                      <div className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0e0e12] bg-green-500" />
+                                    )}
+                                  </div>
+                                  <span className="w-full truncate text-center text-[10px] font-medium text-gray-600 dark:text-zinc-400">
+                                    {friend.username ?? "?"}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Submit */}
+                    <div className="absolute inset-x-0 bottom-0 border-t border-gray-100 dark:border-white/[0.06] bg-white/95 dark:bg-[#0e0e12]/95 backdrop-blur-sm px-5 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-5">
+                      {createError && (
+                        <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
+                          {createError}
+                        </p>
+                      )}
+                      <button
+                        onClick={createOuting}
+                        disabled={creating || !createForm.title.trim() || selectedFriendIds.length === 0}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-500 py-3 text-[14px] font-bold text-white shadow-md shadow-indigo-500/30 transition-all hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
+                      >
+                        {creating ? (
+                          <><LoaderCircle size={15} className="animate-spin" /> Envoi en cours…</>
+                        ) : (
+                          <><CalendarPlus size={15} /> Envoyer les invitations ({selectedFriendIds.length})</>
+                        )}
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
             </div>
           </motion.div>
         </>
@@ -700,127 +1143,344 @@ export default function FriendsModal({
   )
 }
 
-// ---------------------------------------------------------------
-// UserRow Component
-// ---------------------------------------------------------------
-function UserRow({
-  profile,
-  initials,
-  isFollowing,
-  isPending,
-  loading,
-  onSendRequest,
-  onCancelRequest,
-  onUnfollow,
-  onSelectUser,
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Section({
+  title, icon, badge, children,
 }: {
-  profile: Profile
-  initials: string
-  isFollowing: boolean
-  isPending: boolean
-  loading: boolean
-  onSendRequest: () => void
-  onCancelRequest: () => void
-  onUnfollow: () => void
-  onSelectUser?: () => void
+  title: string; icon?: React.ReactNode; badge?: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold tracking-widest text-gray-400 dark:text-zinc-600 uppercase">
+          {icon}{title}
+        </p>
+        {badge}
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  )
+}
+
+function EmptyState({ icon, text, sub }: { icon: React.ReactNode; text: string; sub?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 text-center">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 dark:bg-zinc-900 text-gray-300 dark:text-zinc-700">
+        {icon}
+      </div>
+      <p className="text-sm font-medium text-gray-500 dark:text-zinc-500">{text}</p>
+      {sub && <p className="mt-1 max-w-[200px] text-[11px] text-gray-400 dark:text-zinc-600">{sub}</p>}
+    </div>
+  )
+}
+
+function UserRow({
+  profile, initials, isFollowing, isPending, loading,
+  onSendRequest, onCancelRequest, onUnfollow, onSelectUser, onLocate,
+}: {
+  profile: Profile; initials: string; isFollowing: boolean; isPending: boolean; loading: boolean
+  onSendRequest: () => void; onCancelRequest: () => void; onUnfollow: () => void
+  onSelectUser?: () => void; onLocate?: () => void
 }) {
   const online = isOnline(profile.last_active_at, profile.is_ghost_mode)
-
   return (
     <div
-      className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+      className="group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-gray-50 dark:hover:bg-white/[0.04]"
       onClick={onSelectUser}
     >
-      {/* Avatar */}
       <div className="relative flex-shrink-0">
-        <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
           {profile.avatar_url ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={profile.avatar_url}
-              alt={profile.username || "avatar"}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+          ) : initials}
+        </div>
+        {online && <span className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0e0e12] bg-green-500" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold leading-tight text-gray-900 dark:text-white">
+          @{profile.username ?? "utilisateur"}
+        </p>
+        <p className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-400 dark:text-zinc-600">
+          {online ? (
+            <span className="font-medium text-green-500 dark:text-green-400">En ligne</span>
+          ) : profile.last_active_at ? (
+            <><Clock size={9} />{timeAgo(profile.last_active_at)}</>
+          ) : null}
+        </p>
+      </div>
+      <div className="flex flex-shrink-0 items-center gap-1">
+        {onLocate && (
+          <button
+            onClick={e => { e.stopPropagation(); onLocate() }}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-zinc-700 opacity-0 transition-all group-hover:opacity-100 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-500 dark:hover:text-indigo-400"
+          >
+            <MapPin size={13} />
+          </button>
+        )}
+        {isFollowing ? (
+          <button onClick={e => { e.stopPropagation(); onUnfollow() }} disabled={loading}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50">
+            {loading ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />}
+          </button>
+        ) : isPending ? (
+          <button onClick={e => { e.stopPropagation(); onCancelRequest() }} disabled={loading}
+            className="flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-zinc-800 px-2.5 py-1.5 text-[11px] font-medium text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50">
+            {loading ? <LoaderCircle size={11} className="animate-spin" /> : <><Clock size={11} /> Envoyé</>}
+          </button>
+        ) : (
+          <button onClick={e => { e.stopPropagation(); onSendRequest() }} disabled={loading}
+            className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500 text-white transition-all hover:bg-indigo-400 active:scale-95 disabled:opacity-50">
+            {loading ? <LoaderCircle size={13} className="animate-spin" /> : <UserPlus size={13} />}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SuggestionRow({
+  profile, initials, isPending, loading, mutualCount, onSendRequest, onCancelRequest,
+}: {
+  profile: Profile; initials: string; isPending: boolean; loading: boolean; mutualCount?: number
+  onSendRequest: () => void; onCancelRequest: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-gray-50 dark:hover:bg-white/[0.04]">
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+        {profile.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+        ) : initials}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold leading-tight text-gray-900 dark:text-white">
+          @{profile.username ?? "utilisateur"}
+        </p>
+        {(mutualCount ?? 0) > 0 ? (
+          <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
+            <Users size={9} />{mutualCount} ami{(mutualCount ?? 0) > 1 ? "s" : ""} en commun
+          </p>
+        ) : profile.last_active_at ? (
+          <p className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-400 dark:text-zinc-600">
+            <Clock size={9} />{timeAgo(profile.last_active_at)}
+          </p>
+        ) : null}
+      </div>
+      {isPending ? (
+        <button onClick={onCancelRequest} disabled={loading}
+          className="flex items-center gap-1 rounded-xl bg-gray-100 dark:bg-zinc-800 px-3 py-1.5 text-[11px] font-semibold text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50">
+          {loading ? <LoaderCircle size={11} className="animate-spin" /> : <><Check size={11} /> Envoyé</>}
+        </button>
+      ) : (
+        <button onClick={onSendRequest} disabled={loading}
+          className="flex items-center gap-1.5 rounded-xl bg-indigo-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm shadow-indigo-500/25 transition-all hover:bg-indigo-400 active:scale-95 disabled:opacity-50">
+          {loading ? <LoaderCircle size={11} className="animate-spin" /> : <><UserPlus size={11} /> Suivre</>}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function InvitationRow({
+  req, loading, onAccept, onDecline,
+}: {
+  req: FriendRequest; loading: boolean; onAccept: () => void; onDecline: () => void
+}) {
+  const init = (req.profiles?.username ?? "?").charAt(0).toUpperCase()
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-indigo-500/15 bg-indigo-500/[0.04] dark:bg-indigo-500/[0.06] px-3 py-3">
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-sm font-bold text-white">
+        {req.profiles?.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={req.profiles.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+        ) : init}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">
+          @{req.profiles?.username ?? "utilisateur"}
+        </p>
+        <p className="text-[10px] text-gray-400 dark:text-zinc-600">veut être ton ami</p>
+      </div>
+      <div className="flex gap-1.5">
+        <button onClick={onAccept} disabled={loading}
+          className="flex items-center gap-1 rounded-xl bg-green-500 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm shadow-green-500/25 transition-all hover:bg-green-400 active:scale-95 disabled:opacity-50">
+          {loading ? <LoaderCircle size={11} className="animate-spin" /> : <><Check size={11} /> Accepter</>}
+        </button>
+        <button onClick={onDecline} disabled={loading}
+          className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50">
+          <X size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function OutingCard({
+  outing, currentUserId, onCancel, past = false,
+}: {
+  outing: Outing; currentUserId: string; onCancel: (id: string) => void; past?: boolean
+}) {
+  const isCreator = outing.creator_id === currentUserId
+  const invitations = outing.outing_invitations ?? []
+  const accepted = invitations.filter(i => i.status === "accepted")
+  const pending = invitations.filter(i => i.status === "pending")
+  const declined = invitations.filter(i => i.status === "declined")
+
+  return (
+    <div className={`rounded-xl border p-3 transition-all ${
+      past ? "opacity-55" : ""
+    } ${isCreator
+      ? "border-indigo-500/20 dark:border-indigo-500/15 bg-indigo-500/[0.04] dark:bg-indigo-500/[0.04]"
+      : "border-green-500/20 dark:border-green-500/15 bg-green-500/[0.04] dark:bg-green-500/[0.04]"
+    }`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-gray-900 dark:text-white truncate">
+            {outing.title}
+          </p>
+          {outing.scheduled_at && (
+            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-500">
+              <Calendar size={9} />
+              {formatOutingDate(outing.scheduled_at)}
+            </p>
+          )}
+          {outing.location_name && (
+            <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-600">
+              <MapPin size={9} />{outing.location_name}
+            </p>
           )}
         </div>
-        {online && (
-          <div className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-white dark:border-zinc-900 bg-green-500" />
+        {isCreator && !past && (
+          <button
+            onClick={() => onCancel(outing.id)}
+            title="Annuler la sortie"
+            className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
+          >
+            <X size={12} />
+          </button>
         )}
       </div>
 
-      {/* Name + status */}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-          @{profile.username ?? "utilisateur"}
-        </p>
-        {profile.last_active_at && (
-          <p className="mt-0.5 flex items-center gap-1 truncate text-xs">
-            {online ? (
-              <span className="font-medium text-green-500 dark:text-green-400">En ligne</span>
-            ) : (
-              <span className="flex items-center gap-0.5 text-gray-500 dark:text-zinc-500">
-                <Clock size={9} /> {timeAgo(profile.last_active_at)}
+      {/* Attendees row */}
+      {invitations.length > 0 && (
+        <div className="mt-2.5 flex items-center gap-2">
+          {/* Avatar stack for accepted */}
+          {accepted.length > 0 && (
+            <div className="flex -space-x-2">
+              {accepted.slice(0, 5).map(inv => (
+                <div
+                  key={inv.invitee_id}
+                  className="h-6 w-6 rounded-full border-2 border-white dark:border-[#0e0e12] bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-[9px] font-bold text-white overflow-hidden flex-shrink-0"
+                  title={inv.profiles?.username ?? ""}
+                >
+                  {inv.profiles?.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={inv.profiles.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                  ) : (inv.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-gray-500 dark:text-zinc-500 flex items-center gap-1.5">
+            {accepted.length > 0 && (
+              <span className="flex items-center gap-0.5 text-green-600 dark:text-green-400 font-medium">
+                <CalendarCheck size={9} />{accepted.length} vont
+              </span>
+            )}
+            {pending.length > 0 && (
+              <span className="text-gray-400 dark:text-zinc-600">
+                · {pending.length} en attente
+              </span>
+            )}
+            {declined.length > 0 && (
+              <span className="flex items-center gap-0.5 text-red-400">
+                <CalendarX size={9} />{declined.length} non
               </span>
             )}
           </p>
-        )}
+        </div>
+      )}
+
+      {/* "Créé par" for outings you were invited to */}
+      {!isCreator && outing.profiles?.username && (
+        <p className="mt-1.5 text-[10px] text-gray-400 dark:text-zinc-600">
+          Proposé par @{outing.profiles.username}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function OutingInvitationCard({
+  invitation, onAccept, onDecline,
+}: {
+  invitation: OutingInvitationFull; onAccept: () => void; onDecline: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const outing = invitation.outings
+  const creatorName = outing?.profiles?.username
+
+  const handle = async (fn: () => void) => {
+    setLoading(true)
+    await fn()
+    setLoading(false)
+  }
+
+  return (
+    <div className="rounded-xl border border-violet-500/15 dark:border-violet-500/20 bg-violet-500/[0.04] dark:bg-violet-500/[0.06] p-3.5">
+      {/* Outing info */}
+      <div className="flex items-start gap-3 mb-3">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-violet-500/10 dark:bg-violet-500/15">
+          <CalendarPlus size={16} className="text-violet-600 dark:text-violet-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">
+            {outing?.title ?? "Sortie"}
+          </p>
+          {creatorName && (
+            <p className="text-[11px] text-gray-400 dark:text-zinc-600">
+              @{creatorName} t&apos;invite
+            </p>
+          )}
+          {outing?.scheduled_at && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-violet-600 dark:text-violet-400">
+              <Calendar size={9} />
+              {formatOutingDate(outing.scheduled_at)}
+            </p>
+          )}
+          {outing?.location_name && (
+            <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-600">
+              <MapPin size={9} />{outing.location_name}
+            </p>
+          )}
+          {outing?.description && (
+            <p className="mt-1.5 text-[11px] text-gray-500 dark:text-zinc-500 line-clamp-2">
+              {outing.description}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex flex-shrink-0 items-center gap-1">
-        {isFollowing ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onUnfollow?.()
-            }}
-            disabled={loading}
-            title="Supprimer l'ami"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-          >
-            {loading ? (
-              <LoaderCircle size={14} className="animate-spin" />
-            ) : (
-              <Trash2 size={14} />
-            )}
-          </button>
-        ) : isPending ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onCancelRequest?.()
-            }}
-            disabled={loading}
-            title="Annuler la demande"
-            className="flex items-center gap-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs font-semibold whitespace-nowrap text-gray-500 dark:text-zinc-400 transition-all hover:bg-red-50 dark:hover:bg-red-500/20 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
-          >
-            {loading ? (
-              <LoaderCircle size={12} className="animate-spin" />
-            ) : (
-              <>
-                <Clock size={12} /> En attente
-              </>
-            )}
-          </button>
-        ) : (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onSendRequest?.()
-            }}
-            disabled={loading}
-            title="Envoyer une invitation"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500 text-white transition-all hover:bg-indigo-400 disabled:opacity-50"
-          >
-            {loading ? (
-              <LoaderCircle size={14} className="animate-spin" />
-            ) : (
-              <UserPlus size={14} />
-            )}
-          </button>
-        )}
+      <div className="flex gap-2">
+        <button
+          onClick={() => handle(onAccept)}
+          disabled={loading}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-[12px] font-bold text-white shadow-sm shadow-green-500/25 transition-all hover:bg-green-400 active:scale-[0.98] disabled:opacity-50"
+        >
+          {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarCheck size={12} /> Participer</>}
+        </button>
+        <button
+          onClick={() => handle(onDecline)}
+          disabled={loading}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 py-2 text-[12px] font-semibold text-gray-600 dark:text-zinc-400 transition-all hover:bg-gray-50 dark:hover:bg-zinc-800 active:scale-[0.98] disabled:opacity-50"
+        >
+          {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Décliner</>}
+        </button>
       </div>
     </div>
   )
