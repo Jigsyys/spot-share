@@ -585,15 +585,15 @@ export default function FriendsModal({
   const createOuting = async () => {
     if (!currentUser) return
     setCreateError(null)
-    if (!createForm.title.trim()) { setCreateError("Un titre est requis."); return }
     if (selectedFriendIds.length === 0) { setCreateError("Invite au moins un ami."); return }
+    const title = createForm.title.trim() || selectedLocation?.label || "Sortie"
     setCreating(true)
     try {
       const { data: outing, error } = await supabaseRef.current
         .from("outings")
         .insert({
           creator_id: currentUser.id,
-          title: createForm.title.trim(),
+          title,
           description: createForm.description.trim() || null,
           location_name: selectedLocation?.label ?? null,
           lat: selectedLocation?.lat ?? null,
@@ -1157,26 +1157,11 @@ export default function FriendsModal({
                     </div>
 
                     {/* Form */}
-                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 pb-32">
-                      {/* Title */}
-                      <div>
-                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Titre *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Afterwork, soirée, randonnée…"
-                          value={createForm.title}
-                          onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))}
-                          maxLength={80}
-                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
-                        />
-                      </div>
-
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                       {/* Date & time */}
                       <div>
                         <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Date et heure
+                          Date et heure <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
                         </label>
                         <input
                           type="datetime-local"
@@ -1379,7 +1364,7 @@ export default function FriendsModal({
                     </div>
 
                     {/* Submit */}
-                    <div className="absolute inset-x-0 bottom-0 border-t border-gray-100 dark:border-white/[0.06] bg-white/95 dark:bg-[#0e0e12]/95 backdrop-blur-sm px-5 pt-3 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:pb-5">
+                    <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/[0.06] bg-white/95 dark:bg-[#0e0e12]/95 backdrop-blur-sm px-5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
                       {createError && (
                         <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
                           {createError}
@@ -1387,7 +1372,7 @@ export default function FriendsModal({
                       )}
                       <button
                         onClick={createOuting}
-                        disabled={creating || !createForm.title.trim() || selectedFriendIds.length === 0}
+                        disabled={creating || selectedFriendIds.length === 0}
                         className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-500 py-3 text-[14px] font-bold text-white shadow-md shadow-indigo-500/30 transition-all hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
                       >
                         {creating ? (
