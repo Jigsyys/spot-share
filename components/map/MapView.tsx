@@ -2187,6 +2187,7 @@ export default function MapView() {
         }}
         onSelectUser={setPublicProfileUserId}
         spots={spots}
+        userProfile={userProfile}
       />
       <ProfileModal
         isOpen={showProfileModal}

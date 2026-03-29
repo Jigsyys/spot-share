@@ -155,6 +155,7 @@ interface FriendsModalProps {
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   spots?: Array<{ user_id: string; created_at: string; profiles?: { username: string | null; avatar_url: string | null } }>
+  userProfile?: { username: string | null; avatar_url: string | null } | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,6 +174,7 @@ export default function FriendsModal({
   onLocateFriend,
   onSelectUser,
   spots,
+  userProfile,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
@@ -419,21 +421,32 @@ export default function FriendsModal({
   // ─── Monthly ranking ─────────────────────────────────────────
 
   const monthlyRanking = useMemo<RankEntry[]>(() => {
-    if (!spots?.length || !followingIds.length) return []
+    if (!spots?.length) return []
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    // Include following + current user
+    const includedIds = new Set([...followingIds, ...(currentUser ? [currentUser.id] : [])])
     const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
     spots.forEach(s => {
-      if (!followingIds.includes(s.user_id)) return
+      if (!includedIds.has(s.user_id)) return
       if (new Date(s.created_at) < startOfMonth) return
-      if (!counts[s.user_id]) counts[s.user_id] = { username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null, count: 0 }
+      if (!counts[s.user_id]) {
+        // For current user, prefer userProfile data
+        const username = s.user_id === currentUser?.id
+          ? (userProfile?.username ?? s.profiles?.username ?? null)
+          : (s.profiles?.username ?? null)
+        const avatar_url = s.user_id === currentUser?.id
+          ? (userProfile?.avatar_url ?? s.profiles?.avatar_url ?? null)
+          : (s.profiles?.avatar_url ?? null)
+        counts[s.user_id] = { username, avatar_url, count: 0 }
+      }
       counts[s.user_id].count++
     })
     return Object.entries(counts)
       .map(([userId, v]) => ({ userId, ...v }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 10)
-  }, [spots, followingIds])
+  }, [spots, followingIds, currentUser, userProfile])
 
   // ─── Effect: load on open ────────────────────────────────────
 
@@ -990,8 +1003,10 @@ export default function FriendsModal({
                         {monthlyRanking.map((entry, i) => {
                           const medals = ["🥇", "🥈", "🥉"]
                           const medal = medals[i]
+                          const isMe = entry.userId === currentUser?.id
                           return (
                             <div key={entry.userId} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
+                              isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.07] border-2 border-indigo-300/60 dark:border-indigo-500/30" :
                               i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
                               i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
                               i === 2 ? "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20" :
@@ -1002,21 +1017,23 @@ export default function FriendsModal({
                                   ? <span className="text-lg leading-none">{medal}</span>
                                   : <span className="text-[11px] font-bold text-gray-400 dark:text-zinc-600">#{i + 1}</span>}
                               </div>
-                              <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+                              <div className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-full flex items-center justify-center text-sm font-bold text-white ${isMe ? "bg-gradient-to-br from-blue-500 to-indigo-600 ring-2 ring-indigo-400/50" : "bg-gradient-to-br from-indigo-500 to-purple-600"}`}>
                                 {entry.avatar_url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={entry.avatar_url} alt="avatar" className="h-full w-full object-cover" />
                                 ) : (entry.username?.[0]?.toUpperCase() ?? "?")}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">
+                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
                                   @{entry.username ?? "utilisateur"}
+                                  {isMe && <span className="rounded-full bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600 dark:text-indigo-400">Vous</span>}
                                 </p>
                                 <p className="text-[10px] text-gray-400 dark:text-zinc-600">
                                   {entry.count} spot{entry.count > 1 ? "s" : ""} ce mois
                                 </p>
                               </div>
                               <span className={`text-[15px] font-bold ${
+                                isMe ? "text-indigo-500 dark:text-indigo-400" :
                                 i === 0 ? "text-amber-500" :
                                 i === 1 ? "text-gray-400 dark:text-zinc-500" :
                                 i === 2 ? "text-orange-400" :
@@ -1193,52 +1210,99 @@ export default function FriendsModal({
                             </button>
                           </div>
                         ) : (
-                          <div className="relative">
-                            <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600 z-10" />
-                            <input
-                              type="text"
-                              placeholder="Chercher un spot ou un lieu…"
-                              value={locationQuery}
-                              onChange={e => {
-                                const val = e.target.value
-                                setLocationQuery(val)
-                                if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current)
-                                locationDebounceRef.current = setTimeout(() => searchLocations(val), 400)
-                              }}
-                              className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-8 pl-9 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
-                            />
-                            {locationLoading && (
-                              <LoaderCircle size={14} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
-                            )}
-                            {locationResults.length > 0 && (
-                              <div className="absolute top-full left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-zinc-900 shadow-xl">
-                                {locationResults.map((r, i) => (
-                                  <button
-                                    key={r.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedLocation(r)
-                                      setLocationQuery("")
-                                      setLocationResults([])
-                                    }}
-                                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors ${i > 0 ? "border-t border-gray-100 dark:border-white/[0.04]" : ""}`}
-                                  >
-                                    <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${r.isAppSpot ? "bg-indigo-100 dark:bg-indigo-500/15" : "bg-gray-100 dark:bg-zinc-800"}`}>
-                                      <MapPin size={12} className={r.isAppSpot ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-600"} />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="truncate text-[12px] font-semibold text-gray-900 dark:text-white">{r.label}</p>
-                                      {r.sublabel && <p className="truncate text-[10px] text-gray-400 dark:text-zinc-600">{r.sublabel}</p>}
-                                    </div>
-                                    {r.isAppSpot && (
-                                      <span className="flex-shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400">
-                                        App
-                                      </span>
-                                    )}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                          <div className="space-y-2">
+                            {/* Mes spots — quick picks */}
+                            {(() => {
+                              const mySpots = (spots ?? []).filter((s: any) => s.user_id === currentUser?.id).slice(0, 10)
+                              if (mySpots.length === 0) return null
+                              return (
+                                <div>
+                                  <p className="mb-1.5 text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-wider">
+                                    Mes spots
+                                  </p>
+                                  <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5">
+                                    {mySpots.map((s: any) => {
+                                      const img = s.image_url?.split(",")[0]?.trim() || null
+                                      return (
+                                        <button
+                                          key={s.id}
+                                          type="button"
+                                          onClick={() => setSelectedLocation({
+                                            id: `spot-${s.id}`,
+                                            label: s.title,
+                                            sublabel: "Mon spot",
+                                            lat: s.lat,
+                                            lng: s.lng,
+                                            isAppSpot: true,
+                                            spotId: s.id,
+                                          })}
+                                          className="flex-shrink-0 w-24 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-zinc-900 text-left transition-all active:scale-95 hover:border-indigo-400/60 dark:hover:border-indigo-500/40"
+                                        >
+                                          <div className="relative h-14 w-full overflow-hidden bg-gray-100 dark:bg-zinc-800">
+                                            {img
+                                              // eslint-disable-next-line @next/next/no-img-element
+                                              ? <img src={img} alt={s.title} className="h-full w-full object-cover" />
+                                              : <div className="flex h-full w-full items-center justify-center text-xl">{s.category ? "📍" : "📍"}</div>}
+                                          </div>
+                                          <div className="px-1.5 py-1">
+                                            <p className="truncate text-[10px] font-semibold text-gray-800 dark:text-zinc-200">{s.title}</p>
+                                          </div>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            })()}
+
+                            {/* Search field */}
+                            <div className="relative">
+                              <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400 dark:text-zinc-600 z-10" />
+                              <input
+                                type="text"
+                                placeholder="Ou chercher un autre lieu…"
+                                value={locationQuery}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setLocationQuery(val)
+                                  if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current)
+                                  locationDebounceRef.current = setTimeout(() => searchLocations(val), 400)
+                                }}
+                                className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 py-2.5 pr-8 pl-9 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                              />
+                              {locationLoading && (
+                                <LoaderCircle size={14} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
+                              )}
+                              {locationResults.length > 0 && (
+                                <div className="absolute top-full left-0 right-0 z-20 mt-1 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-zinc-900 shadow-xl">
+                                  {locationResults.map((r, i) => (
+                                    <button
+                                      key={r.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedLocation(r)
+                                        setLocationQuery("")
+                                        setLocationResults([])
+                                      }}
+                                      className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors ${i > 0 ? "border-t border-gray-100 dark:border-white/[0.04]" : ""}`}
+                                    >
+                                      <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${r.isAppSpot ? "bg-indigo-100 dark:bg-indigo-500/15" : "bg-gray-100 dark:bg-zinc-800"}`}>
+                                        <MapPin size={12} className={r.isAppSpot ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-600"} />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-[12px] font-semibold text-gray-900 dark:text-white">{r.label}</p>
+                                        {r.sublabel && <p className="truncate text-[10px] text-gray-400 dark:text-zinc-600">{r.sublabel}</p>}
+                                      </div>
+                                      {r.isAppSpot && (
+                                        <span className="flex-shrink-0 rounded-full bg-indigo-100 dark:bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                          App
+                                        </span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

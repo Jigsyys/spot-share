@@ -344,7 +344,6 @@ function SpotListRow({
 
 type DistSpot = { spot: Spot; distance: number | undefined }
 type FriendProfile = { id: string; username: string | null; avatar_url: string | null }
-type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -422,21 +421,6 @@ export default function ExploreModal({
     return result
   }, [spots, followingIds])
 
-  // Classement mensuel des amis
-  const monthlyRanking = useMemo(() => {
-    const monthStart = new Date()
-    monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
-    const friendSet = new Set(followingIds)
-    const counts = new Map<string, { userId: string; username: string | null; avatar_url: string | null; count: number }>()
-    for (const spot of spots) {
-      if (!friendSet.has(spot.user_id)) continue
-      if (new Date(spot.created_at) < monthStart) continue
-      const entry = counts.get(spot.user_id)
-      if (entry) { entry.count++ }
-      else { counts.set(spot.user_id, { userId: spot.user_id, username: spot.profiles?.username ?? null, avatar_url: spot.profiles?.avatar_url ?? null, count: 1 }) }
-    }
-    return [...counts.values()].sort((a: { count: number }, b: { count: number }) => b.count - a.count).slice(0, 5)
-  }, [spots, followingIds])
 
   // Filter expired spots
   const now = useMemo(() => Date.now(), [])
@@ -768,30 +752,6 @@ export default function ExploreModal({
                       </button>
                     )}
 
-                    {/* Classement mensuel — compact strip */}
-                    {!hasFilters && monthlyRanking.length > 0 && (
-                      <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 px-3 py-2.5">
-                        <span className="text-sm flex-shrink-0">🏆</span>
-                        <div className="no-scrollbar flex flex-1 items-center gap-3 overflow-x-auto">
-                          {monthlyRanking.map((entry: RankEntry, idx: number) => (
-                            <div key={entry.userId} className="flex flex-shrink-0 items-center gap-1.5">
-                              <span className="text-xs leading-none">{idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`}</span>
-                              <div className="h-6 w-6 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-[10px] font-bold text-white flex items-center justify-center">
-                                {entry.avatar_url
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : (entry.username ?? "?")[0]?.toUpperCase()
-                                }
-                              </div>
-                              <span className="truncate max-w-[4rem] text-[11px] font-semibold text-gray-700 dark:text-zinc-300">
-                                {entry.username ?? "ami"}
-                              </span>
-                              <span className="text-[10px] font-bold text-indigo-500">{entry.count}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Avatars amis — clic pour filtrer inline */}
                     {friendProfiles.length > 0 && (
