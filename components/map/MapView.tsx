@@ -1994,12 +1994,14 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar */}
+      {/* Bottom Navigation Bar — mobile: full-width bar | desktop: floating pill dock */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[100] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
+        className="fixed right-0 bottom-0 left-0 z-[100] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:right-auto sm:bottom-6 sm:left-1/2 sm:-translate-x-1/2 sm:rounded-2xl sm:border sm:border-gray-200/80 dark:sm:border-white/[0.08] sm:bg-white/95 dark:sm:bg-zinc-900/95 sm:shadow-2xl sm:shadow-black/[0.12] dark:sm:shadow-black/60 sm:backdrop-blur-2xl"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="flex h-16 items-center justify-around px-2">
+        <div className="flex h-16 items-center justify-around px-2 sm:h-[3.75rem] sm:items-center sm:justify-normal sm:gap-1 sm:px-2">
+
+          {/* Carte */}
           <button
             onClick={() => {
               setSelectedSpot(null)
@@ -2009,23 +2011,17 @@ export default function MapView() {
               setShowExploreModal(false)
             }}
             className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               !showProfileModal && !showFriendsModal && !showAddModal
-                 ? "text-blue-600 dark:text-indigo-400"
-                 : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
+              !showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal
+                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
             )}
           >
-            <MapPin
-              size={22}
-              className={
-                !selectedSpot && !showProfileModal && !showFriendsModal && !showAddModal
-                  ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
-                  : ""
-              }
-            />
-            <span className="text-[10px] font-medium">Carte</span>
+            <MapPin size={22} className="sm:h-[18px] sm:w-[18px]" />
+            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Carte</span>
           </button>
 
+          {/* Amis */}
           <button
             onClick={() => {
               fetchFollowing()
@@ -2035,22 +2031,25 @@ export default function MapView() {
               setShowFriendsModal(true)
             }}
             className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showFriendsModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
+              showFriendsModal
+                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
             )}
           >
             <div className="relative">
-              <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+              <Users size={22} className="sm:h-[18px] sm:w-[18px]" />
               {incomingCount > 0 && (
                 <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {incomingCount}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-medium">Amis</span>
+            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Amis</span>
           </button>
 
-          <div className="relative -top-5">
+          {/* Add — floating on mobile, inline pill on desktop */}
+          <div className="relative -top-5 sm:top-0 sm:mx-1">
             <button
               onClick={() => {
                 setShowProfileModal(false)
@@ -2058,12 +2057,14 @@ export default function MapView() {
                 setShowExploreModal(false)
                 handleOpenAddSpot()
               }}
-              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
+              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95 sm:h-9 sm:w-9 sm:rounded-xl sm:border-0"
             >
-              <Plus size={24} strokeWidth={3} />
+              <Plus size={24} strokeWidth={3} className="sm:hidden" />
+              <Plus size={18} strokeWidth={2.5} className="hidden sm:block" />
             </button>
           </div>
 
+          {/* Explorer */}
           <button
             onClick={() => {
               setShowProfileModal(false)
@@ -2072,16 +2073,17 @@ export default function MapView() {
               setShowExploreModal(true)
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
+              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
               showExploreModal
-                ? "text-blue-600 dark:text-indigo-400"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
             )}
           >
-            <Search size={22} className={showExploreModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
-            <span className="text-[10px] font-medium">Explorer</span>
+            <Search size={22} className="sm:h-[18px] sm:w-[18px]" />
+            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Explorer</span>
           </button>
 
+          {/* Profil */}
           <button
             onClick={() => {
               setShowFriendsModal(false)
@@ -2091,20 +2093,23 @@ export default function MapView() {
               markLikesSeen()
             }}
             className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showProfileModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "flex w-16 flex-col items-center gap-1 p-2 transition-all sm:w-auto sm:flex-row sm:gap-2 sm:rounded-xl sm:px-4 sm:py-2.5",
+              showProfileModal
+                ? "text-blue-600 dark:text-indigo-400 sm:bg-indigo-500/10 dark:sm:bg-indigo-500/[0.15]"
+                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300 sm:hover:bg-gray-100 dark:sm:hover:bg-white/[0.06]"
             )}
           >
             <div className="relative">
-              <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+              <User size={22} className="sm:h-[18px] sm:w-[18px]" />
               {newLikesCount > 0 && (
                 <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
                   {newLikesCount > 9 ? "9+" : newLikesCount}
                 </div>
               )}
             </div>
-            <span className="text-[10px] font-medium">Profil</span>
+            <span className="text-[10px] font-medium sm:text-[13px] sm:font-semibold">Profil</span>
           </button>
+
         </div>
       </div>
 
