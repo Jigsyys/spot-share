@@ -383,7 +383,9 @@ export default function MapView() {
         throw error
       }
 
-      const firstPage = data && data.length > 0 ? (data as Spot[]) : DEMO_SPOTS
+      const now = Date.now()
+      const filterExpired = (list: Spot[]) => list.filter(s => !s.expires_at || new Date(s.expires_at).getTime() > now)
+      const firstPage = data && data.length > 0 ? filterExpired(data as Spot[]) : DEMO_SPOTS
       setSpots(firstPage)
 
       // Charger les pages suivantes en arrière-plan si la première tranche était pleine
@@ -399,7 +401,7 @@ export default function MapView() {
           if (!more || more.length === 0) { hasMore = false; break }
           setSpots(prev => {
             const existingIds = new Set(prev.map(s => s.id))
-            const fresh = (more as Spot[]).filter(s => !existingIds.has(s.id))
+            const fresh = filterExpired(more as Spot[]).filter(s => !existingIds.has(s.id))
             return fresh.length > 0 ? [...prev, ...fresh] : prev
           })
           offset += PAGE_SIZE
@@ -860,6 +862,7 @@ export default function MapView() {
     opening_hours: Record<string, string> | null
     weekday_descriptions: string[] | null
     maps_url: string | null
+    expires_at: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
 
