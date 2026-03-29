@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   Heart,
   SlidersHorizontal,
+  Shuffle,
 } from "lucide-react"
 import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -48,6 +49,12 @@ const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
 const LIGHT_HIDDEN_LAYERS = ["motorway", "trunk", "poi", "landmark", "monument", "tourism", "transit-label", "airport-label"]
 // Classes de route à exclure des labels (numéros A1, A4…)
 const LIGHT_HIDDEN_ROAD_CLASSES = ["motorway", "motorway_link", "trunk", "trunk_link"]
+
+function geoDistKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371, dLat = ((lat2 - lat1) * Math.PI) / 180, dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 // Couche fill-extrusion pour les bâtiments 3D — thème sombre
 const BUILDINGS_LAYER = {
@@ -284,7 +291,7 @@ export default function MapView() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
   const [showExploreModal, setShowExploreModal] = useState(false)
-  const [surprisePin, setSurprisePin] = useState<{ spot: Spot; expiresAt: number } | null>(null)
+  const [surprisePin, setSurprisePin] = useState<{ spot: Spot } | null>(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [publicProfileUserId, setPublicProfileUserId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -620,14 +627,34 @@ export default function MapView() {
     fetchFriendLocations()
   }, [fetchFriendLocations])
 
-  // Auto-clear surprise pin after 30 min
-  useEffect(() => {
-    if (!surprisePin) return
-    const remaining = surprisePin.expiresAt - Date.now()
-    if (remaining <= 0) { setSurprisePin(null); return }
-    const t = setTimeout(() => setSurprisePin(null), remaining)
-    return () => clearTimeout(t)
-  }, [surprisePin])
+  const handleSurpriseFromMap = useCallback(() => {
+    if (!followingIds.length) { toast.error("Suis des amis pour utiliser cette fonctionnalité !"); return }
+    const friendSet = new Set(followingIds)
+    const friendSpots = spots.filter(s =>
+      friendSet.has(s.user_id) && (!s.expires_at || new Date(s.expires_at).getTime() > Date.now())
+    )
+    if (!friendSpots.length) { toast.error("Tes amis n'ont pas encore ajouté de spots."); return }
+
+    let pool = friendSpots
+    if (userLocation) {
+      const nearby = friendSpots.filter(s => geoDistKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= 30)
+      if (nearby.length > 0) pool = nearby
+    }
+    // Évite de retomber sur le même spot
+    if (pool.length > 1 && surprisePin?.spot.id) {
+      const filtered = pool.filter(s => s.id !== surprisePin.spot.id)
+      if (filtered.length > 0) pool = filtered
+    }
+
+    const picked = pool[Math.floor(Math.random() * pool.length)]
+    setSurprisePin({ spot: picked })
+    setFilter("friends")
+    setVisibleFriendIds(followingIds)
+    setFriendFilterIds(new Set())
+    setSelectedSpot(picked)
+    setShowExploreModal(false)
+    mapRef.current?.flyTo({ center: [picked.lng, picked.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
+  }, [followingIds, spots, userLocation, surprisePin])
 
   useEffect(() => {
     if (!user) return
@@ -1439,6 +1466,18 @@ export default function MapView() {
               ))}
             </div>
 
+            {/* Bouton Surprends-moi — visible en mode Amis */}
+            {filter === "friends" && (
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={handleSurpriseFromMap}
+                className="flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-600/90 dark:bg-violet-700/90 backdrop-blur-md px-3 py-2 text-xs font-semibold text-white shadow-md shadow-violet-600/30 transition-all hover:bg-violet-500"
+              >
+                <Shuffle size={13} />
+                Surprends-moi
+              </motion.button>
+            )}
+
             {/* Bouton filtre amis — petit, discret, visible seulement en mode Amis */}
             {filter === "friends" && friendProfiles.length > 0 && (
               <div className="relative">
@@ -1592,7 +1631,7 @@ export default function MapView() {
         </motion.button>
       </div>
 
-      {/* Surprise pin countdown badge */}
+      {/* Surprise pin badge */}
       <AnimatePresence>
         {surprisePin && (
           <motion.button
@@ -1601,16 +1640,14 @@ export default function MapView() {
             exit={{ opacity: 0, y: -10 }}
             onClick={() => {
               setSelectedSpot(surprisePin.spot)
+              setFilter("friends")
+              setVisibleFriendIds(followingIds)
               mapRef.current?.flyTo({ center: [surprisePin.spot.lng, surprisePin.spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
-              setShowExploreModal(true)
             }}
             className="pointer-events-auto absolute top-[calc(4rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 rounded-2xl bg-violet-600/90 backdrop-blur-md px-4 py-2.5 text-sm font-bold text-white shadow-xl shadow-violet-600/30"
           >
             <span className="animate-pulse">🎲</span>
-            <span className="truncate max-w-[150px]">{surprisePin.spot.title}</span>
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">
-              {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))}min
-            </span>
+            <span className="truncate max-w-[160px]">{surprisePin.spot.title}</span>
             <button
               onClick={(e) => { e.stopPropagation(); setSurprisePin(null) }}
               className="ml-1 opacity-70 hover:opacity-100"
@@ -2174,9 +2211,13 @@ export default function MapView() {
           })
         }}
         onSurprise={(spot) => {
-          setSurprisePin({ spot, expiresAt: Date.now() + 30 * 60 * 1000 })
+          setSurprisePin({ spot })
+          setFilter("friends")
+          setVisibleFriendIds(followingIds)
+          setFriendFilterIds(new Set())
+          setShowExploreModal(false)
           setSelectedSpot(spot)
-          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
+          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
         }}
       />
 

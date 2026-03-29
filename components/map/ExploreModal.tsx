@@ -356,7 +356,7 @@ interface ExploreModalProps {
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
   followingIds?: string[]
-  surprisePin?: { spot: Spot; expiresAt: number } | null
+  surprisePin?: { spot: Spot } | null
   savedSpotIds?: Set<string>
   onSelectUser?: (userId: string) => void
   onSurprise?: (spot: Spot) => void
@@ -493,27 +493,22 @@ export default function ExploreModal({
     )
     if (!friendSpots.length) return
     setSurpriseLoading(true)
-    setMode("friends")
-    setFriendFilter(null)
     setTimeout(() => {
-      let pool: { spot: Spot; distance: number | undefined }[] = friendSpots.map((s: Spot) => ({
-        spot: s,
-        distance: userLocation
-          ? distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng)
-          : undefined,
-      }))
+      // Strict 30km radius — fallback to all friends' spots if none nearby
+      let pool = friendSpots
       if (userLocation) {
-        const nearby = pool.filter(({ distance }) => distance !== undefined && distance < 50)
+        const nearby = friendSpots.filter((s: Spot) => distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= 30)
         if (nearby.length > 0) pool = nearby
       }
+      // Avoid picking the same spot twice in a row
       if (pool.length > 1 && lastPickedIdRef.current) {
-        const filtered = pool.filter(({ spot }) => spot.id !== lastPickedIdRef.current)
+        const filtered = pool.filter((s: Spot) => s.id !== lastPickedIdRef.current)
         if (filtered.length > 0) pool = filtered
       }
       const picked = pool[Math.floor(Math.random() * pool.length)]
-      lastPickedIdRef.current = picked.spot.id
+      lastPickedIdRef.current = picked.id
       setSurpriseLoading(false)
-      onSurprise?.(picked.spot)
+      onSurprise?.(picked)
     }, 600)
   }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots])
 
@@ -738,15 +733,15 @@ export default function ExploreModal({
                   <div className="space-y-6">
 
                     {/* Surprise pin active banner */}
-                    {surprisePin && surprisePin.expiresAt > Date.now() && (
+                    {surprisePin && (
                       <button
                         onClick={() => onSelectSpot(surprisePin.spot)}
                         className="w-full flex items-center gap-3 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3 text-left"
                       >
-                        <span className="text-2xl">🎲</span>
+                        <span className="text-2xl animate-pulse">🎲</span>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-bold text-white">{surprisePin.spot.title}</p>
-                          <p className="text-xs text-white/70">Spot surprise · expire dans {Math.max(0, Math.ceil((surprisePin.expiresAt - Date.now()) / 60000))} min</p>
+                          <p className="text-xs text-white/70">Spot surprise — clique pour y aller</p>
                         </div>
                         <MapPin size={16} className="flex-shrink-0 text-white/80" />
                       </button>
