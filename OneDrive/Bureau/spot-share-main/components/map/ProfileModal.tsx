@@ -301,17 +301,37 @@ export default function ProfileModal({
   // ---------------------------------------------------------------
   const handleDeleteAccount = async () => {
     if (!user) return
-    if (!window.confirm("Es-tu sûr ? Cette action est irréversible.")) return
+    if (!window.confirm("Es-tu sûr ? Tous tes spots, relations et données seront définitivement supprimés.")) return
     setDeletingAccount(true)
     try {
-      await supabaseRef.current.from("spots").delete().eq("user_id", user.id)
-      await supabaseRef.current.from("profiles").delete().eq("id", user.id)
+      // 1. Supprimer les images de spots depuis le storage
+      const { data: spotFiles } = await supabaseRef.current.storage
+        .from("avatars")
+        .list("spots", { search: user.id, limit: 200 })
+      if (spotFiles && spotFiles.length > 0) {
+        await supabaseRef.current.storage
+          .from("avatars")
+          .remove(spotFiles.map(f => `spots/${f.name}`))
+      }
+
+      // 2. Supprimer l'avatar depuis le storage
+      const { data: avatarFiles } = await supabaseRef.current.storage
+        .from("avatars")
+        .list("", { search: user.id, limit: 10 })
+      if (avatarFiles && avatarFiles.length > 0) {
+        await supabaseRef.current.storage
+          .from("avatars")
+          .remove(avatarFiles.map(f => f.name))
+      }
+
+      // 3. Supprimer le compte auth + cascade (spots, profil, réactions,
+      //    visites, sorties, invitations, relations amis)
       await supabaseRef.current.rpc("delete_user")
+
       await supabaseRef.current.auth.signOut()
-      window.location.reload()
+      window.location.href = "/login"
     } catch {
       toast.error("Erreur lors de la suppression du compte.")
-    } finally {
       setDeletingAccount(false)
     }
   }
@@ -406,7 +426,7 @@ export default function ProfileModal({
           spotId: r.spot_id,
           spotTitle: spot?.title ?? "Spot",
           spotCategory: spot?.category ?? null,
-          spotImageUrl: spot?.image_url ?? null,
+          spotImageUrl: spot?.image_url?.split(",")[0]?.trim() ?? null,
           spotLat: spot?.lat ?? 0,
           spotLng: spot?.lng ?? 0,
           likerUsername: liker?.username ?? null,

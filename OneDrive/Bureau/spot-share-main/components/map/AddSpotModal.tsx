@@ -1,0 +1,724 @@
+"use client"
+
+import { useState, useEffect, useRef, useCallback } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  X,
+  Search,
+  Instagram,
+  MapPin,
+  Plus,
+  LoaderCircle,
+  Link2,
+  PenLine,
+  Sparkles,
+  UploadCloud,
+  Clipboard,
+  Wand2,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/client"
+import type { GeocodingResult } from "@/lib/types"
+import { toast } from "sonner"
+import { CATEGORIES } from "@/lib/categories"
+
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
+
+interface AddSpotModalProps {
+  isOpen: boolean
+  onClose: () => void
+  onAdd: (spot: {
+    title: string
+    description: string | null
+    lat: number
+    lng: number
+    category: string
+    instagram_url: string | null
+    image_url: string | null
+    address: string | null
+    opening_hours: Record<string, string> | null
+    weekday_descriptions: string[] | null
+    maps_url: string | null
+    expires_at: string | null
+  }) => Promise<void>
+  initialUrl?: string
+  userLat?: number
+  userLng?: number
+}
+
+type Tab = "instagram" | "manual"
+
+// ─── Helper : applique les données retournées par l'IA ────────────────────────
+type AiData = {
+  title?: string
+  description?: string
+  category?: string
+  photos?: string[]
+  image_url?: string
+  maps_url?: string
+  weekday_descriptions?: string[]
+  opening_hours?: Record<string, string>
+  coordinates?: { lat: number; lng: number }
+  location?: string
+}
+
+export default function AddSpotModal({
+  isOpen,
+  onClose,
+  onAdd,
+  initialUrl,
+  userLat,
+  userLng,
+}: AddSpotModalProps) {
+  const [tab, setTab] = useState<Tab>("instagram")
+
+  // ── Shared : place search ──────────────────────────────────────────────────
+  const [placeQuery, setPlaceQuery] = useState("")
+  const [placeResults, setPlaceResults] = useState<GeocodingResult[]>([])
+  const [selectedPlace, setSelectedPlace] = useState<GeocodingResult | null>(null)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // ── Instagram tab state ────────────────────────────────────────────────────
+  const [instagramUrl, setInstagramUrl] = useState("")
+  const [igTitle, setIgTitle] = useState("")
+  const [igDescription, setIgDescription] = useState("")
+  const [igCategory, setIgCategory] = useState("café")
+  const [igImageUrl, setIgImageUrl] = useState<string | null>(null)
+  const [igOpeningHours, setIgOpeningHours] = useState<Record<string, string> | null>(null)
+  const [igWeekdayDescriptions, setIgWeekdayDescriptions] = useState<string[] | null>(null)
+  const [igMapsUrl, setIgMapsUrl] = useState<string | null>(null)
+  const [autoFillLoading, setAutoFillLoading] = useState(false)
+  const [autoFillDone, setAutoFillDone] = useState(false)
+
+  // ── Manual tab state ───────────────────────────────────────────────────────
+  const [manTitle, setManTitle] = useState("")
+  const [manDescription, setManDescription] = useState("")
+  const [manCategory, setManCategory] = useState("café")
+  const [manImageUrl, setManImageUrl] = useState<string | null>(null)
+  const [manOpeningHours, setManOpeningHours] = useState<Record<string, string> | null>(null)
+  const [manWeekdayDescriptions, setManWeekdayDescriptions] = useState<string[] | null>(null)
+  const [manMapsUrl, setManMapsUrl] = useState<string | null>(null)
+  const [manAiFillLoading, setManAiFillLoading] = useState(false)
+  const [manAiFillDone, setManAiFillDone] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
+
+  // ── Ephemeral spot ─────────────────────────────────────────────────────────
+  const [isEphemeral, setIsEphemeral] = useState(false)
+  const [ephemeralDate, setEphemeralDate] = useState("")
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const igDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const supabaseRef = useRef(createClient())
+
+  // ── Geocoding helper (shared) ──────────────────────────────────────────────
+  const applyCoordinates = useCallback(async (data: AiData, fallbackName: string) => {
+    if (data.coordinates?.lat && data.coordinates?.lng) {
+      const placeName = data.location || fallbackName
+      setPlaceQuery(placeName)
+      setSelectedPlace({
+        id: `ai-${Date.now()}`,
+        place_name: placeName,
+        center: [data.coordinates.lng, data.coordinates.lat],
+      })
+    } else if (data.location) {
+      setPlaceQuery(data.location)
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(data.location)}.json?access_token=${MAPBOX_TOKEN}&limit=1&language=fr`
+        )
+        const json = await res.json()
+        if (json.features?.length > 0) {
+          const best = json.features[0]
+          setSelectedPlace({ id: best.id, place_name: best.place_name, center: best.center })
+        }
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  // ── Image upload (manual tab) ──────────────────────────────────────────────
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]
+    const MAX_SIZE = 10 * 1024 * 1024
+    for (let i = 0; i < files.length; i++) {
+      if (!ALLOWED_TYPES.includes(files[i].type)) {
+        toast.error(`Fichier non supporté : ${files[i].name}. Formats acceptés : JPG, PNG, WebP.`)
+        return
+      }
+      if (files[i].size > MAX_SIZE) {
+        toast.error(`${files[i].name} dépasse la limite de 10 Mo.`)
+        return
+      }
+    }
+    setUploadingImage(true)
+    try {
+      const { data: { session } } = await supabaseRef.current.auth.getSession()
+      const userId = session?.user?.id || "anonymous"
+      const newUrls: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const ext = file.name.split(".").pop() || "jpg"
+        const filePath = `spots/${userId}-${Date.now()}-${i}.${ext}`
+        const { error } = await supabaseRef.current.storage.from("avatars").upload(filePath, file)
+        if (error) throw error
+        const { data } = supabaseRef.current.storage.from("avatars").getPublicUrl(filePath)
+        newUrls.push(data.publicUrl)
+      }
+      setManImageUrl((prev) => prev ? `${prev},${newUrls.join(",")}` : newUrls.join(","))
+      toast.success(`${files.length} photo(s) ajoutée(s) !`)
+    } catch {
+      toast.error("Erreur lors de l'upload de l'image")
+    } finally {
+      setUploadingImage(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  // ── Instagram auto-fill ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (tab !== "instagram") return
+    const url = instagramUrl.trim()
+    if (!url || (!url.includes("instagram.com") && !url.includes("tiktok.com"))) {
+      setAutoFillDone(false)
+      return
+    }
+    if (autoFillDone) return
+
+    if (igDebounceRef.current) clearTimeout(igDebounceRef.current)
+    igDebounceRef.current = setTimeout(async () => {
+      setAutoFillLoading(true)
+      try {
+        const locParams = userLat != null && userLng != null ? `&lat=${userLat}&lng=${userLng}` : ""
+        const res = await fetch(`/api/instagram?url=${encodeURIComponent(url)}${locParams}`)
+        const data: AiData & { error?: string } = await res.json()
+
+        if (!res.ok || data.error) {
+          toast.error(data.error || "Impossible d'analyser le lien (compte privé ou invalide ?)")
+          setAutoFillDone(false)
+          return
+        }
+
+        if (data.title) setIgTitle(data.title)
+        if (data.description && !igDescription) setIgDescription(data.description)
+        if (data.category) {
+          const cat = data.category.toLowerCase()
+          if (CATEGORIES.some((c) => c.key === cat)) setIgCategory(cat)
+        }
+        if (data.photos?.length) setIgImageUrl(data.photos.join(","))
+        else if (data.image_url) setIgImageUrl(data.image_url)
+        if (data.maps_url) setIgMapsUrl(data.maps_url)
+        if (data.weekday_descriptions?.length) setIgWeekdayDescriptions(data.weekday_descriptions)
+        if (data.opening_hours) setIgOpeningHours(data.opening_hours)
+        await applyCoordinates(data, data.title || url)
+
+        setAutoFillDone(true)
+        toast.success("Spot pré-rempli avec l'IA !")
+      } catch {
+        toast.error("Échec de la connexion à l'IA.")
+        setAutoFillDone(false)
+      } finally {
+        setAutoFillLoading(false)
+      }
+    }, 900)
+    return () => { if (igDebounceRef.current) clearTimeout(igDebounceRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instagramUrl, tab])
+
+  useEffect(() => { setAutoFillDone(false) }, [instagramUrl])
+
+  // ── Manual AI search ───────────────────────────────────────────────────────
+  const handleManualAiFill = useCallback(async () => {
+    if (!manTitle.trim()) return
+    setManAiFillLoading(true)
+    setManAiFillDone(false)
+    try {
+      const locParams = userLat != null && userLng != null ? `&lat=${userLat}&lng=${userLng}` : ""
+      const res = await fetch(`/api/search-place?name=${encodeURIComponent(manTitle.trim())}${locParams}`)
+      const data: AiData & { error?: string } = await res.json()
+
+      if (!res.ok || data.error) {
+        toast.error(data.error || "Lieu introuvable. Essaie un nom plus précis.")
+        return
+      }
+
+      // Remplace le titre saisi (potentiellement mal orthographié) par le nom officiel
+      if (data.title) setManTitle(data.title)
+      if (data.description) setManDescription(data.description)
+      if (data.category) {
+        const cat = data.category.toLowerCase()
+        if (CATEGORIES.some((c) => c.key === cat)) setManCategory(cat)
+      }
+      if (data.photos?.length) setManImageUrl(data.photos.join(","))
+      else if (data.image_url) setManImageUrl(data.image_url)
+      if (data.maps_url) setManMapsUrl(data.maps_url)
+      if (data.weekday_descriptions?.length) setManWeekdayDescriptions(data.weekday_descriptions)
+      if (data.opening_hours) setManOpeningHours(data.opening_hours)
+      await applyCoordinates(data, manTitle)
+
+      setManAiFillDone(true)
+      toast.success("Spot pré-rempli avec l'IA !")
+    } catch {
+      toast.error("Échec de la recherche IA.")
+    } finally {
+      setManAiFillLoading(false)
+    }
+  }, [manTitle, userLat, userLng, applyCoordinates])
+
+  // ── Place search (shared) ──────────────────────────────────────────────────
+  const searchPlaces = useCallback(async (query: string) => {
+    if (query.length < 3) { setPlaceResults([]); return }
+    setSearchLoading(true)
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=5&language=fr`
+      )
+      const data = await res.json()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setPlaceResults(data.features?.map((f: any) => ({ id: f.id, place_name: f.place_name, center: f.center })) ?? [])
+    } catch {
+      setPlaceResults([])
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchPlaces(placeQuery), 350)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [placeQuery, searchPlaces])
+
+  // ── Reset on close ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen) {
+      setTimeout(() => {
+        setTab("instagram")
+        setInstagramUrl("")
+        // Instagram tab reset
+        setIgTitle(""); setIgDescription(""); setIgCategory("café")
+        setIgImageUrl(null); setIgOpeningHours(null); setIgWeekdayDescriptions(null); setIgMapsUrl(null)
+        setAutoFillDone(false); setAutoFillLoading(false)
+        // Manual tab reset
+        setManTitle(""); setManDescription(""); setManCategory("café")
+        setManImageUrl(null); setManOpeningHours(null); setManWeekdayDescriptions(null); setManMapsUrl(null)
+        setManAiFillDone(false); setManAiFillLoading(false)
+        // Shared reset
+        setPlaceQuery(""); setPlaceResults([]); setSelectedPlace(null); setError(null)
+      }, 300)
+    } else if (initialUrl && !instagramUrl) {
+      setTab("instagram")
+      setInstagramUrl(initialUrl)
+    }
+  }, [isOpen, initialUrl, instagramUrl])
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    setError(null)
+    if (!selectedPlace) { setError("Sélectionne un lieu !"); return }
+    const finalTitle = (tab === "instagram" ? igTitle : manTitle).trim()
+    if (!finalTitle) { setError("Ajoute un titre !"); return }
+    setSubmitting(true)
+    try {
+      await onAdd({
+        title: finalTitle,
+        description: (tab === "instagram" ? igDescription : manDescription).trim() || null,
+        lat: selectedPlace.center[1],
+        lng: selectedPlace.center[0],
+        category: tab === "instagram" ? igCategory : manCategory,
+        instagram_url: tab === "instagram" && instagramUrl ? instagramUrl.trim() : null,
+        image_url: tab === "instagram" ? igImageUrl : manImageUrl,
+        address: selectedPlace.place_name,
+        opening_hours: tab === "instagram" ? igOpeningHours : manOpeningHours,
+        weekday_descriptions: tab === "instagram" ? igWeekdayDescriptions : manWeekdayDescriptions,
+        maps_url: tab === "instagram" ? igMapsUrl : manMapsUrl,
+        expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
+      })
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur lors de l'ajout")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const inputCls =
+    "w-full px-4 py-2.5 rounded-xl border text-sm outline-none transition-all bg-gray-50 dark:bg-zinc-800/60 border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-500 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20"
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 100, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 120, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 380, damping: 32 }}
+            drag="y"
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0.05, bottom: 0.4 }}
+            dragMomentum={false}
+            onDragEnd={(_e, { offset, velocity }) => { if (offset.y > 120 || velocity.y > 400) onClose() }}
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+          >
+            <div className="flex max-h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
+              <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
+
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 pt-3 pb-3 sm:pt-5">
+                <div>
+                  <h2 className="text-lg font-bold">Ajouter un spot</h2>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">Partage un lieu avec tes amis</p>
+                </div>
+                <button onClick={onClose} className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-gray-100 dark:hover:bg-white/10">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div className="px-5 pb-3">
+                <div className="flex rounded-xl bg-gray-100 dark:bg-zinc-800/80 p-1">
+                  {([
+                    { key: "instagram" as Tab, label: "Lien Insta / TikTok", icon: <Link2 size={14} /> },
+                    { key: "manual" as Tab, label: "Ajout manuel", icon: <PenLine size={14} /> },
+                  ]).map(({ key, label, icon }) => (
+                    <button
+                      key={key}
+                      onClick={() => setTab(key)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-all",
+                        tab === key
+                          ? "bg-indigo-500 text-white shadow-sm"
+                          : "text-gray-500 dark:text-zinc-400 hover:text-gray-700 dark:hover:text-zinc-200"
+                      )}
+                    >
+                      {icon} {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
+
+                {/* ── Instagram tab ─────────────────────────────────────── */}
+                {tab === "instagram" && (
+                  <div className="flex flex-col gap-4">
+                    {/* URL input */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Lien Instagram / TikTok
+                      </label>
+                      <div className="relative">
+                        <Instagram size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="url"
+                          placeholder="Lien Instagram ou TikTok..."
+                          value={instagramUrl}
+                          onChange={(e) => setInstagramUrl(e.target.value)}
+                          className={cn(inputCls, "!pl-10", autoFillLoading || autoFillDone ? "!pr-10" : "!pr-20")}
+                        />
+                        {autoFillLoading && (
+                          <LoaderCircle size={15} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
+                        )}
+                        {autoFillDone && !autoFillLoading && (
+                          <Sparkles size={15} className="absolute top-1/2 right-3 -translate-y-1/2 text-emerald-400" />
+                        )}
+                        {!autoFillLoading && !autoFillDone && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const text = await navigator.clipboard.readText()
+                                if (text?.trim()) setInstagramUrl(text.trim())
+                              } catch { /* silencieux */ }
+                            }}
+                            className="absolute top-1/2 right-2 -translate-y-1/2 flex items-center gap-1 rounded-lg bg-gray-200 dark:bg-zinc-700 px-2 py-1 text-xs font-semibold text-gray-600 dark:text-zinc-300 transition-colors hover:bg-gray-300 dark:hover:bg-zinc-600"
+                          >
+                            <Clipboard size={11} /> Coller
+                          </button>
+                        )}
+                      </div>
+                      {autoFillDone && (
+                        <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-400">
+                          <Sparkles size={11} /> Infos récupérées automatiquement
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Photos Instagram */}
+                    {igImageUrl ? (
+                      <div className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10" style={{ scrollbarWidth: "none" }}>
+                        {igImageUrl.split(",").filter(Boolean).map((url, i, arr) => (
+                          <div key={i} className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url.trim()} alt="Preview" className="h-full w-full object-cover" />
+                            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-900/80 via-transparent to-transparent" />
+                            <span className="absolute bottom-2 left-3 text-xs font-semibold text-white/90 drop-shadow-md">
+                              Image {i + 1}{arr.length > 1 ? ` / ${arr.length}` : " extraite"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex h-24 items-center justify-center rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800/30">
+                        <p className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
+                          <Instagram size={14} /> La photo apparaîtra ici
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Titre */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Titre <span className="text-gray-400 dark:text-zinc-600">(optionnel si auto-rempli)</span>
+                      </label>
+                      <input type="text" placeholder="Ex: Le meilleur café de Paris" value={igTitle} onChange={(e) => setIgTitle(e.target.value)} className={inputCls} />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Description <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
+                      </label>
+                      <textarea placeholder="Décris ce lieu..." value={igDescription} onChange={(e) => setIgDescription(e.target.value)} rows={2} className={cn(inputCls, "resize-none")} />
+                    </div>
+
+                    {/* Catégorie */}
+                    <div>
+                      <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">Catégorie</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CATEGORIES.map((cat) => (
+                          <button key={cat.key} onClick={() => setIgCategory(cat.key)}
+                            className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                              igCategory === cat.key
+                                ? "bg-indigo-500 text-white shadow-sm"
+                                : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                            )}>
+                            <span>{cat.emoji}</span> {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Manual tab ────────────────────────────────────────── */}
+                {tab === "manual" && (
+                  <div className="flex flex-col gap-4">
+                    {/* Photos */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">Photos</label>
+                      <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="hidden" />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingImage}
+                        className="group relative flex w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-zinc-800/50 p-3 transition-colors hover:border-indigo-500/50 mb-2"
+                      >
+                        {uploadingImage ? (
+                          <div className="flex flex-col items-center gap-1.5 py-1 text-indigo-400">
+                            <LoaderCircle size={20} className="animate-spin" />
+                            <span className="text-[11px] font-medium">Upload en cours...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 py-1">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-indigo-400 transition-transform group-hover:scale-110">
+                              <UploadCloud size={16} />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-[13px] font-semibold text-gray-700 dark:text-zinc-200">Ajouter des photos</p>
+                              <p className="text-[10px] text-gray-400 dark:text-zinc-500">Formats acceptés : JPG, PNG, WebP</p>
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                      {manImageUrl && (
+                        <div className="relative flex h-40 snap-x snap-mandatory overflow-hidden overflow-x-auto rounded-xl border border-gray-200 dark:border-white/10" style={{ scrollbarWidth: "none" }}>
+                          {manImageUrl.split(",").filter(Boolean).map((url, i, arr) => (
+                            <div key={i} className="relative flex w-full flex-shrink-0 snap-center items-center justify-center bg-gray-200 dark:bg-zinc-800">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={url.trim()} alt="Preview" className="h-full w-full object-cover" />
+                              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-900/80 via-transparent to-transparent" />
+                              <span className="absolute bottom-2 left-3 text-xs font-semibold text-white/90 drop-shadow-md">
+                                Image {i + 1}{arr.length > 1 ? ` / ${arr.length}` : " ajoutée"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Titre + bouton IA */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">Titre</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Ex: Café de Flore"
+                          value={manTitle}
+                          onChange={(e) => { setManTitle(e.target.value); setManAiFillDone(false) }}
+                          className={cn(inputCls, "flex-1")}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleManualAiFill}
+                          disabled={manAiFillLoading || !manTitle.trim()}
+                          title="Rechercher avec l'IA"
+                          className={cn(
+                            "flex flex-shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                            manAiFillDone
+                              ? "bg-emerald-500/20 text-emerald-500 border border-emerald-500/30"
+                              : "bg-indigo-500 text-white hover:bg-indigo-400 disabled:opacity-40"
+                          )}
+                        >
+                          {manAiFillLoading
+                            ? <LoaderCircle size={14} className="animate-spin" />
+                            : manAiFillDone
+                              ? <Sparkles size={14} />
+                              : <Wand2 size={14} />}
+                          {manAiFillLoading ? "..." : manAiFillDone ? "OK" : "IA"}
+                        </button>
+                      </div>
+                      {manAiFillDone && (
+                        <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-400">
+                          <Sparkles size={11} /> Infos récupérées automatiquement
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">
+                        Description <span className="text-gray-400 dark:text-zinc-600">(optionnel)</span>
+                      </label>
+                      <textarea placeholder="Décris ce lieu..." value={manDescription} onChange={(e) => setManDescription(e.target.value)} rows={2} className={cn(inputCls, "resize-none")} />
+                    </div>
+
+                    {/* Catégorie */}
+                    <div>
+                      <label className="mb-2 block text-xs font-medium text-gray-500 dark:text-zinc-400">Catégorie</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CATEGORIES.map((cat) => (
+                          <button key={cat.key} onClick={() => setManCategory(cat.key)}
+                            className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
+                              manCategory === cat.key
+                                ? "bg-indigo-500 text-white shadow-sm"
+                                : "bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                            )}>
+                            <span>{cat.emoji}</span> {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Place search (shared) ──────────────────────────── */}
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-zinc-400">📍 Rechercher le lieu</label>
+                  <div className="relative">
+                    <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      type="text"
+                      placeholder="Chercher une adresse..."
+                      value={placeQuery}
+                      onChange={(e) => { setPlaceQuery(e.target.value); setSelectedPlace(null) }}
+                      className={cn(inputCls, "!pl-10")}
+                    />
+                    {searchLoading && (
+                      <LoaderCircle size={16} className="absolute top-1/2 right-3 -translate-y-1/2 animate-spin text-indigo-400" />
+                    )}
+                  </div>
+                  {placeResults.length > 0 && !selectedPlace && (
+                    <div className="mt-2 overflow-hidden rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-800/90">
+                      {placeResults.map((place) => (
+                        <button key={place.id}
+                          onClick={() => { setSelectedPlace(place); setPlaceQuery(place.place_name); setPlaceResults([]) }}
+                          className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 dark:text-zinc-200 transition-colors hover:bg-gray-50 dark:hover:bg-white/10"
+                        >
+                          <MapPin size={14} className="mt-0.5 flex-shrink-0 text-indigo-400" />
+                          <span className="line-clamp-1">{place.place_name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {selectedPlace && (
+                    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+                      className="mt-2 flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2">
+                      <MapPin size={14} className="text-indigo-400" />
+                      <span className="truncate text-xs text-indigo-300">{selectedPlace.place_name}</span>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* ── Spot éphémère ──────────────────────────────────── */}
+                <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsEphemeral(v => !v)}
+                    className="flex w-full items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">⏳</span>
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Spot éphémère</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-500">Ce lieu disparaîtra à la date choisie</p>
+                      </div>
+                    </div>
+                    <div className={cn(
+                      "relative h-6 w-11 rounded-full transition-colors",
+                      isEphemeral ? "bg-amber-500" : "bg-gray-200 dark:bg-zinc-700"
+                    )}>
+                      <div className={cn(
+                        "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                        isEphemeral ? "translate-x-5" : "translate-x-0.5"
+                      )} />
+                    </div>
+                  </button>
+                  {isEphemeral && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
+                      <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Date de fin</label>
+                      <input
+                        type="date"
+                        value={ephemeralDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={e => setEphemeralDate(e.target.value)}
+                        className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+                      />
+                    </motion.div>
+                  )}
+                </div>
+
+                {error && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-center text-sm text-red-400">
+                    {error}
+                  </motion.div>
+                )}
+
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-purple-500 disabled:opacity-50"
+                >
+                  {submitting
+                    ? <LoaderCircle size={18} className="animate-spin" />
+                    : <><Plus size={16} /> Ajouter ce spot</>}
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  )
+}

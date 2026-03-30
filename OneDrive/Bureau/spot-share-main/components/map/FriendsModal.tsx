@@ -215,12 +215,21 @@ export default function FriendsModal({
   const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
 
-  // ── Top liked spots ─────────────────────────────────────────
+  // ── Classement tab data ──────────────────────────────────────
   type TopSpot = { id: string; title: string; image_url: string | null; username: string | null; likeCount: number }
+  const [monthlyRankingData, setMonthlyRankingData] = useState<RankEntry[]>([])
+  const [monthlyRankingLoading, setMonthlyRankingLoading] = useState(false)
   const [topSpots, setTopSpots] = useState<TopSpot[]>([])
   const [topSpotsLoading, setTopSpotsLoading] = useState(false)
 
+  const [userMonthlyRank, setUserMonthlyRank] = useState<{ entry: RankEntry; rank: number } | null>(null)
+  const [userTopSpot, setUserTopSpot] = useState<{ spot: TopSpot; rank: number } | null>(null)
+
   const supabaseRef = useRef(createClient())
+  const followingIdsRef = useRef(followingIds)
+  followingIdsRef.current = followingIds
+  const currentUserRef = useRef(currentUser)
+  currentUserRef.current = currentUser
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -228,7 +237,7 @@ export default function FriendsModal({
 
   const loadFollowing = useCallback(
     async (customIds?: string[]) => {
-      const ids = customIds ?? followingIds
+      const ids = customIds ?? followingIdsRef.current
       if (!currentUser || ids.length === 0) { setFollowing([]); return }
       // Afficher immédiatement depuis le cache localStorage
       try {
@@ -246,7 +255,7 @@ export default function FriendsModal({
         localStorage.setItem(`following_${currentUser.id}`, JSON.stringify(profiles))
       } catch { /* ignore */ }
     },
-    [currentUser, followingIds]
+    [currentUser] // followingIds retiré — on utilise followingIdsRef pour éviter les re-renders en boucle
   )
 
   const loadSentRequests = useCallback(async () => {
@@ -271,17 +280,18 @@ export default function FriendsModal({
   }, [currentUser])
 
   const loadSuggestions = useCallback(async () => {
-    if (!currentUser || followingIds.length === 0) {
+    const ids = followingIdsRef.current
+    if (!currentUser || ids.length === 0) {
       setSuggestions([])
       setSuggestionsLoading(false)
       return
     }
     setSuggestionsLoading(true)
     try {
-      const excludeIds = [currentUser.id, ...followingIds]
+      const excludeIds = [currentUser.id, ...ids]
       const { data } = await supabaseRef.current
         .from("followers").select("following_id")
-        .in("follower_id", followingIds)
+        .in("follower_id", ids)
         .not("following_id", "in", `(${excludeIds.join(",")})`)
         .limit(60)
 
@@ -309,10 +319,19 @@ export default function FriendsModal({
       }
     } catch {}
     setSuggestionsLoading(false)
-  }, [currentUser, followingIds])
+  }, [currentUser]) // followingIds retiré — on utilise followingIdsRef
 
   const loadOutings = useCallback(async () => {
     if (!currentUser) return
+    // Cache instantané
+    const cacheKey = `friendspot_outings_${currentUser.id}`
+    try {
+      const raw = localStorage.getItem(cacheKey)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        if (Date.now() - ts < 3 * 60 * 1000 && Array.isArray(cached)) setOutings(cached)
+      }
+    } catch {}
     try {
       // Sorties que j'ai créées (actives)
       const { data: created } = await supabaseRef.current
@@ -360,6 +379,7 @@ export default function FriendsModal({
         return new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
       })
       setOutings(all)
+      try { localStorage.setItem(cacheKey, JSON.stringify({ data: all, ts: Date.now() })) } catch {}
     } catch {
       // Table pas encore créée — fonctionnera après la migration SQL
     }
@@ -423,60 +443,126 @@ export default function FriendsModal({
 
   // ─── Monthly ranking ─────────────────────────────────────────
 
-  const monthlyRanking = useMemo<RankEntry[]>(() => {
-    if (!spots?.length) return []
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    // Include following + current user
-    const includedIds = new Set([...followingIds, ...(currentUser ? [currentUser.id] : [])])
-    const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
-    spots.forEach(s => {
-      if (!includedIds.has(s.user_id)) return
-      if (new Date(s.created_at) < startOfMonth) return
-      if (!counts[s.user_id]) {
-        // For current user, prefer userProfile data
-        const username = s.user_id === currentUser?.id
-          ? (userProfile?.username ?? s.profiles?.username ?? null)
-          : (s.profiles?.username ?? null)
-        const avatar_url = s.user_id === currentUser?.id
-          ? (userProfile?.avatar_url ?? s.profiles?.avatar_url ?? null)
-          : (s.profiles?.avatar_url ?? null)
-        counts[s.user_id] = { username, avatar_url, count: 0 }
-      }
-      counts[s.user_id].count++
-    })
-    return Object.entries(counts)
-      .map(([userId, v]) => ({ userId, ...v }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10)
-  }, [spots, followingIds, currentUser, userProfile])
-
-  // ─── Effect: fetch top liked spots when classement tab opens ───
+  // ─── Effect: fetch classement data when tab opens ────────────
 
   useEffect(() => {
     if (activeTab !== "classement" || !isOpen) return
-    setTopSpotsLoading(true)
-    supabaseRef.current
-      .from("spot_reactions")
-      .select("spot_id, spots(id, title, image_url, profiles(username))")
-      .eq("type", "love")
-      .then(({ data }) => {
-        if (!data) { setTopSpots([]); setTopSpotsLoading(false); return }
-        const counts: Record<string, { id: string; title: string; image_url: string | null; username: string | null; count: number }> = {}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data.forEach((r: any) => {
-          const spot = Array.isArray(r.spots) ? r.spots[0] : r.spots
-          if (!spot) return
-          if (!counts[r.spot_id]) {
-            const profile = Array.isArray(spot.profiles) ? spot.profiles[0] : spot.profiles
-            counts[r.spot_id] = { id: spot.id, title: spot.title, image_url: spot.image_url ?? null, username: profile?.username ?? null, count: 0 }
+    const ids = followingIdsRef.current
+    const me = currentUserRef.current
+    const allIds = me ? [...ids, me.id] : ids
+    if (allIds.length === 0) {
+      setMonthlyRankingData([])
+      setUserMonthlyRank(null)
+      setTopSpots([])
+      setUserTopSpot(null)
+      setMonthlyRankingLoading(false)
+      setTopSpotsLoading(false)
+      return
+    }
+
+    // ── Cache stale-while-revalidate ─────────────────────────
+    const cacheKey = me ? `friendspot_classement_${me.id}` : null
+    let hasCachedRanking = false
+    let hasCachedSpots = false
+    if (cacheKey) {
+      try {
+        const raw = localStorage.getItem(cacheKey)
+        if (raw) {
+          const { ranking, spots: cachedSpots, userRank, userSpot, ts } = JSON.parse(raw)
+          // Cache valide 5 min — afficher immédiatement, rafraîchir en arrière-plan
+          if (Date.now() - ts < 5 * 60 * 1000) {
+            if (ranking?.length) { setMonthlyRankingData(ranking); hasCachedRanking = true }
+            if (cachedSpots?.length) { setTopSpots(cachedSpots); hasCachedSpots = true }
+            if (userRank !== undefined) setUserMonthlyRank(userRank)
+            if (userSpot !== undefined) setUserTopSpot(userSpot)
           }
-          counts[r.spot_id].count++
+        }
+      } catch {}
+    }
+
+    // ── Classement du mois ────────────────────────────────────
+    // Montrer le spinner uniquement s'il n'y a pas de données en cache
+    if (!hasCachedRanking) setMonthlyRankingLoading(true)
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    supabaseRef.current
+      .from("spots")
+      .select("user_id, profiles(id, username, avatar_url)")
+      .in("user_id", allIds)
+      .gte("created_at", startOfMonth)
+      .then(({ data: spotsData }) => {
+        const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(spotsData ?? []).forEach((s: any) => {
+          const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
+          if (!counts[s.user_id]) {
+            counts[s.user_id] = { username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, count: 0 }
+          }
+          counts[s.user_id].count++
         })
-        const top3 = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 3)
-        setTopSpots(top3.map(s => ({ id: s.id, title: s.title, image_url: s.image_url, username: s.username, likeCount: s.count })))
-        setTopSpotsLoading(false)
+        const sorted = Object.entries(counts)
+          .map(([userId, v]) => ({ userId, ...v }))
+          .sort((a, b) => b.count - a.count)
+        setMonthlyRankingData(sorted.slice(0, 6))
+        const top6 = sorted.slice(0, 6)
+        const userRank = me ? (sorted.findIndex(e => e.userId === me.id) >= 6 ? { entry: sorted[sorted.findIndex(e => e.userId === me.id)], rank: sorted.findIndex(e => e.userId === me.id) + 1 } : null) : null
+        setMonthlyRankingData(top6)
+        setUserMonthlyRank(userRank)
+        setMonthlyRankingLoading(false)
+        // Persist for next open
+        if (cacheKey) {
+          try {
+            const existing = localStorage.getItem(cacheKey)
+            const prev = existing ? JSON.parse(existing) : {}
+            localStorage.setItem(cacheKey, JSON.stringify({ ...prev, ranking: top6, userRank, ts: Date.now() }))
+          } catch {}
+        }
       })
+      .then(undefined, () => { setMonthlyRankingData([]); setUserMonthlyRank(null); setMonthlyRankingLoading(false) })
+
+    // ── Spots les plus aimés ──────────────────────────────────
+    if (!hasCachedSpots) setTopSpotsLoading(true)
+    supabaseRef.current
+      .from("spots")
+      .select("id, title, image_url, user_id, profiles(username)")
+      .in("user_id", allIds)
+      .then(async ({ data: allSpots }) => {
+        if (!allSpots || allSpots.length === 0) { setTopSpots([]); setUserTopSpot(null); setTopSpotsLoading(false); return }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const spotIds = (allSpots as any[]).map((s: any) => s.id)
+        const { data: reactions } = await supabaseRef.current
+          .from("spot_reactions")
+          .select("spot_id")
+          .eq("type", "love")
+          .in("spot_id", spotIds)
+        const counts: Record<string, number> = {}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(reactions ?? []).forEach((r: any) => { counts[r.spot_id] = (counts[r.spot_id] ?? 0) + 1 })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sorted = (allSpots as any[])
+          .filter((s: any) => counts[s.id] > 0)
+          .sort((a: any, b: any) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const toTopSpot = (s: any, rank?: number): TopSpot => {
+          const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
+          const firstImg = s.image_url ? s.image_url.split(",")[0].trim() : null
+          return { id: s.id, title: s.title ?? "?", image_url: firstImg, username: profile?.username ?? null, likeCount: counts[s.id] ?? 0, ...(rank !== undefined ? { _rank: rank } : {}) }
+        }
+        const top3 = sorted.slice(0, 3).map((s: any) => toTopSpot(s))
+        const userSpot = me ? (sorted.findIndex((s: any) => s.user_id === me.id) >= 3 ? { spot: toTopSpot(sorted[sorted.findIndex((s: any) => s.user_id === me.id)]), rank: sorted.findIndex((s: any) => s.user_id === me.id) + 1 } : null) : null
+        setTopSpots(top3)
+        setUserTopSpot(userSpot)
+        setTopSpotsLoading(false)
+        // Persist for next open
+        if (cacheKey) {
+          try {
+            const existing = localStorage.getItem(cacheKey)
+            const prev = existing ? JSON.parse(existing) : {}
+            localStorage.setItem(cacheKey, JSON.stringify({ ...prev, spots: top3, userSpot, ts: Date.now() }))
+          } catch {}
+        }
+      })
+      .then(undefined, () => { setTopSpots([]); setUserTopSpot(null); setTopSpotsLoading(false) })
   }, [activeTab, isOpen])
 
   // ─── Effect: load on open ────────────────────────────────────
@@ -501,6 +587,21 @@ export default function FriendsModal({
         event: "*", schema: "public", table: "friend_requests",
         filter: `from_id=eq.${currentUser.id}`,
       }, () => loadSentRequests())
+      // 🔔 Notification en temps réel pour les invitations de sortie
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "outing_invitations",
+        filter: `invitee_id=eq.${currentUser.id}`,
+      }, () => {
+        loadOutingInvitations()
+        loadOutings()
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "outing_invitations",
+        filter: `invitee_id=eq.${currentUser.id}`,
+      }, () => {
+        loadOutingInvitations()
+        loadOutings()
+      })
       .subscribe()
 
     return () => { supabaseRef.current.removeChannel(channel) }
@@ -837,7 +938,7 @@ export default function FriendsModal({
               )}
 
               {/* ── Scrollable content ──────────────────────────── */}
-              <div className="flex-1 overflow-y-auto px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:pb-6">
+              <div className="flex-1 overflow-y-auto px-4">
 
                 {/* ════ AMIS ════════════════════════════════════ */}
                 {activeTab === "amis" && (
@@ -1044,7 +1145,11 @@ export default function FriendsModal({
                         </span>
                       </div>
 
-                      {monthlyRanking.length === 0 ? (
+                      {monthlyRankingLoading ? (
+                        <div className="flex justify-center py-6">
+                          <LoaderCircle size={20} className="animate-spin text-gray-300 dark:text-zinc-700" />
+                        </div>
+                      ) : monthlyRankingData.length === 0 ? (
                         <EmptyState
                           icon={<Trophy size={24} />}
                           text="Aucun classement ce mois-ci"
@@ -1056,22 +1161,28 @@ export default function FriendsModal({
                           <div className="flex items-end justify-center gap-2 mb-5">
 
                             {/* #2 */}
-                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
-                              {monthlyRanking[1] ? (
+                            <div
+                              onClick={() => monthlyRankingData[1] && onSelectUser?.(monthlyRankingData[1].userId)}
+                              className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                            >
+                              {monthlyRankingData[1] ? (
                                 <>
                                   <div className="relative">
                                     <div className="h-12 w-12 overflow-hidden rounded-full ring-2 ring-gray-300 dark:ring-zinc-600 shadow-sm">
-                                      {monthlyRanking[1].avatar_url
+                                      {monthlyRankingData[1].avatar_url
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        ? <img src={monthlyRanking[1].avatar_url} alt="" className="h-full w-full object-cover" />
-                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-slate-400 to-slate-500 text-sm font-bold text-white">{monthlyRanking[1].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                        ? <img src={monthlyRankingData[1].avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-slate-400 to-slate-500 text-sm font-bold text-white">{monthlyRankingData[1].username?.[0]?.toUpperCase() ?? "?"}</div>
                                       }
                                     </div>
                                     <span className="absolute -top-1 -right-1 text-[15px] leading-none">🥈</span>
                                   </div>
-                                  <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate w-full px-1">@{monthlyRanking[1].username ?? "?"}</p>
-                                  <div className="w-full rounded-t-xl bg-gray-100 dark:bg-zinc-800 flex flex-col items-center justify-center" style={{ height: 60 }}>
-                                    <span className="text-[20px] font-black text-gray-600 dark:text-zinc-300">{monthlyRanking[1].count}</span>
+                                  <div className="flex items-center justify-center gap-1">
+                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">@{monthlyRankingData[1].username ?? "?"}</p>
+                                    {monthlyRankingData[1].userId === currentUser?.id && <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>}
+                                  </div>
+                                  <div className={`w-full rounded-t-xl flex flex-col items-center justify-center ${monthlyRankingData[1].userId === currentUser?.id ? "bg-indigo-50 dark:bg-indigo-500/[0.08] border-t-2 border-indigo-300/40 dark:border-indigo-500/20" : "bg-gray-100 dark:bg-zinc-800"}`} style={{ height: 60 }}>
+                                    <span className="text-[20px] font-black text-gray-600 dark:text-zinc-300">{monthlyRankingData[1].count}</span>
                                     <span className="text-[9px] font-medium text-gray-400 dark:text-zinc-600">spots</span>
                                   </div>
                                 </>
@@ -1079,84 +1190,128 @@ export default function FriendsModal({
                             </div>
 
                             {/* #1 — tallest, center */}
-                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
+                            <div
+                              onClick={() => onSelectUser?.(monthlyRankingData[0].userId)}
+                              className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                            >
                               <div className="relative">
-                                <div className={`h-[60px] w-[60px] overflow-hidden rounded-full shadow-lg ring-[3px] ${monthlyRanking[0].userId === currentUser?.id ? "ring-indigo-400 shadow-indigo-500/25" : "ring-amber-400 shadow-amber-500/20"}`}>
-                                  {monthlyRanking[0].avatar_url
+                                <div className={`h-[60px] w-[60px] overflow-hidden rounded-full shadow-lg ring-[3px] ${monthlyRankingData[0].userId === currentUser?.id ? "ring-indigo-400 shadow-indigo-500/25" : "ring-amber-400 shadow-amber-500/20"}`}>
+                                  {monthlyRankingData[0].avatar_url
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    ? <img src={monthlyRanking[0].avatar_url} alt="" className="h-full w-full object-cover" />
-                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-500 text-xl font-black text-white">{monthlyRanking[0].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                    ? <img src={monthlyRankingData[0].avatar_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-500 text-xl font-black text-white">{monthlyRankingData[0].username?.[0]?.toUpperCase() ?? "?"}</div>
                                   }
                                 </div>
                                 <span className="absolute -top-2 -right-0.5 text-[18px] leading-none drop-shadow-sm">🥇</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <p className="text-center text-[12px] font-bold text-gray-900 dark:text-white truncate max-w-[72px]">@{monthlyRanking[0].username ?? "?"}</p>
-                                {monthlyRanking[0].userId === currentUser?.id && (
+                                <p className="text-center text-[12px] font-bold text-gray-900 dark:text-white truncate max-w-[72px]">@{monthlyRankingData[0].username ?? "?"}</p>
+                                {monthlyRankingData[0].userId === currentUser?.id && (
                                   <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>
                                 )}
                               </div>
                               <div className="w-full rounded-t-xl bg-gradient-to-b from-amber-50 to-amber-100/60 dark:from-amber-500/15 dark:to-amber-500/5 border-t-2 border-amber-300/50 dark:border-amber-500/25 flex flex-col items-center justify-center" style={{ height: 80 }}>
-                                <span className="text-[26px] font-black text-amber-500 dark:text-amber-400 leading-tight">{monthlyRanking[0].count}</span>
+                                <span className="text-[26px] font-black text-amber-500 dark:text-amber-400 leading-tight">{monthlyRankingData[0].count}</span>
                                 <span className="text-[9px] font-medium text-amber-500/60 dark:text-amber-500/50">spots</span>
                               </div>
                             </div>
 
                             {/* #3 */}
-                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
-                              {monthlyRanking[2] ? (
+                            <div
+                              onClick={() => monthlyRankingData[2] && onSelectUser?.(monthlyRankingData[2].userId)}
+                              className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                            >
+                              {monthlyRankingData[2] ? (
                                 <>
                                   <div className="relative">
                                     <div className="h-10 w-10 overflow-hidden rounded-full ring-2 ring-orange-300 dark:ring-orange-700/50 shadow-sm">
-                                      {monthlyRanking[2].avatar_url
+                                      {monthlyRankingData[2].avatar_url
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        ? <img src={monthlyRanking[2].avatar_url} alt="" className="h-full w-full object-cover" />
-                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-orange-400 to-red-400 text-xs font-bold text-white">{monthlyRanking[2].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                        ? <img src={monthlyRankingData[2].avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-orange-400 to-red-400 text-xs font-bold text-white">{monthlyRankingData[2].username?.[0]?.toUpperCase() ?? "?"}</div>
                                       }
                                     </div>
                                     <span className="absolute -top-1 -right-1 text-[13px] leading-none">🥉</span>
                                   </div>
-                                  <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate w-full px-1">@{monthlyRanking[2].username ?? "?"}</p>
-                                  <div className="w-full rounded-t-xl bg-orange-50/80 dark:bg-orange-500/[0.07] flex flex-col items-center justify-center" style={{ height: 46 }}>
-                                    <span className="text-[17px] font-black text-orange-500 dark:text-orange-400">{monthlyRanking[2].count}</span>
+                                  <div className="flex items-center justify-center gap-1">
+                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">@{monthlyRankingData[2].username ?? "?"}</p>
+                                    {monthlyRankingData[2].userId === currentUser?.id && <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>}
+                                  </div>
+                                  <div className={`w-full rounded-t-xl flex flex-col items-center justify-center ${monthlyRankingData[2].userId === currentUser?.id ? "bg-indigo-50 dark:bg-indigo-500/[0.08] border-t-2 border-indigo-300/40 dark:border-indigo-500/20" : "bg-orange-50/80 dark:bg-orange-500/[0.07]"}`} style={{ height: 46 }}>
+                                    <span className="text-[17px] font-black text-orange-500 dark:text-orange-400">{monthlyRankingData[2].count}</span>
                                     <span className="text-[9px] font-medium text-orange-400/60">spots</span>
                                   </div>
                                 </>
                               ) : <div style={{ height: 46 }} className="w-full" />}
                             </div>
                           </div>
-
-                          {/* Positions 4+ */}
-                          {monthlyRanking.length > 3 && (
-                            <div className="space-y-1 rounded-2xl border border-gray-100 dark:border-white/[0.05] overflow-hidden">
-                              {monthlyRanking.slice(3).map((entry, i) => {
-                                const rank = i + 4
-                                const isMe = entry.userId === currentUser?.id
-                                return (
-                                  <div key={entry.userId} className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                                    isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.06]" : "bg-white dark:bg-zinc-900/40 hover:bg-gray-50/80 dark:hover:bg-white/[0.02]"
-                                  }`}>
-                                    <span className="w-5 flex-shrink-0 text-center text-[11px] font-bold text-gray-400 dark:text-zinc-600">#{rank}</span>
-                                    <div className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full flex items-center justify-center text-xs font-bold text-white ${isMe ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gradient-to-br from-indigo-400 to-purple-500"}`}>
-                                      {entry.avatar_url
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                        : entry.username?.[0]?.toUpperCase() ?? "?"
-                                      }
-                                    </div>
-                                    <p className="flex-1 min-w-0 text-[13px] font-medium text-gray-800 dark:text-zinc-200 truncate">
-                                      @{entry.username ?? "utilisateur"}
-                                      {isMe && <span className="ml-1.5 text-[9px] font-bold text-indigo-500 dark:text-indigo-400">vous</span>}
-                                    </p>
-                                    <span className="text-[13px] font-bold text-gray-400 dark:text-zinc-500">{entry.count}</span>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
                         </>
                       )}
                     </div>
+
+                    {/* ── Positions 4-5-6 ──────────────────────────── */}
+                    {monthlyRankingData.slice(3, 6).length > 0 && (
+                      <div className="space-y-1.5">
+                        {monthlyRankingData.slice(3, 6).map((entry, i) => {
+                          const isMe = entry.userId === currentUser?.id
+                          return (
+                            <button
+                              key={entry.userId}
+                              onClick={() => onSelectUser?.(entry.userId)}
+                              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2 transition-colors active:scale-[0.99] ${isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20" : "bg-gray-50 dark:bg-zinc-800/60 hover:bg-gray-100 dark:hover:bg-zinc-800"}`}
+                            >
+                              <span className={`w-5 text-center text-[13px] font-bold flex-shrink-0 ${isMe ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500"}`}>
+                                {i + 4}
+                              </span>
+                              <div className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ${isMe ? "ring-2 ring-indigo-400" : ""} bg-indigo-100 dark:bg-zinc-700`}>
+                                {entry.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{entry.username?.[0]?.toUpperCase() ?? "?"}</div>
+                                }
+                              </div>
+                              <p className={`min-w-0 flex-1 truncate text-[13px] font-semibold text-left ${isMe ? "text-indigo-600 dark:text-indigo-300" : "text-gray-700 dark:text-zinc-300"}`}>
+                                @{entry.username ?? "?"}
+                                {isMe && <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>}
+                              </p>
+                              <span className={`flex-shrink-0 text-[12px] font-bold ${isMe ? "text-indigo-500 dark:text-indigo-400" : "text-indigo-500 dark:text-indigo-400"}`}>{entry.count} spots</span>
+                            </button>
+                          )
+                        })}
+                        {/* Utilisateur hors top 6 */}
+                        {userMonthlyRank && (
+                          <>
+                            <div className="flex items-center gap-2 py-1">
+                              <div className="flex-1 h-px bg-dashed border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                              <span className="text-[10px] text-gray-300 dark:text-zinc-600">···</span>
+                              <div className="flex-1 h-px border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                            </div>
+                            <button
+                              onClick={() => onSelectUser?.(userMonthlyRank.entry.userId)}
+                              className="w-full flex items-center gap-3 rounded-xl px-3 py-2 bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20 transition-colors active:scale-[0.99]"
+                            >
+                              <span className="w-5 text-center text-[13px] font-bold text-indigo-500 dark:text-indigo-400 flex-shrink-0">{userMonthlyRank.rank}</span>
+                              <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ring-2 ring-indigo-400 bg-indigo-100 dark:bg-zinc-700">
+                                {userMonthlyRank.entry.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={userMonthlyRank.entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{userMonthlyRank.entry.username?.[0]?.toUpperCase() ?? "?"}</div>
+                                }
+                              </div>
+                              <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-indigo-600 dark:text-indigo-300 text-left">
+                                @{userMonthlyRank.entry.username ?? "?"}
+                                <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>
+                              </p>
+                              <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{userMonthlyRank.entry.count} spots</span>
+                            </button>
+                          </>
+                        )}
+                        {/* Utilisateur pas encore dans le classement */}
+                        {!userMonthlyRank && monthlyRankingData.every(e => e.userId !== currentUser?.id) && (
+                          <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 pt-1 pb-0.5">Ajoute des spots ce mois-ci pour apparaître !</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Divider */}
                     <div className="h-px bg-gray-100 dark:bg-white/[0.05]" />
@@ -1166,7 +1321,7 @@ export default function FriendsModal({
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <p className="text-[16px] font-bold text-gray-900 dark:text-white">Spots les plus aimés</p>
-                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">Tous les temps</p>
+                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">Tous les temps · tes amis</p>
                         </div>
                         <Heart size={16} className="fill-red-400 text-red-400" />
                       </div>
@@ -1176,49 +1331,83 @@ export default function FriendsModal({
                           <LoaderCircle size={20} className="animate-spin text-gray-300 dark:text-zinc-700" />
                         </div>
                       ) : topSpots.length === 0 ? (
-                        <EmptyState icon={<Heart size={22} />} text="Aucun like pour l'instant" sub="Les spots les plus aimés apparaîtront ici" />
+                        <EmptyState icon={<Heart size={22} />} text="Aucun like pour l'instant" sub="Les spots les plus aimés de tes amis apparaîtront ici" />
                       ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-2.5">
                           {topSpots.map((spot, i) => {
-                            const rankColors = [
-                              { ring: "ring-amber-400/60", bg: "from-amber-500/20 to-amber-500/5", num: "bg-amber-500", score: "text-amber-500 dark:text-amber-400" },
-                              { ring: "ring-slate-400/50", bg: "from-slate-400/15 to-slate-400/5", num: "bg-slate-400", score: "text-slate-500 dark:text-zinc-400" },
-                              { ring: "ring-orange-400/50", bg: "from-orange-400/15 to-orange-400/5", num: "bg-orange-400", score: "text-orange-500 dark:text-orange-400" },
-                            ][i]
+                            const medals = ["🥇", "🥈", "🥉"]
+                            const likeColors = [
+                              "text-amber-500 dark:text-amber-400",
+                              "text-slate-500 dark:text-zinc-400",
+                              "text-orange-500 dark:text-orange-400",
+                            ]
                             return (
                               <button
                                 key={spot.id}
                                 onClick={() => onSelectSpot?.(spot.id)}
-                                className="group w-full flex items-center gap-3.5 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900/50 p-3 text-left transition-all hover:border-gray-200 dark:hover:border-white/[0.1] hover:shadow-sm active:scale-[0.99]"
+                                className="w-full flex items-center gap-3.5 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900/50 p-3 text-left transition-all hover:border-gray-200 dark:hover:border-white/[0.1] hover:shadow-sm active:scale-[0.99]"
                               >
-                                {/* Image with rank badge */}
-                                <div className={`relative h-[52px] w-[52px] flex-shrink-0 rounded-xl overflow-hidden ring-2 ${rankColors.ring}`}>
-                                  {spot.image_url
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    ? <img src={spot.image_url.split(",")[0].trim()} alt={spot.title} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                    : <div className={`h-full w-full bg-gradient-to-br ${rankColors.bg} flex items-center justify-center`}>
-                                        <MapPin size={16} className="text-gray-400 dark:text-zinc-500" />
-                                      </div>
-                                  }
-                                  <div className={`absolute top-1 left-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black text-white shadow-sm ${rankColors.num}`}>
-                                    {i + 1}
+                                <div className="relative flex-shrink-0">
+                                  <div className="h-12 w-12 overflow-hidden rounded-xl shadow-sm bg-indigo-100 dark:bg-zinc-700">
+                                    {spot.image_url
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      ? <img src={spot.image_url} alt="" className="h-full w-full object-cover" />
+                                      : <div className="h-full w-full flex items-center justify-center"><MapPin size={18} className="text-indigo-400" /></div>
+                                    }
                                   </div>
+                                  <span className="absolute -top-1 -right-1 text-[14px] leading-none">{medals[i]}</span>
                                 </div>
-
-                                {/* Info */}
                                 <div className="min-w-0 flex-1">
-                                  <p className="truncate text-[14px] font-bold text-gray-900 dark:text-white leading-tight">{spot.title}</p>
-                                  <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">par @{spot.username ?? "?"}</p>
+                                  <p className="truncate text-[14px] font-bold text-gray-900 dark:text-white">{spot.title}</p>
+                                  <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">@{spot.username ?? "?"}</p>
                                 </div>
-
-                                {/* Like pill */}
                                 <div className="flex-shrink-0 flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/15 px-2.5 py-1.5">
                                   <Heart size={10} className="fill-red-400 text-red-400" />
-                                  <span className={`text-[13px] font-bold ${rankColors.score}`}>{spot.likeCount}</span>
+                                  <span className={`text-[13px] font-bold ${likeColors[i]}`}>{spot.likeCount}</span>
                                 </div>
                               </button>
                             )
                           })}
+                          {/* Meilleur spot de l'utilisateur hors top 3 */}
+                          {userTopSpot && (
+                            <>
+                              <div className="flex items-center gap-2 py-0.5">
+                                <div className="flex-1 border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                                <span className="text-[10px] text-gray-300 dark:text-zinc-600">···</span>
+                                <div className="flex-1 border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                              </div>
+                              <button
+                                onClick={() => onSelectSpot?.(userTopSpot.spot.id)}
+                                className="w-full flex items-center gap-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/[0.06] p-3 text-left transition-all active:scale-[0.99]"
+                              >
+                                <div className="relative flex-shrink-0">
+                                  <div className="h-12 w-12 overflow-hidden rounded-xl shadow-sm bg-indigo-100 dark:bg-zinc-700 ring-2 ring-indigo-300 dark:ring-indigo-500/30">
+                                    {userTopSpot.spot.image_url
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      ? <img src={userTopSpot.spot.image_url} alt="" className="h-full w-full object-cover" />
+                                      : <div className="h-full w-full flex items-center justify-center"><MapPin size={18} className="text-indigo-400" /></div>
+                                    }
+                                  </div>
+                                  <span className="absolute -top-1 -right-1 text-[12px] font-black text-indigo-500 dark:text-indigo-400 leading-none bg-white dark:bg-zinc-900 rounded-full px-1">#{userTopSpot.rank}</span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <p className="truncate text-[14px] font-bold text-indigo-700 dark:text-indigo-300">{userTopSpot.spot.title}</p>
+                                    <span className="rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 flex-shrink-0">vous</span>
+                                  </div>
+                                  <p className="text-[11px] text-indigo-400 dark:text-indigo-500">Ajoute-en d&apos;autres pour monter !</p>
+                                </div>
+                                <div className="flex-shrink-0 flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/15 px-2.5 py-1.5">
+                                  <Heart size={10} className="fill-red-400 text-red-400" />
+                                  <span className="text-[13px] font-bold text-indigo-500 dark:text-indigo-400">{userTopSpot.spot.likeCount}</span>
+                                </div>
+                              </button>
+                            </>
+                          )}
+                          {/* Utilisateur sans spot liké */}
+                          {!userTopSpot && topSpots.every(s => s.username !== userProfile?.username) && (
+                            <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 pt-1">Partage des spots pour apparaître !</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1370,6 +1559,8 @@ export default function FriendsModal({
                     )}
                   </div>
                 )}
+                {/* Spacer universel — empêche le dernier élément d'être sous la barre */}
+                <div style={{ height: "max(5rem, calc(env(safe-area-inset-bottom) + 4rem))" }} />
               </div>
 
               {/* ══ CREATE OUTING OVERLAY ══════════════════════════ */}
@@ -1422,7 +1613,8 @@ export default function FriendsModal({
                           min={minDateTime}
                           value={createForm.scheduled_at}
                           onChange={e => setCreateForm(f => ({ ...f, scheduled_at: e.target.value }))}
-                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                          className="w-full h-11 rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3 text-gray-900 dark:text-white outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 appearance-none"
+                          style={{ fontSize: "14px", colorScheme: "light dark" }}
                         />
                       </div>
 
@@ -1615,26 +1807,37 @@ export default function FriendsModal({
                           </div>
                         )}
                       </div>
-                    </div>
 
-                    {/* Submit */}
-                    <div className="flex-shrink-0 border-t border-gray-100 dark:border-white/[0.06] bg-white/95 dark:bg-[#0e0e12]/95 backdrop-blur-sm px-5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-4">
-                      {createError && (
-                        <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
-                          {createError}
-                        </p>
-                      )}
-                      <button
-                        onClick={createOuting}
-                        disabled={creating || selectedFriendIds.length === 0}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-500 py-3 text-[14px] font-bold text-white shadow-md shadow-indigo-500/30 transition-all hover:bg-indigo-400 active:scale-[0.98] disabled:opacity-50 disabled:shadow-none"
-                      >
-                        {creating ? (
-                          <><LoaderCircle size={15} className="animate-spin" /> Envoi en cours…</>
-                        ) : (
-                          <><CalendarPlus size={15} /> Envoyer les invitations ({selectedFriendIds.length})</>
+                      {/* Submit — inside scroll zone */}
+                      <div className="pt-2">
+                        {createError && (
+                          <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
+                            {createError}
+                          </p>
                         )}
-                      </button>
+                        {selectedFriendIds.length === 0 && !creating && (
+                          <p className="mb-2 text-center text-[11px] text-gray-400 dark:text-zinc-500">
+                            Sélectionne au moins 1 ami pour envoyer
+                          </p>
+                        )}
+                        <button
+                          onClick={createOuting}
+                          disabled={creating}
+                          className={`w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-bold transition-all active:scale-[0.98] ${
+                            selectedFriendIds.length === 0
+                              ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed"
+                              : "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 cursor-pointer"
+                          }`}
+                        >
+                          {creating ? (
+                            <><LoaderCircle size={15} className="animate-spin" /> Envoi en cours…</>
+                          ) : (
+                            <><CalendarPlus size={15} /> {selectedFriendIds.length === 0 ? "Envoyer les invitations" : `Envoyer (${selectedFriendIds.length} ami${selectedFriendIds.length > 1 ? "s" : ""})`}</>
+                          )}
+                        </button>
+                        {/* Spacer — empêche le bouton d'être caché sous la barre du bas */}
+                        <div style={{ height: "max(5rem, calc(env(safe-area-inset-bottom) + 4rem))" }} />
+                      </div>
                     </div>
                   </motion.div>
                 )}

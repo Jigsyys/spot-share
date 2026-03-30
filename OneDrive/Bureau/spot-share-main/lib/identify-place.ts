@@ -1,0 +1,483 @@
+/**
+ * identify-place.ts — Architecture "Cascade + Enrichissement"
+ *
+ * Flux :
+ *   1. Gemini Sniper    — extrait jusqu'à 3 requêtes classées + catégorie de secours
+ *   2. Google Places v1 — source de vérité (nom, adresse, type, note, prix, horaires)
+ *   3. En parallèle     — résolution photos + Gemini rédige description enrichie
+ *   4. Assemblage final
+ */
+
+import { GoogleGenerativeAI } from "@google/generative-ai"
+
+// ---------------------------------------------------------------------------
+// Types publics
+// ---------------------------------------------------------------------------
+
+export interface VideoMetadata {
+  title?: string | null
+  description?: string | null
+  hashtags?: string[] | null
+  author?: string | null
+  /** Texte brut extrait après 📍/📌 dans la vidéo — signal haute confiance */
+  locationHint?: string | null
+}
+
+export interface IdentifiedPlace {
+  titre: string
+  nom_officiel_google: string
+  description: string
+  categorie: "Café" | "Restaurant" | "Bar" | "Outdoor" | "Vue" | "Culture" | "Shopping"
+  adresse: string
+  coordonnees: { lat: number; lng: number }
+  photos: string[]
+  horaires: string[]
+}
+
+export interface IdentifyPlaceError {
+  erreur: string
+}
+
+export type IdentifyPlaceResult = IdentifiedPlace | IdentifyPlaceError
+
+// ---------------------------------------------------------------------------
+// Types internes
+// ---------------------------------------------------------------------------
+
+interface GeminiPass {
+  queries: string[]
+  categorie_suggeree: string
+}
+
+interface PlacesResult {
+  displayName?: { text: string }
+  formattedAddress?: string
+  location?: { latitude: number; longitude: number }
+  photos?: Array<{ name: string }>
+  regularOpeningHours?: { weekdayDescriptions?: string[] }
+  primaryType?: string
+  primaryTypeDisplayName?: { text: string }
+  types?: string[]
+  editorialSummary?: { text: string }
+  rating?: number
+  userRatingCount?: number
+  priceLevel?: string
+}
+
+// ---------------------------------------------------------------------------
+// Constantes
+// ---------------------------------------------------------------------------
+
+const VALID_CATEGORIES = [
+  "Café", "Restaurant", "Bar", "Outdoor", "Vue", "Culture", "Shopping",
+] as const
+
+const PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+const PLACES_PHOTO_BASE = "https://places.googleapis.com/v1"
+const PLACES_FIELD_MASK = [
+  "places.displayName",
+  "places.formattedAddress",
+  "places.location",
+  "places.photos",
+  "places.regularOpeningHours",
+  "places.primaryType",
+  "places.primaryTypeDisplayName",
+  "places.types",
+  "places.editorialSummary",
+  "places.rating",
+  "places.userRatingCount",
+  "places.priceLevel",
+].join(",")
+
+/** Mapping Google Places primaryType → nos catégories */
+const PRIMARY_TYPE_TO_CATEGORY: Record<string, IdentifiedPlace["categorie"]> = {
+  // Café
+  coffee_shop: "Café", cafe: "Café", tea_house: "Café",
+  // Restaurant
+  restaurant: "Restaurant", fast_food_restaurant: "Restaurant",
+  pizza_restaurant: "Restaurant", hamburger_restaurant: "Restaurant",
+  sandwich_shop: "Restaurant", sushi_restaurant: "Restaurant",
+  ramen_restaurant: "Restaurant", thai_restaurant: "Restaurant",
+  vietnamese_restaurant: "Restaurant", chinese_restaurant: "Restaurant",
+  japanese_restaurant: "Restaurant", korean_restaurant: "Restaurant",
+  indian_restaurant: "Restaurant", italian_restaurant: "Restaurant",
+  french_restaurant: "Restaurant", mediterranean_restaurant: "Restaurant",
+  seafood_restaurant: "Restaurant", steak_house: "Restaurant",
+  brasserie: "Restaurant", buffet_restaurant: "Restaurant",
+  brunch_restaurant: "Restaurant", diner: "Restaurant",
+  // Bar
+  bar: "Bar", wine_bar: "Bar", cocktail_bar: "Bar", pub: "Bar",
+  night_club: "Bar", sports_bar: "Bar", bar_and_grill: "Bar",
+  rooftop_bar: "Bar", lounge: "Bar",
+  // Outdoor
+  park: "Outdoor", national_park: "Outdoor", campground: "Outdoor",
+  beach: "Outdoor", hiking_area: "Outdoor", garden: "Outdoor",
+  botanical_garden: "Outdoor", forest: "Outdoor", lake: "Outdoor",
+  nature_reserve: "Outdoor",
+  // Vue
+  observation_deck: "Vue", scenic_point: "Vue", viewpoint: "Vue",
+  lighthouse: "Vue",
+  // Culture
+  museum: "Culture", art_gallery: "Culture", cultural_center: "Culture",
+  performing_arts_theater: "Culture", movie_theater: "Culture",
+  tourist_attraction: "Culture", historic_site: "Culture",
+  monument: "Culture", aquarium: "Culture", zoo: "Culture",
+  amusement_park: "Culture", planetarium: "Culture",
+  // Shopping — couvre les boutiques food-retail et non-food
+  shopping_mall: "Shopping", department_store: "Shopping",
+  clothing_store: "Shopping", shoe_store: "Shopping",
+  jewelry_store: "Shopping", accessory_store: "Shopping",
+  beauty_salon: "Shopping", hair_salon: "Shopping", spa: "Shopping",
+  cosmetics_store: "Shopping", perfume_store: "Shopping",
+  market: "Shopping", grocery_store: "Shopping", supermarket: "Shopping",
+  florist: "Shopping", book_store: "Shopping",
+  electronics_store: "Shopping", home_goods_store: "Shopping",
+  furniture_store: "Shopping", hardware_store: "Shopping",
+  pet_store: "Shopping", toy_store: "Shopping",
+  sporting_goods_store: "Shopping", bicycle_store: "Shopping",
+  gift_shop: "Shopping", souvenir_shop: "Shopping",
+  stationery_store: "Shopping", art_supply_store: "Shopping",
+  antique_store: "Shopping", second_hand_store: "Shopping",
+  candy_store: "Shopping", chocolate_factory: "Shopping",
+  wine_shop: "Shopping", liquor_store: "Shopping",
+  // Boulangeries/pâtisseries/épiceries : Café si consommation sur place,
+  // Shopping si c'est avant tout une boutique à emporter — résolu via types secondaires
+  bakery: "Café", pastry_shop: "Café",
+  dessert_shop: "Café", ice_cream_shop: "Café",
+  juice_shop: "Café", smoothie_bar: "Café",
+}
+
+const PRICE_LABELS: Record<string, string> = {
+  PRICE_LEVEL_FREE: "Gratuit",
+  PRICE_LEVEL_INEXPENSIVE: "€",
+  PRICE_LEVEL_MODERATE: "€€",
+  PRICE_LEVEL_EXPENSIVE: "€€€",
+  PRICE_LEVEL_VERY_EXPENSIVE: "€€€€",
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Types secondaires Google qui indiquent clairement une boutique.
+ * Si présents, ils prennent le dessus sur un primaryType ambigu (bakery → Café).
+ */
+const SHOPPING_SECONDARY_TYPES = new Set([
+  "store", "shop", "shopping_mall", "department_store",
+  "clothing_store", "shoe_store", "jewelry_store", "accessory_store",
+  "beauty_salon", "hair_salon", "spa", "cosmetics_store", "perfume_store",
+  "grocery_store", "supermarket", "market",
+  "book_store", "electronics_store", "home_goods_store",
+  "furniture_store", "hardware_store", "pet_store", "toy_store",
+  "sporting_goods_store", "bicycle_store",
+  "gift_shop", "souvenir_shop", "stationery_store", "art_supply_store",
+  "antique_store", "second_hand_store",
+  "candy_store", "chocolate_factory", "wine_shop", "liquor_store",
+  "florist",
+])
+
+/** Types secondaires indiquant un lieu de consommation sur place (Café/Restaurant). */
+const CAFE_RESTAURANT_SECONDARY_TYPES = new Set([
+  "cafe", "coffee_shop", "restaurant", "food", "meal_takeaway",
+  "meal_delivery", "bar",
+])
+
+function categoryFromPlaces(place: PlacesResult, geminiCategory: string): IdentifiedPlace["categorie"] {
+  const allTypes = [
+    ...(place.primaryType ? [place.primaryType] : []),
+    ...(place.types ?? []),
+  ]
+
+  // 1. primaryType → référence principale
+  const primaryCat = place.primaryType ? PRIMARY_TYPE_TO_CATEGORY[place.primaryType] : undefined
+
+  // 2. Si le primaryType donne Café mais qu'un type secondaire indique clairement
+  //    une boutique (pas de consommation sur place), on passe en Shopping.
+  if (primaryCat === "Café") {
+    const hasShoppingSignal = allTypes.some(t => SHOPPING_SECONDARY_TYPES.has(t))
+    const hasCafeSignal = allTypes.some(t => CAFE_RESTAURANT_SECONDARY_TYPES.has(t))
+    if (hasShoppingSignal && !hasCafeSignal) return "Shopping"
+  }
+
+  if (primaryCat) return primaryCat
+
+  // 3. Aucun primaryType connu → parcourir les types secondaires par ordre de priorité
+  for (const t of allTypes) {
+    const cat = PRIMARY_TYPE_TO_CATEGORY[t]
+    if (cat) return cat
+  }
+
+  // 4. Fallback Gemini
+  const trimmed = geminiCategory?.trim() ?? ""
+  if ((VALID_CATEGORIES as readonly string[]).includes(trimmed)) {
+    return trimmed as IdentifiedPlace["categorie"]
+  }
+  const lower = trimmed.toLowerCase()
+  const match = VALID_CATEGORIES.find(c => c.toLowerCase() === lower)
+  return match ?? "Restaurant"
+}
+
+async function resolvePhotoUrls(
+  photos: PlacesResult["photos"],
+  apiKey: string
+): Promise<string[]> {
+  if (!photos?.length) return []
+  const results: string[] = []
+  for (const photo of photos.slice(0, 3)) {
+    const apiUrl = `${PLACES_PHOTO_BASE}/${photo.name}/media?key=${apiKey}&maxHeightPx=1000`
+    try {
+      const res = await fetch(apiUrl, { redirect: "manual", signal: AbortSignal.timeout(5000) })
+      const cdnUrl = res.headers.get("location")
+      const resolved = cdnUrl ?? apiUrl
+      if (resolved.startsWith("https://")) results.push(resolved)
+    } catch {
+      results.push(apiUrl)
+    }
+  }
+  return results
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 : Gemini — extraction des requêtes de recherche
+// ---------------------------------------------------------------------------
+
+async function geminiExtractQueries(meta: VideoMetadata, geminiKey: string): Promise<GeminiPass> {
+  const genAI = new GoogleGenerativeAI(geminiKey)
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0,
+      maxOutputTokens: 2048,
+      // @ts-ignore
+      thinkingConfig: { thinkingBudget: 512 },
+    },
+  })
+
+  const lines: string[] = []
+  if (meta.locationHint) lines.push(`📍 Indication de lieu (source directe de la vidéo) : ${meta.locationHint}`)
+  if (meta.title)         lines.push(`Titre : ${meta.title.slice(0, 300)}`)
+  if (meta.description)   lines.push(`Description : ${meta.description.slice(0, 2000)}`)
+  if (meta.hashtags?.length) lines.push(`Hashtags : ${meta.hashtags.slice(0, 20).join(" ")}`)
+  if (meta.author)        lines.push(`Auteur : ${meta.author}`)
+
+  const context = lines.length > 0 ? lines.join("\n") : "(aucune métadonnée)"
+
+  const prompt = `Tu es un extracteur géographique ultra-précis. Ton seul objectif : trouver le nom et l'adresse du lieu montré dans cette vidéo.
+
+PRIORITÉS pour identifier le lieu :
+1. "📍 Indication de lieu" si présent → texte copié directement depuis la vidéo, priorité absolue.
+2. Adresse postale explicite dans la description : numéro + rue + ville ou code postal.
+3. Nom propre du lieu (établissement, restaurant, café, musée, etc.).
+4. Ville dans les hashtags ou le contexte.
+
+CONSTRUIRE LES REQUÊTES GOOGLE MAPS (1 à 3, de la plus précise à la plus vague) :
+- Requête 1 : "Nom exact, Adresse complète" si adresse trouvée
+- Requête 2 : "Nom exact, Ville, Pays" si ville connue
+- Requête 3 : "Nom exact" seul en dernier recours
+
+CATÉGORIE (une valeur parmi) : Café, Restaurant, Bar, Outdoor, Vue, Culture, Shopping
+- Choisir selon le contenu réel de la vidéo.
+
+RÈGLES : Ignore le bruit SEO. Si locationHint contient une virgule, après la virgule = adresse.
+
+Métadonnées :
+${context}
+
+Renvoie UNIQUEMENT ce JSON :
+{
+  "queries": ["requête_1", "requête_2", "requête_3"],
+  "categorie_suggeree": "UneCategorie"
+}`
+
+  const result = await model.generateContent(prompt)
+  const raw = result.response.text().trim()
+  console.log("[Phase 1] Gemini queries:", raw.slice(0, 300))
+
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim()
+  const parsed = JSON.parse(cleaned) as GeminiPass
+  if (!Array.isArray(parsed.queries)) parsed.queries = []
+  return parsed
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3b : Gemini — rédaction de la description enrichie (en parallèle)
+// ---------------------------------------------------------------------------
+
+async function geminiWriteDescription(
+  place: PlacesResult,
+  geminiKey: string,
+  meta: VideoMetadata
+): Promise<string> {
+  const genAI = new GoogleGenerativeAI(geminiKey)
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    generationConfig: {
+      temperature: 0.3,
+      maxOutputTokens: 300,
+      // @ts-ignore
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  })
+
+  const nom = place.displayName?.text ?? ""
+  const type = place.primaryTypeDisplayName?.text ?? ""
+  const editorial = place.editorialSummary?.text ?? ""
+  const price = place.priceLevel ? PRICE_LABELS[place.priceLevel] ?? null : null
+
+  const contextLines: string[] = []
+  if (price) contextLines.push(`Prix Google : ${price}`)
+  if (editorial) contextLines.push(`Résumé Google : ${editorial}`)
+
+  const userContent: string[] = []
+  if (meta.title) userContent.push(`Titre du post : ${meta.title.slice(0, 300)}`)
+  if (meta.description) userContent.push(`Description du post : ${meta.description.slice(0, 1500)}`)
+
+  const prompt = `Tu dois rédiger une description courte (2-3 phrases max) et pratique pour le lieu "${nom}" (${type || "lieu"}).
+
+Données Google Maps :
+${contextLines.length ? contextLines.join("\n") : "— aucune donnée —"}
+
+Contenu du post original :
+${userContent.length ? userContent.join("\n") : "— aucun contenu —"}
+
+Ordre de priorité strict pour choisir ce que tu mets en avant :
+1. Prix explicites (tarifs d'entrée, menu, prix d'un plat, budget moyen) — si dispo dans le post ou Google
+2. Promotions ou offres en cours mentionnées dans le post (happy hour, réduction, code promo, offre spéciale)
+3. Dates et horaires d'événement mentionnés dans le post (expo temporaire, soirée, pop-up, festival)
+4. Spécialité maison, plat signature, produit phare
+5. Ambiance, environnement, format de visite
+
+Règles :
+- Rédige uniquement en français, ton naturel et factuel
+- Formule tout en affirmation directe, jamais "selon le post" ni "dans la description" ni "d'après la vidéo"
+- NE PAS mentionner les notes ou avis
+- NE PAS commencer par le nom du lieu
+- Si aucune info de priorité 1-3 n'est disponible, décris le lieu naturellement avec 4-5`
+
+  try {
+    const result = await model.generateContent(prompt)
+    return result.response.text().trim()
+  } catch {
+    return editorial || `${type} situé à ${place.formattedAddress ?? "Paris"}.`
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 : Google Places — cascade de requêtes
+// ---------------------------------------------------------------------------
+
+async function searchGooglePlaces(query: string, placesKey: string): Promise<PlacesResult[]> {
+  const res = await fetch(PLACES_SEARCH_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": placesKey,
+      "X-Goog-FieldMask": PLACES_FIELD_MASK,
+    },
+    body: JSON.stringify({ textQuery: query, languageCode: "fr" }),
+    signal: AbortSignal.timeout(8000),
+  })
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "")
+    throw new Error(`Google Places HTTP ${res.status}: ${err.slice(0, 200)}`)
+  }
+
+  const data = (await res.json()) as { places?: PlacesResult[] }
+  console.log(`[Phase 2] Places "${query}" → ${data.places?.length ?? 0} résultat(s)`)
+  return data.places ?? []
+}
+
+// ---------------------------------------------------------------------------
+// Fonction principale
+// ---------------------------------------------------------------------------
+
+export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceResult> {
+  const geminiKey = process.env.GEMINI_API_KEY
+  const placesKey = process.env.GOOGLE_MAPS_API_KEY
+
+  if (!geminiKey) return { erreur: "Configuration serveur incorrecte (clé IA manquante)." }
+  if (!placesKey) return { erreur: "Configuration serveur incorrecte (clé Maps manquante)." }
+
+  // ── Phase 1 : Gemini extrait les requêtes ───────────────────────────────
+  let geminiData: GeminiPass = { queries: [], categorie_suggeree: "" }
+  try {
+    geminiData = await geminiExtractQueries(meta, geminiKey)
+  } catch (e) {
+    console.error("[Phase 1] Erreur Gemini:", (e as Error).message)
+  }
+
+  // Cascade : locationHint avec nom en premier, adresse seule en dernier recours
+  const allQueries: string[] = []
+  const hint = meta.locationHint?.trim() ?? null
+  const hintIsAddress = hint ? /^\d/.test(hint) : false
+
+  if (hint && !hintIsAddress) allQueries.push(hint)
+  for (const q of geminiData.queries) {
+    if (q?.trim() && !allQueries.includes(q.trim())) allQueries.push(q.trim())
+  }
+  if (hint && hintIsAddress && !allQueries.includes(hint)) allQueries.push(hint)
+
+  if (allQueries.length === 0) {
+    return { erreur: "Lieu introuvable : aucun signal géographique détecté dans la vidéo." }
+  }
+
+  // ── Phase 2 : Google Places — cascade ──────────────────────────────────
+  let places: PlacesResult[] = []
+  let usedQuery = ""
+
+  for (const query of allQueries) {
+    try {
+      const results = await searchGooglePlaces(query, placesKey)
+      if (results.length > 0) {
+        places = results
+        usedQuery = query
+        break
+      }
+    } catch (e) {
+      console.error(`[Phase 2] Erreur Places "${query}":`, (e as Error).message)
+    }
+  }
+
+  if (places.length === 0) {
+    return { erreur: "Lieu introuvable sur Google Maps. Le nom n'est peut-être pas assez précis." }
+  }
+
+  const best = places[0]
+  const nom_officiel_google = best.displayName?.text ?? ""
+  const horaires = best.regularOpeningHours?.weekdayDescriptions ?? []
+
+  // ── Phase 3 : Photos + Description en parallèle ─────────────────────────
+  const [googlePhotosUrls, description] = await Promise.all([
+    resolvePhotoUrls(best.photos ?? [], placesKey),
+    geminiWriteDescription(best, geminiKey, meta),
+  ])
+
+  // ── Phase 4 : Catégorie + Assemblage ────────────────────────────────────
+  const categorie = categoryFromPlaces(best, geminiData.categorie_suggeree)
+
+  const priceLine = best.priceLevel ? ` · ${PRICE_LABELS[best.priceLevel] ?? ""}` : ""
+  const ratingLine = best.rating ? ` · ⭐ ${best.rating}/5` : ""
+  console.log(`[Phase 4] ✓ "${nom_officiel_google}" | ${best.formattedAddress} | ${categorie}${priceLine}${ratingLine} | q: "${usedQuery}" | ${googlePhotosUrls.length} photos | ${horaires.length} horaires`)
+
+  // Coordonnées obligatoires — refus si Google Places ne retourne pas de position
+  if (!best.location?.latitude || !best.location?.longitude) {
+    return { erreur: "Lieu trouvé sur Google Maps mais sans coordonnées GPS valides." }
+  }
+
+  return {
+    titre: nom_officiel_google,
+    nom_officiel_google,
+    description,
+    categorie,
+    adresse: best.formattedAddress ?? "",
+    coordonnees: {
+      lat: best.location.latitude,
+      lng: best.location.longitude,
+    },
+    photos: googlePhotosUrls,
+    horaires,
+  }
+}

@@ -44,6 +44,11 @@ const ExploreModal = dynamic(() => import("./ExploreModal"), { ssr: false })
 import { CATEGORY_EMOJIS as CAT_EMOJIS } from "@/lib/categories"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
+const SPOTS_CACHE_KEY = "friendspot_spots_v2"
+const SPOTS_CACHE_TTL = 10 * 60 * 1000 // 10 min
+const PROFILE_CACHE_TTL = 30 * 60 * 1000 // 30 min
+const FOLLOWING_CACHE_TTL = 15 * 60 * 1000 // 15 min
+const LIKES_CACHE_TTL = 5 * 60 * 1000 // 5 min
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
 
@@ -302,6 +307,12 @@ export default function MapView() {
   const [followingIds, setFollowingIds] = useState<string[]>([])
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
   const visibleFriendIdsRef = useRef<string[]>([])
+  // In-memory cache: avoids re-fetching reactions/visits for already-opened spots
+  type SpotDataCache = globalThis.Map<string, {
+    reactions: { user_id: string; type: "love" | "save"; username: string | null; avatar_url: string | null }[]
+    visits: { user_id: string; username: string | null; avatar_url: string | null }[]
+  }>
+  const spotDataCacheRef = useRef<SpotDataCache>(new globalThis.Map())
   const [incomingCount, setIncomingCount] = useState(0)
   const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -361,10 +372,67 @@ export default function MapView() {
     } catch { /* style not ready */ }
   }, [])
 
+  // Fetch user profile — separated from fetchSpots so both run in parallel
+  const fetchUserProfile = useCallback(async () => {
+    if (!user) return
+    // Show cached profile instantly while fetching fresh data
+    const cacheKey = `friendspot_profile_${user.id}`
+    try {
+      const raw = localStorage.getItem(cacheKey)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        if (Date.now() - ts < PROFILE_CACHE_TTL && cached) {
+          setUserProfile(cached)
+        }
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const { data, error } = await supabaseRef.current
+        .from("profiles")
+        .select("username, avatar_url, is_ghost_mode")
+        .eq("id", user.id)
+        .single()
+      if (error) {
+        if (error.code === "PGRST116") {
+          setShowOnboarding(true)
+        } else throw error
+      } else if (data) {
+        setUserProfile(data)
+        if (!data.username) setShowOnboarding(true)
+        try { localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() })) } catch { /* ignore */ }
+      }
+    } catch (err: unknown) {
+      const e = err as { message?: string; code?: string }
+      if (e.message?.includes("avatar_url") || e.code === "PGRST204") {
+        const { data } = await supabaseRef.current
+          .from("profiles").select("username").eq("id", user.id).single()
+        if (data) {
+          setUserProfile({ username: data.username, avatar_url: null })
+          if (!data.username) setShowOnboarding(true)
+          try { localStorage.setItem(cacheKey, JSON.stringify({ data: { username: data.username, avatar_url: null }, ts: Date.now() })) } catch { /* ignore */ }
+        }
+      }
+    }
+  }, [user])
+
   const fetchSpots = useCallback(async () => {
     const PAGE_SIZE = 100
+    const filterExpired = (list: Spot[]) =>
+      list.filter(s => !s.expires_at || new Date(s.expires_at).getTime() > Date.now())
+
+    // Load cached spots instantly — user sees the map before the network responds
     try {
-      // Première tranche — s'affiche immédiatement
+      const raw = localStorage.getItem(SPOTS_CACHE_KEY)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        if (Date.now() - ts < SPOTS_CACHE_TTL && Array.isArray(cached)) {
+          setSpots(filterExpired(cached as Spot[]))
+        }
+      }
+    } catch { /* localStorage unavailable */ }
+
+    try {
       const { data, error } = await supabaseRef.current
         .from("spots")
         .select("*, profiles(id, username, avatar_url, created_at)")
@@ -372,42 +440,31 @@ export default function MapView() {
         .range(0, PAGE_SIZE - 1)
 
       if (error) {
-        // Fallback progressif si la colonne avatar_url n'existe pas encore dans la DB
-        if (
-          error.message?.includes("avatar_url") ||
-          error.code === "PGRST204"
-        ) {
+        if (error.message?.includes("avatar_url") || error.code === "PGRST204") {
           const { data: fallbackData } = await supabaseRef.current
-            .from("spots")
-            .select("*, profiles(id, username, created_at)")
-            .order("created_at", { ascending: false })
-            .range(0, PAGE_SIZE - 1)
-          setSpots(
-            fallbackData && fallbackData.length > 0
-              ? (fallbackData as Spot[])
-              : DEMO_SPOTS
-          )
+            .from("spots").select("*, profiles(id, username, created_at)")
+            .order("created_at", { ascending: false }).range(0, PAGE_SIZE - 1)
+          setSpots(fallbackData && fallbackData.length > 0 ? (fallbackData as Spot[]) : DEMO_SPOTS)
           return
         }
         throw error
       }
 
-      const now = Date.now()
-      const filterExpired = (list: Spot[]) => list.filter(s => !s.expires_at || new Date(s.expires_at).getTime() > now)
       const firstPage = data && data.length > 0 ? filterExpired(data as Spot[]) : DEMO_SPOTS
       setSpots(firstPage)
 
-      // Charger les pages suivantes en arrière-plan si la première tranche était pleine
+      // Accumulate all pages for cache
+      let allSpots: Spot[] = [...(data ?? [])]
+
       if (data && data.length === PAGE_SIZE) {
         let offset = PAGE_SIZE
         let hasMore = true
         while (hasMore) {
           const { data: more } = await supabaseRef.current
-            .from("spots")
-            .select("*, profiles(id, username, avatar_url, created_at)")
-            .order("created_at", { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1)
+            .from("spots").select("*, profiles(id, username, avatar_url, created_at)")
+            .order("created_at", { ascending: false }).range(offset, offset + PAGE_SIZE - 1)
           if (!more || more.length === 0) { hasMore = false; break }
+          allSpots = [...allSpots, ...more]
           setSpots(prev => {
             const existingIds = new Set(prev.map(s => s.id))
             const fresh = filterExpired(more as Spot[]).filter(s => !existingIds.has(s.id))
@@ -417,50 +474,26 @@ export default function MapView() {
           if (more.length < PAGE_SIZE) hasMore = false
         }
       }
+
+      // Persist to localStorage for next load
+      try {
+        localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: allSpots, ts: Date.now() }))
+      } catch { /* storage quota exceeded */ }
     } catch (_e) {
       console.error("fetchSpots error:", _e)
       setSpots(DEMO_SPOTS)
     }
-
-    // Pré-récupérer le profil de l'utilisateur pour la photo de profil sur la map
-    if (user) {
-      try {
-        const { data, error } = await supabaseRef.current
-          .from("profiles")
-          .select("username, avatar_url, is_ghost_mode")
-          .eq("id", user.id)
-          .single()
-        if (error) {
-          if (error.code === "PGRST116") {
-            // Profil non trouvé = nouveau compte
-            setShowOnboarding(true)
-          } else {
-            throw error
-          }
-        } else if (data) {
-          setUserProfile(data)
-          if (!data.username) {
-            setShowOnboarding(true)
-          }
-        }
-      } catch (err: unknown) {
-        const e = err as { message?: string; code?: string }
-        if (e.message?.includes("avatar_url") || e.code === "PGRST204") {
-          const { data } = await supabaseRef.current
-            .from("profiles")
-            .select("username")
-            .eq("id", user.id)
-            .single()
-          if (data) {
-            setUserProfile({ username: data.username, avatar_url: null })
-            if (!data.username) setShowOnboarding(true)
-          }
-        }
-      }
-    }
-  }, [user])
+  }, []) // no user dependency — profile fetch is now separate
 
   const fetchLikeCounts = useCallback(async () => {
+    const cacheKey = "friendspot_likes_v1"
+    try {
+      const raw = localStorage.getItem(cacheKey)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        if (Date.now() - ts < LIKES_CACHE_TTL && cached) setLikeCountsBySpotId(cached)
+      }
+    } catch {}
     try {
       const { data, error } = await supabaseRef.current
         .from("spot_reactions")
@@ -471,11 +504,25 @@ export default function MapView() {
       const counts: Record<string, number> = {}
       data.forEach((r: { spot_id: string }) => { counts[r.spot_id] = (counts[r.spot_id] ?? 0) + 1 })
       setLikeCountsBySpotId(counts)
+      try { localStorage.setItem(cacheKey, JSON.stringify({ data: counts, ts: Date.now() })) } catch {}
     } catch (e) { console.error("fetchLikeCounts exception:", e) }
   }, [])
 
   const fetchFollowing = useCallback(async () => {
     if (!user) return
+    const cacheKey = `friendspot_following_${user.id}`
+    // Afficher les amis instantanément depuis le cache
+    try {
+      const raw = localStorage.getItem(cacheKey)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        if (Date.now() - ts < FOLLOWING_CACHE_TTL && Array.isArray(cached)) {
+          setFollowingIds(cached)
+          setVisibleFriendIds((prev) => [...new Set([...prev, ...cached])])
+        }
+      }
+    } catch {}
+    // Rafraîchir en arrière-plan
     try {
       const { data } = await supabaseRef.current
         .from("followers")
@@ -485,6 +532,7 @@ export default function MapView() {
         const ids = data.map((f: { following_id: string }) => f.following_id)
         setFollowingIds(ids)
         setVisibleFriendIds((prev) => [...new Set([...prev, ...ids])])
+        try { localStorage.setItem(cacheKey, JSON.stringify({ data: ids, ts: Date.now() })) } catch {}
       }
     } catch {
       /* table might not exist */
@@ -598,12 +646,19 @@ export default function MapView() {
   const checkIncomingRequests = useCallback(async () => {
     if (!user) return
     try {
-      const { count } = await supabaseRef.current
+      const { count: friendCount } = await supabaseRef.current
         .from("friend_requests")
         .select("*", { count: "exact", head: true })
         .eq("to_id", user.id)
         .eq("status", "pending")
-      setIncomingCount(count || 0)
+        
+      const { count: outingCount } = await supabaseRef.current
+        .from("outing_invitations")
+        .select("*", { count: "exact", head: true })
+        .eq("invitee_id", user.id)
+        .eq("status", "pending")
+        
+      setIncomingCount((friendCount || 0) + (outingCount || 0))
     } catch {
       /* ignore */
     }
@@ -612,18 +667,18 @@ export default function MapView() {
   // Garde le ref à jour pour les closures realtime
   useEffect(() => { visibleFriendIdsRef.current = visibleFriendIds }, [visibleFriendIds])
 
+  // On mount: fetch spots + like counts in parallel (no auth needed)
   useEffect(() => {
-    fetchSpots()
-    fetchFollowing()
-  }, [fetchSpots, fetchFollowing])
+    Promise.all([fetchSpots(), fetchLikeCounts()])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
+  // When user is available: run all user-specific fetches in parallel
   useEffect(() => {
-    fetchLikeCounts()
-  }, [fetchLikeCounts, user])
-
-  useEffect(() => {
-    if (user) checkNewLikes()
-  }, [user, checkNewLikes])
+    if (!user) return
+    Promise.all([fetchFollowing(), fetchUserProfile(), checkNewLikes(), checkIncomingRequests()])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   useEffect(() => {
     fetchFriendLocations()
@@ -674,100 +729,76 @@ export default function MapView() {
     checkIncomingRequests()
 
     const channel = supabaseRef.current
-      .channel("global_incoming_req")
+      .channel(`global-${user.id}`)
+      // ── friend_requests ──────────────────────────────────────────────────
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "friend_requests",
-          filter: `to_id=eq.${user.id}`,
-        },
+        { event: "INSERT", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
         () => {
           checkIncomingRequests()
           toast("🔔 Nouvelle demande !", {
             description: "Quelqu'un veut s'abonner à toi.",
-            action: {
-              label: "Voir",
-              onClick: () => setShowFriendsModal(true),
-            },
+            action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
           })
         }
       )
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "friend_requests",
-          filter: `to_id=eq.${user.id}`,
-        },
+        { event: "UPDATE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
         () => checkIncomingRequests()
       )
       .on(
         "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "friend_requests",
-          filter: `to_id=eq.${user.id}`,
-        },
+        { event: "DELETE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
         () => checkIncomingRequests()
       )
-      // Quand une relation follower est créée pour moi → ami accepté, on rafraîchit
+      // ── outing_invitations ─────────────────────────────────────────────
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "followers",
-          filter: `follower_id=eq.${user.id}`,
-        },
+        { event: "INSERT", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
+        () => {
+          checkIncomingRequests()
+          toast("🗓️ Nouvelle sortie !", {
+            description: "On t'a invité à une sortie.",
+            action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
+          })
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
+        () => checkIncomingRequests()
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
+        () => checkIncomingRequests()
+      )
+      // ── followers (ami accepté) ───────────────────────────────────────────
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "followers", filter: `follower_id=eq.${user.id}` },
         async (payload) => {
           const newId = (payload.new as { following_id: string }).following_id
-          setFollowingIds((prev) =>
-            prev.includes(newId) ? prev : [...prev, newId]
-          )
-          setVisibleFriendIds((prev) =>
-            prev.includes(newId) ? prev : [...prev, newId]
-          )
-          toast("✅ Ami accepté !", {
-            description: "Ses spots apparaissent maintenant sur ta carte.",
-          })
+          setFollowingIds((prev) => prev.includes(newId) ? prev : [...prev, newId])
+          setVisibleFriendIds((prev) => prev.includes(newId) ? prev : [...prev, newId])
+          toast("✅ Ami accepté !", { description: "Ses spots apparaissent maintenant sur ta carte." })
         }
       )
-      .subscribe()
-
-    return () => {
-      supabaseRef.current.removeChannel(channel)
-    }
-  }, [user, checkIncomingRequests])
-
-  // ── Realtime : nouveaux spots d'amis visibles instantanément ────────────
-  useEffect(() => {
-    if (!user) return
-    const channel = supabaseRef.current
-      .channel("realtime-spots-global")
+      // ── spots (nouveaux / mis à jour / supprimés) ─────────────────────────
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "spots" },
         async (payload) => {
           const raw = payload.new as Spot
-          // Nos propres spots sont déjà ajoutés en optimiste — on ignore
           if (raw.user_id === user.id) return
-          // On n'ajoute que les spots de nos amis visibles
           if (!visibleFriendIdsRef.current.includes(raw.user_id)) return
-          // Récupère le spot complet avec le profil
           const { data } = await supabaseRef.current
             .from("spots")
             .select("*, profiles(id, username, avatar_url, created_at)")
             .eq("id", raw.id)
             .single()
-          if (data) {
-            setSpots((prev) =>
-              prev.some((s) => s.id === data.id) ? prev : [data, ...prev]
-            )
-          }
+          if (data) setSpots((prev) => prev.some((s) => s.id === data.id) ? prev : [data, ...prev])
         }
       )
       .on(
@@ -775,9 +806,7 @@ export default function MapView() {
         { event: "UPDATE", schema: "public", table: "spots" },
         (payload) => {
           const updated = payload.new as Spot
-          setSpots((prev) =>
-            prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s))
-          )
+          setSpots((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)))
         }
       )
       .on(
@@ -789,8 +818,9 @@ export default function MapView() {
         }
       )
       .subscribe()
+
     return () => { supabaseRef.current.removeChannel(channel) }
-  }, [user])
+  }, [user, checkIncomingRequests])
 
   const friendProfiles = useMemo(() => {
     const seen = new Set<string>()
@@ -1017,29 +1047,28 @@ export default function MapView() {
   ]
 
   const fetchVisits = useCallback(async (spotId: string) => {
+    // Show cached data instantly while re-fetching in background
+    const cached = spotDataCacheRef.current.get(spotId)
+    if (cached?.visits) setVisits(cached.visits)
     try {
       const { data, error } = await supabaseRef.current
-        .from("spot_visits")
-        .select("user_id")
-        .eq("spot_id", spotId)
+        .from("spot_visits").select("user_id").eq("spot_id", spotId)
       if (error) { console.error("fetchVisits:", error); return }
-      if (!data || data.length === 0) { setVisits([]); return }
-
+      if (!data || data.length === 0) {
+        setVisits([])
+        spotDataCacheRef.current.set(spotId, { ...(spotDataCacheRef.current.get(spotId) ?? { reactions: [] }), visits: [] })
+        return
+      }
       const userIds = [...new Set(data.map((v: { user_id: string }) => v.user_id))]
       const { data: profiles } = await supabaseRef.current
-        .from("profiles")
-        .select("id, username, avatar_url")
-        .in("id", userIds)
+        .from("profiles").select("id, username, avatar_url").in("id", userIds)
       const pm = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
-
-      setVisits(data.map((v: { user_id: string }) => ({
-        user_id: v.user_id,
-        username: pm[v.user_id]?.username ?? null,
-        avatar_url: pm[v.user_id]?.avatar_url ?? null,
-      })))
-    } catch {
-      setVisits([])
-    }
+      const newVisits = data.map((v: { user_id: string }) => ({
+        user_id: v.user_id, username: pm[v.user_id]?.username ?? null, avatar_url: pm[v.user_id]?.avatar_url ?? null,
+      }))
+      setVisits(newVisits)
+      spotDataCacheRef.current.set(spotId, { ...(spotDataCacheRef.current.get(spotId) ?? { reactions: [] }), visits: newVisits })
+    } catch { setVisits([]) }
   }, [])
 
   const handleToggleVisit = useCallback(async () => {
@@ -1067,6 +1096,7 @@ export default function MapView() {
           .upsert({ spot_id: selectedSpot.id, user_id: user.id }, { onConflict: "spot_id,user_id", ignoreDuplicates: true })
         if (visitError) throw visitError
       }
+      spotDataCacheRef.current.delete(selectedSpot.id) // invalidate cache after write
     } catch {
       // rollback
       if (alreadyVisited) {
@@ -1082,27 +1112,27 @@ export default function MapView() {
   }, [user, selectedSpot, visits, userProfile])
 
   const fetchReactions = useCallback(async (spotId: string) => {
+    const cached = spotDataCacheRef.current.get(spotId)
+    if (cached?.reactions) setReactions(cached.reactions)
     try {
       const { data, error } = await supabaseRef.current
-        .from("spot_reactions")
-        .select("user_id, type")
-        .eq("spot_id", spotId)
+        .from("spot_reactions").select("user_id, type").eq("spot_id", spotId)
       if (error) { console.error("fetchReactions:", error); return }
-      if (!data || data.length === 0) { setReactions([]); return }
-
+      if (!data || data.length === 0) {
+        setReactions([])
+        spotDataCacheRef.current.set(spotId, { ...(spotDataCacheRef.current.get(spotId) ?? { visits: [] }), reactions: [] })
+        return
+      }
       const userIds = [...new Set(data.map((r: { user_id: string }) => r.user_id))]
       const { data: profiles } = await supabaseRef.current
-        .from("profiles")
-        .select("id, username, avatar_url")
-        .in("id", userIds)
+        .from("profiles").select("id, username, avatar_url").in("id", userIds)
       const pm = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
-
-      setReactions(data.map((r: { user_id: string; type: string }) => ({
-        user_id: r.user_id,
-        type: r.type as "love" | "save",
-        username: pm[r.user_id]?.username ?? null,
-        avatar_url: pm[r.user_id]?.avatar_url ?? null,
-      })))
+      const newReactions = data.map((r: { user_id: string; type: string }) => ({
+        user_id: r.user_id, type: r.type as "love" | "save",
+        username: pm[r.user_id]?.username ?? null, avatar_url: pm[r.user_id]?.avatar_url ?? null,
+      }))
+      setReactions(newReactions)
+      spotDataCacheRef.current.set(spotId, { ...(spotDataCacheRef.current.get(spotId) ?? { visits: [] }), reactions: newReactions })
     } catch { setReactions([]) }
   }, [])
 
@@ -1128,6 +1158,7 @@ export default function MapView() {
           .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" }, { onConflict: "spot_id,user_id,type", ignoreDuplicates: true })
         if (error) throw error
       }
+      spotDataCacheRef.current.delete(selectedSpot.id) // invalidate cache after write
     } catch {
       if (hasLoved) {
         setReactions(prev => [...prev, myReaction])
@@ -1140,36 +1171,28 @@ export default function MapView() {
     }
   }, [user, selectedSpot, reactions, userProfile])
 
-  // Fetch visits + realtime subscription when a spot is selected
+  // Fetch visits + reactions + realtime subscription when a spot is selected
   useEffect(() => {
     if (!selectedSpot) {
       setVisits([])
+      setReactions([])
       return
     }
     fetchVisits(selectedSpot.id)
+    fetchReactions(selectedSpot.id)
     const channel = supabaseRef.current
-      .channel(`spot-visits-${selectedSpot.id}`)
-      .on(
-        "postgres_changes",
+      .channel(`spot-${selectedSpot.id}`)
+      .on("postgres_changes",
         { event: "*", schema: "public", table: "spot_visits", filter: `spot_id=eq.${selectedSpot.id}` },
         () => fetchVisits(selectedSpot.id)
       )
-      .subscribe()
-    return () => { supabaseRef.current.removeChannel(channel) }
-  }, [selectedSpot?.id, fetchVisits])
-
-  // Fetch reactions + realtime when a spot is selected
-  useEffect(() => {
-    if (!selectedSpot) { setReactions([]); return }
-    fetchReactions(selectedSpot.id)
-    const channel = supabaseRef.current
-      .channel(`spot-reactions-${selectedSpot.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "spot_reactions", filter: `spot_id=eq.${selectedSpot.id}` },
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "spot_reactions", filter: `spot_id=eq.${selectedSpot.id}` },
         () => fetchReactions(selectedSpot.id)
       )
       .subscribe()
     return () => { supabaseRef.current.removeChannel(channel) }
-  }, [selectedSpot?.id, fetchReactions])
+  }, [selectedSpot?.id, fetchVisits, fetchReactions])
 
 
   const points = visibleSpots.map((spot) => ({
@@ -1184,6 +1207,110 @@ export default function MapView() {
     zoom,
     options: { radius: 60, maxZoom: 16 },
   })
+
+  const markerElements = useMemo(() => clusters.map((cluster) => {
+    const [longitude, latitude] = cluster.geometry.coordinates
+    const { cluster: isCluster, point_count: pointCount } =
+      cluster.properties as { cluster: boolean; point_count: number }
+
+    if (isCluster) {
+      return (
+        <MapMarker
+          key={`cluster-${cluster.id}`}
+          latitude={latitude}
+          longitude={longitude}
+        >
+          <div
+            className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!supercluster) return
+              const expansionZoom = Math.min(
+                supercluster.getClusterExpansionZoom(cluster.id as number),
+                20
+              )
+              mapRef.current?.flyTo({ center: [longitude, latitude], zoom: expansionZoom, speed: 1.2 })
+            }}
+          >
+            {pointCount}
+          </div>
+        </MapMarker>
+      )
+    }
+
+    const spotId = cluster.properties.spotId
+    const spot = visibleSpots.find((s) => s.id === spotId)
+    if (!spot) return null
+
+    const color = CATEGORY_COLORS[spot.category ?? "default"] ?? CATEGORY_COLORS.default
+    const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
+    const isMine = spot.user_id === user?.id
+    const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
+    const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
+    const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
+    const markerScale = Math.min(1.4, Math.max(0.5, zoom / 15))
+
+    return (
+      <MapMarker
+        key={`spot-${spot.id}`}
+        longitude={spot.lng}
+        latitude={spot.lat}
+        anchor="bottom"
+        onClick={(e) => {
+          e.originalEvent.stopPropagation()
+          setSelectedSpot(spot)
+          mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
+        }}
+      >
+        <div
+          className="relative cursor-pointer"
+          style={{ transform: `scale(${markerScale})`, transformOrigin: "bottom center" }}
+        >
+          {!isMine && (
+            <div className="absolute -top-1.5 -right-1.5 z-10 flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white shadow-md">
+              {friendAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={friendAvatar} alt="" className="h-full w-full object-cover" />
+              ) : (
+                friendInitial
+              )}
+            </div>
+          )}
+          <div
+            className={cn(
+              "overflow-hidden rounded-full border-[3px] shadow-lg",
+              isMine
+                ? "h-11 w-11 border-white dark:border-white/90 shadow-black/30"
+                : "h-10 w-10 border-indigo-400 dark:border-indigo-300 shadow-indigo-500/30"
+            )}
+          >
+            {firstPhoto ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={firstPhoto}
+                alt=""
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  const target = e.currentTarget
+                  target.style.display = "none"
+                  target.parentElement!.style.background = color
+                  target.parentElement!.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.1em">${emoji}</span>`
+                }}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-base" style={{ background: color }}>
+                {emoji}
+              </div>
+            )}
+          </div>
+          <div
+            className="mx-auto h-2.5 w-[3px] rounded-b-full"
+            style={{ background: isMine ? "rgba(255,255,255,0.85)" : "rgba(129,140,248,0.9)" }}
+          />
+        </div>
+      </MapMarker>
+    )
+  }), [clusters, supercluster, visibleSpots, zoom, user?.id])
 
   if (authLoading) {
     return (
@@ -1240,126 +1367,7 @@ export default function MapView() {
           }}
           style={{ width: "100%", height: "100%" }}
         >
-          {clusters.map((cluster) => {
-            const [longitude, latitude] = cluster.geometry.coordinates
-            const { cluster: isCluster, point_count: pointCount } =
-              cluster.properties as { cluster: boolean; point_count: number }
-
-            if (isCluster) {
-              return (
-                <MapMarker
-                  key={`cluster-${cluster.id}`}
-                  latitude={latitude}
-                  longitude={longitude}
-                >
-                  <div
-                    className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (!supercluster) return
-                      const expansionZoom = Math.min(
-                        supercluster.getClusterExpansionZoom(
-                          cluster.id as number
-                        ),
-                        20
-                      )
-                      mapRef.current?.flyTo({
-                        center: [longitude, latitude],
-                        zoom: expansionZoom,
-                        speed: 1.2,
-                      })
-                    }}
-                  >
-                    {pointCount}
-                  </div>
-                </MapMarker>
-              )
-            }
-
-            const spotId = cluster.properties.spotId
-            const spot = visibleSpots.find((s) => s.id === spotId)
-            if (!spot) return null
-
-            const color = CATEGORY_COLORS[spot.category ?? "default"] ?? CATEGORY_COLORS.default
-            const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
-            const isMine = spot.user_id === user?.id
-            const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
-            const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
-            const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
-            const likeCount = likeCountsBySpotId[spot.id] ?? 0
-            // Scale markers with zoom
-            const markerScale = Math.min(1.4, Math.max(0.5, zoom / 15))
-
-            return (
-              <MapMarker
-                key={`spot-${spot.id}`}
-                longitude={spot.lng}
-                latitude={spot.lat}
-                anchor="bottom"
-                onClick={(e) => {
-                  e.originalEvent.stopPropagation()
-                  setSelectedSpot(spot)
-                  mapRef.current?.flyTo({
-                    center: [spot.lng, spot.lat],
-                    zoom: 15.5,
-                    offset: [0, 100],
-                    duration: 800,
-                  })
-                }}
-              >
-                <div
-                  className="relative cursor-pointer"
-                  style={{ transform: `scale(${markerScale})`, transformOrigin: "bottom center" }}
-                >
-                  {/* Mini avatar de l'ami */}
-                  {!isMine && (
-                    <div className="absolute -top-1.5 -right-1.5 z-10 flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-500 to-purple-600 text-[8px] font-bold text-white shadow-md">
-                      {friendAvatar ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={friendAvatar} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        friendInitial
-                      )}
-                    </div>
-                  )}
-                  {/* Photo circulaire — fallback emoji coloré */}
-                  <div
-                    className={cn(
-                      "overflow-hidden rounded-full border-[3px] shadow-lg",
-                      isMine
-                        ? "h-11 w-11 border-white dark:border-white/90 shadow-black/30"
-                        : "h-10 w-10 border-indigo-400 dark:border-indigo-300 shadow-indigo-500/30"
-                    )}
-                  >
-                    {firstPhoto ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={firstPhoto}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          // fallback to colored div on error
-                          const target = e.currentTarget
-                          target.style.display = "none"
-                          target.parentElement!.style.background = color
-                          target.parentElement!.innerHTML = `<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.1em">${emoji}</span>`
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-base" style={{ background: color }}>
-                        {emoji}
-                      </div>
-                    )}
-                  </div>
-                  {/* Petite pointe en bas */}
-                  <div
-                    className="mx-auto h-2.5 w-[3px] rounded-b-full"
-                    style={{ background: isMine ? "rgba(255,255,255,0.85)" : "rgba(129,140,248,0.9)" }}
-                  />
-                </div>
-              </MapMarker>
-            )
-          })}
+          {markerElements}
 
           {/* User Location Profile Marker */}
           {userLocation && (
@@ -1492,18 +1500,6 @@ export default function MapView() {
                 </motion.button>
               ))}
             </div>
-
-            {/* Bouton Surprends-moi — visible en mode Amis, masqué quand une surprise est déjà active */}
-            {filter === "friends" && !surprisePin && (
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={handleSurpriseFromMap}
-                className="flex items-center gap-1.5 rounded-full border border-violet-500/40 bg-violet-600/90 dark:bg-violet-700/90 backdrop-blur-md px-3 py-2 text-xs font-semibold text-white shadow-md shadow-violet-600/30 transition-all hover:bg-violet-500"
-              >
-                <Shuffle size={13} />
-                Surprends-moi
-              </motion.button>
-            )}
 
             {/* Bouton filtre amis — petit, discret, visible seulement en mode Amis */}
             {filter === "friends" && friendProfiles.length > 0 && (
@@ -2180,6 +2176,7 @@ export default function MapView() {
         currentUserId={user?.id ?? null}
         followingIds={followingIds}
         surprisePin={surprisePin}
+        likeCountsBySpotId={likeCountsBySpotId}
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
@@ -2266,11 +2263,9 @@ export default function MapView() {
           }))}
         followingIds={followingIds}
         onProfileUpdate={(username, avatarUrl) => {
-          setUserProfile((prev) => ({
-            ...prev,
-            username: username || "moi",
-            avatar_url: avatarUrl,
-          }))
+          const updated = { username: username || "moi", avatar_url: avatarUrl }
+          setUserProfile((prev) => ({ ...prev, ...updated }))
+          if (user) try { localStorage.setItem(`friendspot_profile_${user.id}`, JSON.stringify({ data: updated, ts: Date.now() })) } catch { /* ignore */ }
         }}
         onDeleteSpot={handleDeleteSpot}
         onUnfollow={(id) => {
