@@ -377,9 +377,10 @@ export default function ProfileModal({
       const spotMap = Object.fromEntries(spotData.map((s: { id: string; title: string; category: string | null; lat: number; lng: number }) => [s.id, s]))
 
       // Get reactions (likes) from others on those spots
+      // Note: spot_reactions has no id column — PK is (spot_id, user_id, type)
       const { data: reactions } = await supabaseRef.current
         .from("spot_reactions")
-        .select("id, spot_id, user_id, created_at")
+        .select("spot_id, user_id, created_at")
         .in("spot_id", spotIds)
         .eq("type", "love")
         .neq("user_id", user.id)
@@ -396,11 +397,11 @@ export default function ProfileModal({
         .in("id", likerIds)
       const profileMap = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
 
-      const history: LikeHistoryItem[] = reactions.map((r: { id: string; spot_id: string; user_id: string; created_at: string }) => {
+      const history: LikeHistoryItem[] = reactions.map((r: { spot_id: string; user_id: string; created_at: string }) => {
         const spot = spotMap[r.spot_id]
         const liker = profileMap[r.user_id]
         return {
-          reactionId: r.id,
+          reactionId: `${r.spot_id}_${r.user_id}`,
           spotId: r.spot_id,
           spotTitle: spot?.title ?? "Spot",
           spotCategory: spot?.category ?? null,

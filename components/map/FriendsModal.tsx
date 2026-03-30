@@ -1231,6 +1231,8 @@ export default function FriendsModal({
                     animate={{ x: 0 }}
                     exit={{ x: "100%" }}
                     transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                    style={{ touchAction: "pan-y" }}
+                    onPointerDown={(e) => e.stopPropagation()}
                     className="absolute inset-0 z-20 flex flex-col overflow-hidden
                       bg-white dark:bg-[#0e0e12]
                       rounded-t-[2rem] sm:rounded-l-2xl sm:rounded-t-none"
