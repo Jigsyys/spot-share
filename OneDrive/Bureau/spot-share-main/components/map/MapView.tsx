@@ -1453,7 +1453,7 @@ export default function MapView() {
 
       {/* Top Bar */}
       <div className="pointer-events-none absolute top-[env(safe-area-inset-top)] right-0 left-0 z-30 mt-4 flex items-start justify-end px-4">
-        <div className="pointer-events-auto hidden sm:block">
+        <div className="pointer-events-auto hidden">
           <UserMenu
             user={user}
             userProfile={userProfile}
@@ -1605,11 +1605,11 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-8">
+      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-[4.5rem]">
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
-          className="pointer-events-auto hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-3 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800 sm:flex"
+          className="pointer-events-auto hidden"
           title="Explorer"
         >
           <Search size={20} />
@@ -1629,7 +1629,7 @@ export default function MapView() {
           whileTap={{ scale: 0.93 }}
           onClick={handleOpenAddSpot}
           className={cn(
-            "pointer-events-auto hidden items-center gap-2 rounded-2xl bg-blue-600 dark:bg-indigo-500 px-5 py-3.5 text-sm font-semibold text-white shadow-xl shadow-blue-600/30 dark:shadow-indigo-500/30 transition-all hover:bg-blue-500 dark:hover:bg-indigo-400 sm:flex",
+            "pointer-events-auto hidden",
             visibleSpots.length === 0 &&
               "animate-pulse ring-4 ring-blue-600/20 dark:ring-indigo-500/20"
           )}
@@ -1640,7 +1640,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-8">
+      <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-[4.5rem]">
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2048,9 +2048,9 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Bottom Navigation Bar */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl sm:hidden"
+        className="fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">

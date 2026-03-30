@@ -271,21 +271,13 @@ export default function FriendsModal({
   }, [currentUser])
 
   const loadSuggestions = useCallback(async () => {
-    if (!currentUser) return
+    if (!currentUser || followingIds.length === 0) {
+      setSuggestions([])
+      setSuggestionsLoading(false)
+      return
+    }
     setSuggestionsLoading(true)
     try {
-      if (followingIds.length === 0) {
-        // No friends yet — show recently active users
-        const { data } = await supabaseRef.current
-          .from("profiles").select("id, username, avatar_url, last_active_at")
-          .neq("id", currentUser.id)
-          .not("last_active_at", "is", null)
-          .order("last_active_at", { ascending: false }).limit(10)
-        setSuggestions((data ?? []).map(u => ({ ...(u as Profile), mutualCount: 0 })))
-        setSuggestionsLoading(false)
-        return
-      }
-
       const excludeIds = [currentUser.id, ...followingIds]
       const { data } = await supabaseRef.current
         .from("followers").select("following_id")
@@ -309,18 +301,12 @@ export default function FriendsModal({
             ...p, mutualCount: counts[p.id] || 0,
           })).sort((a, b) => (b.mutualCount ?? 0) - (a.mutualCount ?? 0))
           setSuggestions(enriched)
-          setSuggestionsLoading(false)
-          return
+        } else {
+          setSuggestions([])
         }
+      } else {
+        setSuggestions([])
       }
-
-      // Fallback: recently active users
-      const { data: recent } = await supabaseRef.current
-        .from("profiles").select("id, username, avatar_url, last_active_at")
-        .not("id", "in", `(${excludeIds.join(",")})`)
-        .not("last_active_at", "is", null)
-        .order("last_active_at", { ascending: false }).limit(10)
-      if (recent) setSuggestions(recent as SuggestionProfile[])
     } catch {}
     setSuggestionsLoading(false)
   }, [currentUser, followingIds])
