@@ -1493,8 +1493,8 @@ export default function MapView() {
               ))}
             </div>
 
-            {/* Bouton Surprends-moi — visible en mode Amis */}
-            {filter === "friends" && (
+            {/* Bouton Surprends-moi — visible en mode Amis, masqué quand une surprise est déjà active */}
+            {filter === "friends" && !surprisePin && (
               <motion.button
                 whileTap={{ scale: 0.92 }}
                 onClick={handleSurpriseFromMap}
