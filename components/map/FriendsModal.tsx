@@ -1040,115 +1040,203 @@ export default function FriendsModal({
 
                 {/* ════ CLASSEMENT ══════════════════════════════ */}
                 {activeTab === "classement" && (
-                  <div className="space-y-5">
-                    {/* Top 3 lieux les plus likés */}
+                  <div className="space-y-8 pb-2">
+
+                    {/* ── Classement mensuel ─────────────────────── */}
                     <div>
-                      <p className="text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-widest mb-2">
-                        Top lieux les plus aimés
-                      </p>
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-5">
+                        <div>
+                          <p className="text-[16px] font-bold text-gray-900 dark:text-white">Classement du mois</p>
+                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500 capitalize">
+                            {new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
+                          </p>
+                        </div>
+                        <span className="flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200/50 dark:border-amber-500/20 px-2.5 py-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+                          <Trophy size={10} />
+                          Spots ajoutés
+                        </span>
+                      </div>
+
+                      {monthlyRanking.length === 0 ? (
+                        <EmptyState
+                          icon={<Trophy size={24} />}
+                          text="Aucun classement ce mois-ci"
+                          sub="Le classement apparaît quand tes amis ajoutent des spots !"
+                        />
+                      ) : (
+                        <>
+                          {/* Podium — top 3 */}
+                          <div className="flex items-end justify-center gap-2 mb-5">
+
+                            {/* #2 */}
+                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
+                              {monthlyRanking[1] ? (
+                                <>
+                                  <div className="relative">
+                                    <div className="h-12 w-12 overflow-hidden rounded-full ring-2 ring-gray-300 dark:ring-zinc-600 shadow-sm">
+                                      {monthlyRanking[1].avatar_url
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        ? <img src={monthlyRanking[1].avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-slate-400 to-slate-500 text-sm font-bold text-white">{monthlyRanking[1].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                      }
+                                    </div>
+                                    <span className="absolute -top-1 -right-1 text-[15px] leading-none">🥈</span>
+                                  </div>
+                                  <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate w-full px-1">@{monthlyRanking[1].username ?? "?"}</p>
+                                  <div className="w-full rounded-t-xl bg-gray-100 dark:bg-zinc-800 flex flex-col items-center justify-center" style={{ height: 60 }}>
+                                    <span className="text-[20px] font-black text-gray-600 dark:text-zinc-300">{monthlyRanking[1].count}</span>
+                                    <span className="text-[9px] font-medium text-gray-400 dark:text-zinc-600">spots</span>
+                                  </div>
+                                </>
+                              ) : <div style={{ height: 60 }} className="w-full" />}
+                            </div>
+
+                            {/* #1 — tallest, center */}
+                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
+                              <div className="relative">
+                                <div className={`h-[60px] w-[60px] overflow-hidden rounded-full shadow-lg ring-[3px] ${monthlyRanking[0].userId === currentUser?.id ? "ring-indigo-400 shadow-indigo-500/25" : "ring-amber-400 shadow-amber-500/20"}`}>
+                                  {monthlyRanking[0].avatar_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={monthlyRanking[0].avatar_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-orange-500 text-xl font-black text-white">{monthlyRanking[0].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                  }
+                                </div>
+                                <span className="absolute -top-2 -right-0.5 text-[18px] leading-none drop-shadow-sm">🥇</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <p className="text-center text-[12px] font-bold text-gray-900 dark:text-white truncate max-w-[72px]">@{monthlyRanking[0].username ?? "?"}</p>
+                                {monthlyRanking[0].userId === currentUser?.id && (
+                                  <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>
+                                )}
+                              </div>
+                              <div className="w-full rounded-t-xl bg-gradient-to-b from-amber-50 to-amber-100/60 dark:from-amber-500/15 dark:to-amber-500/5 border-t-2 border-amber-300/50 dark:border-amber-500/25 flex flex-col items-center justify-center" style={{ height: 80 }}>
+                                <span className="text-[26px] font-black text-amber-500 dark:text-amber-400 leading-tight">{monthlyRanking[0].count}</span>
+                                <span className="text-[9px] font-medium text-amber-500/60 dark:text-amber-500/50">spots</span>
+                              </div>
+                            </div>
+
+                            {/* #3 */}
+                            <div className="flex flex-1 flex-col items-center gap-2 min-w-0">
+                              {monthlyRanking[2] ? (
+                                <>
+                                  <div className="relative">
+                                    <div className="h-10 w-10 overflow-hidden rounded-full ring-2 ring-orange-300 dark:ring-orange-700/50 shadow-sm">
+                                      {monthlyRanking[2].avatar_url
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        ? <img src={monthlyRanking[2].avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-orange-400 to-red-400 text-xs font-bold text-white">{monthlyRanking[2].username?.[0]?.toUpperCase() ?? "?"}</div>
+                                      }
+                                    </div>
+                                    <span className="absolute -top-1 -right-1 text-[13px] leading-none">🥉</span>
+                                  </div>
+                                  <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate w-full px-1">@{monthlyRanking[2].username ?? "?"}</p>
+                                  <div className="w-full rounded-t-xl bg-orange-50/80 dark:bg-orange-500/[0.07] flex flex-col items-center justify-center" style={{ height: 46 }}>
+                                    <span className="text-[17px] font-black text-orange-500 dark:text-orange-400">{monthlyRanking[2].count}</span>
+                                    <span className="text-[9px] font-medium text-orange-400/60">spots</span>
+                                  </div>
+                                </>
+                              ) : <div style={{ height: 46 }} className="w-full" />}
+                            </div>
+                          </div>
+
+                          {/* Positions 4+ */}
+                          {monthlyRanking.length > 3 && (
+                            <div className="space-y-1 rounded-2xl border border-gray-100 dark:border-white/[0.05] overflow-hidden">
+                              {monthlyRanking.slice(3).map((entry, i) => {
+                                const rank = i + 4
+                                const isMe = entry.userId === currentUser?.id
+                                return (
+                                  <div key={entry.userId} className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                                    isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.06]" : "bg-white dark:bg-zinc-900/40 hover:bg-gray-50/80 dark:hover:bg-white/[0.02]"
+                                  }`}>
+                                    <span className="w-5 flex-shrink-0 text-center text-[11px] font-bold text-gray-400 dark:text-zinc-600">#{rank}</span>
+                                    <div className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full flex items-center justify-center text-xs font-bold text-white ${isMe ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gradient-to-br from-indigo-400 to-purple-500"}`}>
+                                      {entry.avatar_url
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : entry.username?.[0]?.toUpperCase() ?? "?"
+                                      }
+                                    </div>
+                                    <p className="flex-1 min-w-0 text-[13px] font-medium text-gray-800 dark:text-zinc-200 truncate">
+                                      @{entry.username ?? "utilisateur"}
+                                      {isMe && <span className="ml-1.5 text-[9px] font-bold text-indigo-500 dark:text-indigo-400">vous</span>}
+                                    </p>
+                                    <span className="text-[13px] font-bold text-gray-400 dark:text-zinc-500">{entry.count}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Divider */}
+                    <div className="h-px bg-gray-100 dark:bg-white/[0.05]" />
+
+                    {/* ── Top spots les plus aimés ────────────────── */}
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <p className="text-[16px] font-bold text-gray-900 dark:text-white">Spots les plus aimés</p>
+                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">Tous les temps</p>
+                        </div>
+                        <Heart size={16} className="fill-red-400 text-red-400" />
+                      </div>
+
                       {topSpotsLoading ? (
-                        <div className="flex justify-center py-3">
-                          <LoaderCircle size={16} className="animate-spin text-gray-400" />
+                        <div className="flex justify-center py-6">
+                          <LoaderCircle size={20} className="animate-spin text-gray-300 dark:text-zinc-700" />
                         </div>
                       ) : topSpots.length === 0 ? (
-                        <p className="text-[12px] text-gray-400 dark:text-zinc-600 py-1">Aucun like pour l&apos;instant</p>
+                        <EmptyState icon={<Heart size={22} />} text="Aucun like pour l'instant" sub="Les spots les plus aimés apparaîtront ici" />
                       ) : (
-                        <div className="space-y-2">
-                          {topSpots.map((spot, i) => (
-                            <button key={spot.id} onClick={() => onSelectSpot?.(spot.id)} className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all active:scale-[0.99] ${onSelectSpot ? "cursor-pointer" : "cursor-default"} ${
-                              i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
-                              i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
-                              "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20"
-                            }`}>
-                              <span className="text-lg leading-none w-7 text-center flex-shrink-0">
-                                {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                              </span>
-                              {spot.image_url ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={spot.image_url} alt={spot.title} className="h-9 w-9 flex-shrink-0 rounded-lg object-cover" />
-                              ) : (
-                                <div className="h-9 w-9 flex-shrink-0 rounded-lg bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
-                                  <MapPin size={14} className="text-gray-400 dark:text-zinc-600" />
+                        <div className="space-y-3">
+                          {topSpots.map((spot, i) => {
+                            const rankColors = [
+                              { ring: "ring-amber-400/60", bg: "from-amber-500/20 to-amber-500/5", num: "bg-amber-500", score: "text-amber-500 dark:text-amber-400" },
+                              { ring: "ring-slate-400/50", bg: "from-slate-400/15 to-slate-400/5", num: "bg-slate-400", score: "text-slate-500 dark:text-zinc-400" },
+                              { ring: "ring-orange-400/50", bg: "from-orange-400/15 to-orange-400/5", num: "bg-orange-400", score: "text-orange-500 dark:text-orange-400" },
+                            ][i]
+                            return (
+                              <button
+                                key={spot.id}
+                                onClick={() => onSelectSpot?.(spot.id)}
+                                className="group w-full flex items-center gap-3.5 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900/50 p-3 text-left transition-all hover:border-gray-200 dark:hover:border-white/[0.1] hover:shadow-sm active:scale-[0.99]"
+                              >
+                                {/* Image with rank badge */}
+                                <div className={`relative h-[52px] w-[52px] flex-shrink-0 rounded-xl overflow-hidden ring-2 ${rankColors.ring}`}>
+                                  {spot.image_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={spot.image_url.split(",")[0].trim()} alt={spot.title} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                    : <div className={`h-full w-full bg-gradient-to-br ${rankColors.bg} flex items-center justify-center`}>
+                                        <MapPin size={16} className="text-gray-400 dark:text-zinc-500" />
+                                      </div>
+                                  }
+                                  <div className={`absolute top-1 left-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black text-white shadow-sm ${rankColors.num}`}>
+                                    {i + 1}
+                                  </div>
                                 </div>
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">{spot.title}</p>
-                                <p className="text-[10px] text-gray-400 dark:text-zinc-600">par @{spot.username ?? "?"}</p>
-                              </div>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <Heart size={12} className="fill-red-500 text-red-500" />
-                                <span className={`text-[14px] font-bold ${
-                                  i === 0 ? "text-amber-500" :
-                                  i === 1 ? "text-gray-400 dark:text-zinc-500" :
-                                  "text-orange-400"
-                                }`}>{spot.likeCount}</span>
-                              </div>
-                            </button>
-                          ))}
+
+                                {/* Info */}
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[14px] font-bold text-gray-900 dark:text-white leading-tight">{spot.title}</p>
+                                  <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">par @{spot.username ?? "?"}</p>
+                                </div>
+
+                                {/* Like pill */}
+                                <div className="flex-shrink-0 flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/15 px-2.5 py-1.5">
+                                  <Heart size={10} className="fill-red-400 text-red-400" />
+                                  <span className={`text-[13px] font-bold ${rankColors.score}`}>{spot.likeCount}</span>
+                                </div>
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
 
-                    {/* Classement mensuel */}
-                    <div className="space-y-3">
-                    {monthlyRanking.length === 0 ? (
-                      <EmptyState
-                        icon={<Trophy size={24} />}
-                        text="Aucun classement ce mois-ci"
-                        sub="Le classement apparaît quand tes amis ajoutent des spots !"
-                      />
-                    ) : (
-                      <>
-                        <p className="text-[10px] font-semibold text-gray-400 dark:text-zinc-600 uppercase tracking-widest">
-                          Spots ajoutés en {new Date().toLocaleDateString("fr-FR", { month: "long" })}
-                        </p>
-                        {monthlyRanking.map((entry, i) => {
-                          const medals = ["🥇", "🥈", "🥉"]
-                          const medal = medals[i]
-                          const isMe = entry.userId === currentUser?.id
-                          return (
-                            <div key={entry.userId} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all ${
-                              isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.07] border-2 border-indigo-300/60 dark:border-indigo-500/30" :
-                              i === 0 ? "bg-amber-50 dark:bg-amber-500/[0.06] border border-amber-200/60 dark:border-amber-500/20" :
-                              i === 1 ? "bg-gray-50 dark:bg-zinc-800/50 border border-gray-200/60 dark:border-white/[0.04]" :
-                              i === 2 ? "bg-orange-50 dark:bg-orange-500/[0.06] border border-orange-200/60 dark:border-orange-500/20" :
-                              "hover:bg-gray-50 dark:hover:bg-white/[0.03]"
-                            }`}>
-                              <div className="w-7 flex-shrink-0 text-center">
-                                {medal
-                                  ? <span className="text-lg leading-none">{medal}</span>
-                                  : <span className="text-[11px] font-bold text-gray-400 dark:text-zinc-600">#{i + 1}</span>}
-                              </div>
-                              <div className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-full flex items-center justify-center text-sm font-bold text-white ${isMe ? "bg-gradient-to-br from-blue-500 to-indigo-600 ring-2 ring-indigo-400/50" : "bg-gradient-to-br from-indigo-500 to-purple-600"}`}>
-                                {entry.avatar_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={entry.avatar_url} alt="avatar" className="h-full w-full object-cover" />
-                                ) : (entry.username?.[0]?.toUpperCase() ?? "?")}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-                                  @{entry.username ?? "utilisateur"}
-                                  {isMe && <span className="rounded-full bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-bold text-indigo-600 dark:text-indigo-400">Vous</span>}
-                                </p>
-                                <p className="text-[10px] text-gray-400 dark:text-zinc-600">
-                                  {entry.count} spot{entry.count > 1 ? "s" : ""} ce mois
-                                </p>
-                              </div>
-                              <span className={`text-[15px] font-bold ${
-                                isMe ? "text-indigo-500 dark:text-indigo-400" :
-                                i === 0 ? "text-amber-500" :
-                                i === 1 ? "text-gray-400 dark:text-zinc-500" :
-                                i === 2 ? "text-orange-400" :
-                                "text-gray-500 dark:text-zinc-500"
-                              }`}>
-                                {entry.count}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </>
-                    )}
-                    </div>
                   </div>
                 )}
 
