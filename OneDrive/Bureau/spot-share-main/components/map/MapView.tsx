@@ -30,15 +30,17 @@ import { cn, getOpeningStatus, getGoogleOpeningStatus } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/hooks/useAuth"
 import { useTheme } from "next-themes"
+import dynamic from "next/dynamic"
 import UserMenu from "./UserMenu"
-import AddSpotModal from "./AddSpotModal"
-import EditSpotModal from "./EditSpotModal"
-import FriendsModal from "./FriendsModal"
-import PublicProfileModal from "./PublicProfileModal"
-import ProfileModal from "./ProfileModal"
-import OnboardingModal from "./OnboardingModal"
-import ExploreModal from "./ExploreModal"
 import type { Spot, FilterMode } from "@/lib/types"
+
+const AddSpotModal = dynamic(() => import("./AddSpotModal"), { ssr: false })
+const EditSpotModal = dynamic(() => import("./EditSpotModal"), { ssr: false })
+const FriendsModal = dynamic(() => import("./FriendsModal"), { ssr: false })
+const PublicProfileModal = dynamic(() => import("./PublicProfileModal"), { ssr: false })
+const ProfileModal = dynamic(() => import("./ProfileModal"), { ssr: false })
+const OnboardingModal = dynamic(() => import("./OnboardingModal"), { ssr: false })
+const ExploreModal = dynamic(() => import("./ExploreModal"), { ssr: false })
 import { CATEGORY_EMOJIS as CAT_EMOJIS } from "@/lib/categories"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
@@ -1601,26 +1603,6 @@ export default function MapView() {
         </div>
       </div>
 
-      {/* Empty State Onboarding */}
-      <div className="pointer-events-none absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-10 -translate-x-1/2">
-        <AnimatePresence>
-          {visibleSpots.length === 0 && !authLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-xs rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 px-4 py-3 text-center shadow-xl backdrop-blur-md"
-            >
-              <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
-                C&apos;est un peu vide par ici...
-              </p>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">
-                Ajoute ton premier lieu favori ou recherche des amis !
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
       <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-8">
