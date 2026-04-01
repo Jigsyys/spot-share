@@ -372,6 +372,10 @@ export default function MapView() {
   const themeRef = useRef(resolvedTheme)
   useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
 
+  useEffect(() => {
+    if (!showGroupsDropdown) setShowCreateGroup(false)
+  }, [showGroupsDropdown])
+
   const applyLightFilters = useCallback(() => {
     const map = mapRef.current?.getMap()
     if (!map || themeRef.current !== "light") return
@@ -1669,8 +1673,9 @@ export default function MapView() {
                     key={group.id}
                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] cursor-pointer border-b border-white/[0.05]"
                     onClick={() => {
-                      setActiveGroupId(activeGroupId === group.id ? null : group.id)
-                      setFilter("groups")
+                      const nextId = activeGroupId === group.id ? null : group.id
+                      setActiveGroupId(nextId)
+                      setFilter(nextId ? "groups" : "friends")
                       setShowGroupsDropdown(false)
                     }}
                   >
