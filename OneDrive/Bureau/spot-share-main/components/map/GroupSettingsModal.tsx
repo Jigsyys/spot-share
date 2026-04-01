@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, UserPlus, Trash2, LoaderCircle } from "lucide-react"
+import { X, UserPlus, Trash2, LoaderCircle, LogOut } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import type { SpotGroup, Profile } from "@/lib/types"
@@ -163,6 +163,36 @@ export default function GroupSettingsModal({
     setSaving(false)
   }
 
+  const leaveGroup = async () => {
+    try {
+      const { error } = await supabase.current
+        .from("spot_group_members")
+        .delete()
+        .eq("group_id", group.id)
+        .eq("user_id", currentUserId)
+      if (error) throw error
+      onGroupDeleted(group.id)
+      onClose()
+      toast.success(`Tu as quitté "${group.name}"`)
+    } catch {
+      toast.error("Impossible de quitter le groupe")
+    }
+  }
+
+  const cancelInvite = async (inviteId: string, username: string | null) => {
+    try {
+      const { error } = await supabase.current
+        .from("spot_group_invitations")
+        .delete()
+        .eq("id", inviteId)
+      if (error) throw error
+      setPending(prev => prev.filter(p => p.id !== inviteId))
+      toast.success(`Invitation annulée${username ? ` pour @${username}` : ""}`)
+    } catch {
+      toast.error("Impossible d'annuler l'invitation")
+    }
+  }
+
   const alreadyInGroup = new Set([
     ...members.map(m => m.user_id),
     ...pending.map(p => p.invitee_id),
@@ -292,7 +322,7 @@ export default function GroupSettingsModal({
 
                   {/* En attente */}
                   {pending.map(p => (
-                    <div key={p.id} className="flex items-center gap-3 opacity-50">
+                    <div key={p.id} className="flex items-center gap-3 opacity-60">
                       <div className="w-8 h-8 rounded-full bg-zinc-700 border border-dashed border-zinc-500 flex items-center justify-center text-[11px] text-zinc-400 flex-shrink-0">
                         ?
                       </div>
@@ -300,14 +330,22 @@ export default function GroupSettingsModal({
                         @{p.profiles?.username ?? "?"}
                         <span className="ml-1.5 text-[10px] text-amber-500">· invitation envoyée</span>
                       </span>
+                      {isCreator && (
+                        <button
+                          onClick={() => cancelInvite(p.id, p.profiles?.username ?? null)}
+                          className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors px-2 py-0.5 rounded-lg bg-white/[0.04]"
+                        >
+                          Annuler
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Supprimer le groupe */}
-            {isCreator && (
+            {/* Supprimer le groupe (créateur) / Quitter le groupe (membres) */}
+            {isCreator ? (
               <div className="px-4 py-3 mt-1 border-t border-white/[0.05]">
                 <button
                   onClick={deleteGroup}
@@ -316,6 +354,16 @@ export default function GroupSettingsModal({
                 >
                   {deleting ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />}
                   Supprimer le groupe
+                </button>
+              </div>
+            ) : (
+              <div className="px-4 py-3 mt-1 border-t border-white/[0.05]">
+                <button
+                  onClick={leaveGroup}
+                  className="flex items-center gap-2 text-[12px] font-semibold text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <LogOut size={13} />
+                  Quitter le groupe
                 </button>
               </div>
             )}
