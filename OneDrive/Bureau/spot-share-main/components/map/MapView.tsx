@@ -43,6 +43,7 @@ const PublicProfileModal = dynamic(() => import("./PublicProfileModal"), { ssr: 
 const ProfileModal = dynamic(() => import("./ProfileModal"), { ssr: false })
 const OnboardingModal = dynamic(() => import("./OnboardingModal"), { ssr: false })
 const ExploreModal = dynamic(() => import("./ExploreModal"), { ssr: false })
+const GroupSettingsModal = dynamic(() => import("./GroupSettingsModal"), { ssr: false })
 import { CATEGORY_EMOJIS as CAT_EMOJIS, CATEGORIES } from "@/lib/categories"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
@@ -2674,6 +2675,20 @@ export default function MapView() {
           danger={confirmDialog.danger}
           onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
           onCancel={() => setConfirmDialog(null)}
+        />
+      )}
+
+      {selectedGroupForSettings && (
+        <GroupSettingsModal
+          group={selectedGroupForSettings}
+          currentUserId={user?.id ?? ""}
+          followingProfiles={friendProfiles}
+          onClose={() => setSelectedGroupForSettings(null)}
+          onGroupDeleted={(id) => {
+            setGroups(prev => prev.filter(g => g.id !== id))
+            if (activeGroupId === id) { setActiveGroupId(null); setFilter("friends") }
+          }}
+          onGroupUpdated={(updated) => setGroups(prev => prev.map(g => g.id === updated.id ? updated : g))}
         />
       )}
     </div>
