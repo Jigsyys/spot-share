@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import {
   X,
   Search,
@@ -39,6 +40,7 @@ interface AddSpotModalProps {
     opening_hours: Record<string, string> | null
     weekday_descriptions: string[] | null
     maps_url: string | null
+    price_range: string | null
     expires_at: string | null
   }) => Promise<void>
   initialUrl?: string
@@ -60,6 +62,7 @@ type AiData = {
   opening_hours?: Record<string, string>
   coordinates?: { lat: number; lng: number }
   location?: string
+  price_range?: string | null
 }
 
 export default function AddSpotModal({
@@ -71,6 +74,7 @@ export default function AddSpotModal({
   userLng,
 }: AddSpotModalProps) {
   const [tab, setTab] = useState<Tab>("instagram")
+  const [tabSwitchPending, setTabSwitchPending] = useState<Tab | null>(null)
 
   // ── Shared : place search ──────────────────────────────────────────────────
   const [placeQuery, setPlaceQuery] = useState("")
@@ -89,6 +93,7 @@ export default function AddSpotModal({
   const [igOpeningHours, setIgOpeningHours] = useState<Record<string, string> | null>(null)
   const [igWeekdayDescriptions, setIgWeekdayDescriptions] = useState<string[] | null>(null)
   const [igMapsUrl, setIgMapsUrl] = useState<string | null>(null)
+  const [igPriceRange, setIgPriceRange] = useState<string | null>(null)
   const [autoFillLoading, setAutoFillLoading] = useState(false)
   const [autoFillDone, setAutoFillDone] = useState(false)
 
@@ -100,6 +105,7 @@ export default function AddSpotModal({
   const [manOpeningHours, setManOpeningHours] = useState<Record<string, string> | null>(null)
   const [manWeekdayDescriptions, setManWeekdayDescriptions] = useState<string[] | null>(null)
   const [manMapsUrl, setManMapsUrl] = useState<string | null>(null)
+  const [manPriceRange, setManPriceRange] = useState<string | null>(null)
   const [manAiFillLoading, setManAiFillLoading] = useState(false)
   const [manAiFillDone, setManAiFillDone] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -211,6 +217,7 @@ export default function AddSpotModal({
         if (data.photos?.length) setIgImageUrl(data.photos.join(","))
         else if (data.image_url) setIgImageUrl(data.image_url)
         if (data.maps_url) setIgMapsUrl(data.maps_url)
+        if (data.price_range) setIgPriceRange(data.price_range)
         if (data.weekday_descriptions?.length) setIgWeekdayDescriptions(data.weekday_descriptions)
         if (data.opening_hours) setIgOpeningHours(data.opening_hours)
         await applyCoordinates(data, data.title || url)
@@ -255,6 +262,7 @@ export default function AddSpotModal({
       if (data.photos?.length) setManImageUrl(data.photos.join(","))
       else if (data.image_url) setManImageUrl(data.image_url)
       if (data.maps_url) setManMapsUrl(data.maps_url)
+      if (data.price_range) setManPriceRange(data.price_range)
       if (data.weekday_descriptions?.length) setManWeekdayDescriptions(data.weekday_descriptions)
       if (data.opening_hours) setManOpeningHours(data.opening_hours)
       await applyCoordinates(data, manTitle)
@@ -300,11 +308,11 @@ export default function AddSpotModal({
         setInstagramUrl("")
         // Instagram tab reset
         setIgTitle(""); setIgDescription(""); setIgCategory("café")
-        setIgImageUrl(null); setIgOpeningHours(null); setIgWeekdayDescriptions(null); setIgMapsUrl(null)
+        setIgImageUrl(null); setIgOpeningHours(null); setIgWeekdayDescriptions(null); setIgMapsUrl(null); setIgPriceRange(null)
         setAutoFillDone(false); setAutoFillLoading(false)
         // Manual tab reset
         setManTitle(""); setManDescription(""); setManCategory("café")
-        setManImageUrl(null); setManOpeningHours(null); setManWeekdayDescriptions(null); setManMapsUrl(null)
+        setManImageUrl(null); setManOpeningHours(null); setManWeekdayDescriptions(null); setManMapsUrl(null); setManPriceRange(null)
         setManAiFillDone(false); setManAiFillLoading(false)
         // Shared reset
         setPlaceQuery(""); setPlaceResults([]); setSelectedPlace(null); setError(null)
@@ -335,6 +343,7 @@ export default function AddSpotModal({
         opening_hours: tab === "instagram" ? igOpeningHours : manOpeningHours,
         weekday_descriptions: tab === "instagram" ? igWeekdayDescriptions : manWeekdayDescriptions,
         maps_url: tab === "instagram" ? igMapsUrl : manMapsUrl,
+        price_range: tab === "instagram" ? igPriceRange : manPriceRange,
         expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
       })
       onClose()
@@ -392,7 +401,13 @@ export default function AddSpotModal({
                   ]).map(({ key, label, icon }) => (
                     <button
                       key={key}
-                      onClick={() => setTab(key)}
+                      onClick={() => {
+                        if (key === tab) return
+                        const hasIgData = tab === "instagram" && !!(igTitle || igImageUrl || instagramUrl)
+                        const hasManData = tab === "manual" && !!(manTitle || manImageUrl)
+                        if (hasIgData || hasManData) { setTabSwitchPending(key); return }
+                        setTab(key)
+                      }}
                       className={cn(
                         "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-all",
                         tab === key
@@ -719,6 +734,15 @@ export default function AddSpotModal({
           </motion.div>
         </>
       )}
+      <ConfirmDialog
+        open={!!tabSwitchPending}
+        title="Changer d'onglet ?"
+        message="Les informations saisies seront perdues."
+        confirmLabel="Changer"
+        danger={false}
+        onConfirm={() => { if (tabSwitchPending) setTab(tabSwitchPending); setTabSwitchPending(null) }}
+        onCancel={() => setTabSwitchPending(null)}
+      />
     </AnimatePresence>
   )
 }

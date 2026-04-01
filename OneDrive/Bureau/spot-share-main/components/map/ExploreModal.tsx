@@ -2,10 +2,11 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Search, Shuffle, ChevronDown, Check, MapPin } from "lucide-react"
+import { X, Search, Shuffle, ChevronDown, Check, MapPin, LoaderCircle } from "lucide-react"
 import type { Spot } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { CATEGORY_EMOJIS, CATEGORIES } from "@/lib/categories"
+import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -361,6 +362,9 @@ interface ExploreModalProps {
   likeCountsBySpotId?: Record<string, number>
   onSelectUser?: (userId: string) => void
   onSurprise?: (spot: Spot) => void
+  spotsLoaded?: boolean
+  onAddSpot?: () => void
+  onOpenFriends?: () => void
 }
 
 type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
@@ -371,6 +375,7 @@ type Mode = "explorer" | "mine" | "friends"
 
 export default function ExploreModal({
   isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], surprisePin, likeCountsBySpotId, onSelectUser, onSurprise,
+  spotsLoaded = true, onAddSpot, onOpenFriends,
 }: ExploreModalProps) {
   const [mode, setMode]                   = useState<Mode>("explorer")
   const [searchQuery, setSearchQuery]     = useState("")
@@ -380,6 +385,7 @@ export default function ExploreModal({
   const [surpriseLoading, setSurpriseLoading] = useState(false)
   const inputRef        = useRef<HTMLInputElement>(null)
   const lastPickedIdRef = useRef<string | null>(null)
+  const swipe = useSwipeToClose(onClose)
 
   // Debounce search
   useEffect(() => {
@@ -653,6 +659,9 @@ export default function ExploreModal({
                     placeholder="Spot, adresse ou @ami..."
                     className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-zinc-600"
                   />
+                  {searchQuery && searchQuery !== debouncedQuery && (
+                    <LoaderCircle size={14} className="animate-spin text-gray-300 dark:text-zinc-600 flex-shrink-0" />
+                  )}
                   {searchQuery && (
                     <button
                       onClick={() => { setSearchQuery(""); setDebouncedQuery("") }}
@@ -675,7 +684,7 @@ export default function ExploreModal({
               </div>
 
               {/* ── Contenu scrollable ── */}
-              <div className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
+              <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
 
                 {/* ════ MODE EXPLORER ════ */}
                 {mode === "explorer" && (
@@ -729,8 +738,12 @@ export default function ExploreModal({
                           {userLocation ? "📍 Par distance" : "🆕 Récemment ajoutés"}
                         </p>
                       )}
-                      {recentSpots.length === 0 ? (
-                        <EmptyState mode="explorer" hasQuery={!!debouncedQuery} />
+                      {!spotsLoaded ? (
+                        <div className="py-2">
+                          {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
+                        </div>
+                      ) : recentSpots.length === 0 ? (
+                        <EmptyState mode="explorer" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                       ) : (
                         <div className="space-y-2">
                           {hasFilters && (
@@ -757,8 +770,12 @@ export default function ExploreModal({
                 {/* ════ MODE MES SPOTS ════ */}
                 {mode === "mine" && (
                   <div>
-                    {filteredPool.length === 0 ? (
-                      <EmptyState mode="mine" hasQuery={!!debouncedQuery} />
+                    {!spotsLoaded ? (
+                      <div className="py-2">
+                        {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+                      </div>
+                    ) : filteredPool.length === 0 ? (
+                      <EmptyState mode="mine" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                     ) : (
                       <>
                         <p className="mb-3 text-xs text-gray-400 dark:text-zinc-600">
@@ -838,73 +855,6 @@ export default function ExploreModal({
                       </div>
                     )}
 
-                    {/* ── Classements ── */}
-                    {!hasFilters && (monthlyRanking.length > 0 || likesRanking.length > 0) && (
-                      <div className="grid grid-cols-2 gap-3">
-
-                        {/* Top 3 du mois */}
-                        {monthlyRanking.length > 0 && (
-                          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-3">
-                            <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">🗓 Ce mois-ci</p>
-                            <div className="space-y-2">
-                              {monthlyRanking.map((entry, i) => (
-                                <button
-                                  key={entry.userId}
-                                  onClick={() => onSelectUser?.(entry.userId)}
-                                  className="flex w-full items-center gap-2 text-left hover:opacity-70 transition-opacity"
-                                >
-                                  <span className="w-5 flex-shrink-0 text-center text-sm">
-                                    {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                                  </span>
-                                  <div className="h-7 w-7 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-400 to-purple-500">
-                                    {entry.avatar_url
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                      : <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-white">{entry.username?.[0]?.toUpperCase()}</div>
-                                    }
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="truncate text-[11px] font-semibold text-gray-900 dark:text-white">{entry.username ?? "Ami"}</p>
-                                    <p className="text-[10px] text-indigo-500 font-bold">{entry.count} spot{entry.count > 1 ? "s" : ""}</p>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Top 3 likes */}
-                        {likesRanking.length > 0 && (
-                          <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-3">
-                            <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-zinc-500">❤️ Les + aimés</p>
-                            <div className="space-y-2">
-                              {likesRanking.map((entry, i) => (
-                                <button
-                                  key={entry.userId}
-                                  onClick={() => onSelectUser?.(entry.userId)}
-                                  className="flex w-full items-center gap-2 text-left hover:opacity-70 transition-opacity"
-                                >
-                                  <span className="w-5 flex-shrink-0 text-center text-sm">
-                                    {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                                  </span>
-                                  <div className="h-7 w-7 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-rose-400 to-pink-500">
-                                    {entry.avatar_url
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                      : <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-white">{entry.username?.[0]?.toUpperCase()}</div>
-                                    }
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="truncate text-[11px] font-semibold text-gray-900 dark:text-white">{entry.username ?? "Ami"}</p>
-                                    <p className="text-[10px] text-rose-500 font-bold">{entry.count} like{entry.count > 1 ? "s" : ""}</p>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     {/* Cette semaine */}
                     {friendsThisWeek.length > 0 && !hasFilters && (
@@ -928,8 +878,12 @@ export default function ExploreModal({
                       {!hasFilters && (
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tous leurs spots</p>
                       )}
-                      {filteredPool.length === 0 ? (
-                        <EmptyState mode="friends" hasQuery={!!debouncedQuery} />
+                      {!spotsLoaded ? (
+                        <div className="py-2">
+                          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+                        </div>
+                      ) : filteredPool.length === 0 ? (
+                        <EmptyState mode="friends" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                       ) : (
                         <div className="space-y-2">
                           {hasFilters && (
@@ -961,24 +915,48 @@ export default function ExploreModal({
   )
 }
 
+// ─── Skeleton ────────────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 animate-pulse">
+      <div className="h-14 w-14 flex-shrink-0 rounded-xl bg-gray-200 dark:bg-zinc-700" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3 w-3/4 rounded-full bg-gray-200 dark:bg-zinc-700" />
+        <div className="h-3 w-1/2 rounded-full bg-gray-200 dark:bg-zinc-700" />
+      </div>
+    </div>
+  )
+}
+
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-function EmptyState({ mode, hasQuery }: { mode: Mode; hasQuery: boolean }) {
-  const messages: Record<Mode, { icon: string; title: string; sub: string }> = {
+function EmptyState({
+  mode, hasQuery, onAddSpot, onOpenFriends,
+}: {
+  mode: Mode
+  hasQuery: boolean
+  onAddSpot?: () => void
+  onOpenFriends?: () => void
+}) {
+  const messages: Record<Mode, { icon: string; title: string; sub: string; cta?: { label: string; action?: () => void } }> = {
     explorer: {
       icon: "🌍",
       title: "Aucun spot trouvé",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Aucun spot disponible",
+      sub: hasQuery ? "Essaie un autre mot-clé" : "Sois le premier à ajouter un spot !",
+      cta: hasQuery ? undefined : { label: "Ajouter un spot", action: onAddSpot },
     },
     mine: {
       icon: "📍",
       title: "Aucun spot",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Tu n'as pas encore ajouté de spots",
+      sub: hasQuery ? "Essaie un autre mot-clé" : "Commence par ajouter ton premier lieu.",
+      cta: hasQuery ? undefined : { label: "Ajouter un spot", action: onAddSpot },
     },
     friends: {
       icon: "👥",
       title: "Rien pour l'instant",
-      sub: hasQuery ? "Essaie un autre mot-clé" : "Tes amis n'ont pas encore ajouté de spots",
+      sub: hasQuery ? "Essaie un autre mot-clé" : "Invite des amis pour voir leurs spots.",
+      cta: hasQuery ? undefined : { label: "Inviter des amis", action: onOpenFriends },
     },
   }
   const m = messages[mode]
@@ -987,6 +965,14 @@ function EmptyState({ mode, hasQuery }: { mode: Mode; hasQuery: boolean }) {
       <span className="text-4xl">{m.icon}</span>
       <p className="text-sm font-semibold text-gray-600 dark:text-zinc-400">{m.title}</p>
       <p className="text-xs text-gray-400 dark:text-zinc-600">{m.sub}</p>
+      {m.cta?.action && (
+        <button
+          onClick={m.cta.action}
+          className="mt-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+        >
+          {m.cta.label}
+        </button>
+      )}
     </div>
   )
 }

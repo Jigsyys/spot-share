@@ -41,7 +41,8 @@ const PublicProfileModal = dynamic(() => import("./PublicProfileModal"), { ssr: 
 const ProfileModal = dynamic(() => import("./ProfileModal"), { ssr: false })
 const OnboardingModal = dynamic(() => import("./OnboardingModal"), { ssr: false })
 const ExploreModal = dynamic(() => import("./ExploreModal"), { ssr: false })
-import { CATEGORY_EMOJIS as CAT_EMOJIS } from "@/lib/categories"
+import { CATEGORY_EMOJIS as CAT_EMOJIS, CATEGORIES } from "@/lib/categories"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
 const SPOTS_CACHE_KEY = "friendspot_spots_v2"
@@ -280,8 +281,9 @@ export default function MapView() {
   const { user, loading: authLoading, signOut } = useAuth()
   const { resolvedTheme } = useTheme()
 
-  const [filter, setFilter] = useState<FilterMode>("mine")
+  const [filter, setFilter] = useState<FilterMode>("friends")
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
+  const [friendCategoryFilter, setFriendCategoryFilter] = useState<Set<string>>(new Set())
   const [showFriendFilter, setShowFriendFilter] = useState(false)
   const [friendFilterSearch, setFriendFilterSearch] = useState("")
 
@@ -291,6 +293,7 @@ export default function MapView() {
   const [descExpanded, setDescExpanded] = useState(false)
   const [showLikersPanel, setShowLikersPanel] = useState(false)
   const carouselRef = useRef<HTMLDivElement>(null)
+  const spotScrollRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spotDragControls = useDragControls()
@@ -303,7 +306,15 @@ export default function MapView() {
   const [publicProfileUserId, setPublicProfileUserId] = useState<string | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [spots, setSpots] = useState<Spot[]>([])
+  const [spotsLoaded, setSpotsLoaded] = useState(false)
   const [likeCountsBySpotId, setLikeCountsBySpotId] = useState<Record<string, number>>({})
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean; title: string; message: string
+    confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  } | null>(null)
+  const openConfirm = useCallback((opts: {
+    title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  }) => setConfirmDialog({ open: true, ...opts }), [])
   const [followingIds, setFollowingIds] = useState<string[]>([])
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
   const visibleFriendIdsRef = useRef<string[]>([])
@@ -346,6 +357,7 @@ export default function MapView() {
   const [zoom, setZoom] = useState(12.5)
 
   const supabaseRef = useRef(createClient())
+  const pendingSpotIdRef = useRef<string | null>(null)
 
   const themeRef = useRef(resolvedTheme)
   useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
@@ -482,6 +494,12 @@ export default function MapView() {
     } catch (_e) {
       console.error("fetchSpots error:", _e)
       setSpots(DEMO_SPOTS)
+      toast.error("Impossible de charger les spots", {
+        action: { label: "Réessayer", onClick: () => fetchSpots() },
+        duration: 8000,
+      })
+    } finally {
+      setSpotsLoaded(true)
     }
   }, []) // no user dependency — profile fetch is now separate
 
@@ -610,35 +628,21 @@ export default function MapView() {
   const checkNewLikes = useCallback(async () => {
     if (!user) return
     try {
-      const { data: spotIds } = await supabaseRef.current
-        .from("spots").select("id").eq("user_id", user.id)
-      if (!spotIds?.length) return
-      const ids = spotIds.map((s: { id: string }) => s.id)
-      const { count } = await supabaseRef.current
-        .from("spot_reactions")
-        .select("*", { count: "exact", head: true })
-        .in("spot_id", ids)
-        .eq("type", "love")
-        .neq("user_id", user.id)
+      const { data } = await supabaseRef.current
+        .rpc("count_likes_on_my_spots", { p_user_id: user.id })
+      const count = data as number ?? 0
       const known = parseInt(localStorage.getItem(`likesKnown_${user.id}`) || "0")
-      setNewLikesCount(Math.max(0, (count ?? 0) - known))
+      setNewLikesCount(Math.max(0, count - known))
     } catch { /* ignore */ }
   }, [user])
 
   const markLikesSeen = useCallback(async () => {
     if (!user) return
     try {
-      const { data: spotIds } = await supabaseRef.current
-        .from("spots").select("id").eq("user_id", user.id)
-      if (!spotIds?.length) { localStorage.setItem(`likesKnown_${user.id}`, "0"); setNewLikesCount(0); return }
-      const ids = spotIds.map((s: { id: string }) => s.id)
-      const { count } = await supabaseRef.current
-        .from("spot_reactions")
-        .select("*", { count: "exact", head: true })
-        .in("spot_id", ids)
-        .eq("type", "love")
-        .neq("user_id", user.id)
-      localStorage.setItem(`likesKnown_${user.id}`, String(count ?? 0))
+      const { data } = await supabaseRef.current
+        .rpc("count_likes_on_my_spots", { p_user_id: user.id })
+      const count = data as number ?? 0
+      localStorage.setItem(`likesKnown_${user.id}`, String(count))
       setNewLikesCount(0)
     } catch { /* ignore */ }
   }, [user])
@@ -646,18 +650,24 @@ export default function MapView() {
   const checkIncomingRequests = useCallback(async () => {
     if (!user) return
     try {
-      const { count: friendCount } = await supabaseRef.current
+      // Récupérer le timestamp de la dernière fois que l'utilisateur a ouvert l'onglet Amis
+      const seenAt = localStorage.getItem(`friendspot_notif_seen_${user.id}`)
+
+      let friendQuery = supabaseRef.current
         .from("friend_requests")
         .select("*", { count: "exact", head: true })
         .eq("to_id", user.id)
         .eq("status", "pending")
-        
-      const { count: outingCount } = await supabaseRef.current
+      if (seenAt) friendQuery = friendQuery.gt("created_at", seenAt) as typeof friendQuery
+
+      let outingQuery = supabaseRef.current
         .from("outing_invitations")
         .select("*", { count: "exact", head: true })
         .eq("invitee_id", user.id)
         .eq("status", "pending")
-        
+      if (seenAt) outingQuery = outingQuery.gt("created_at", seenAt) as typeof outingQuery
+
+      const [{ count: friendCount }, { count: outingCount }] = await Promise.all([friendQuery, outingQuery])
       setIncomingCount((friendCount || 0) + (outingCount || 0))
     } catch {
       /* ignore */
@@ -666,6 +676,30 @@ export default function MapView() {
 
   // Garde le ref à jour pour les closures realtime
   useEffect(() => { visibleFriendIdsRef.current = visibleFriendIds }, [visibleFriendIds])
+
+  // Bouton retour navigateur → ferme le modal du dessus
+  const closeTopModalRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    closeTopModalRef.current = () => {
+      if (publicProfileUserId) { setPublicProfileUserId(null); return }
+      if (showProfileModal) { setShowProfileModal(false); return }
+      if (showFriendsModal) { setShowFriendsModal(false); return }
+      if (showExploreModal) { setShowExploreModal(false); return }
+      if (showAddModal) { setShowAddModal(false); return }
+      if (selectedSpot) { setSelectedSpot(null); return }
+    }
+  }, [publicProfileUserId, showProfileModal, showFriendsModal, showExploreModal, showAddModal, selectedSpot])
+  useEffect(() => {
+    const handler = () => closeTopModalRef.current()
+    window.addEventListener("popstate", handler)
+    return () => window.removeEventListener("popstate", handler)
+  }, [])
+  const prevAnyOpenRef = useRef(false)
+  useEffect(() => {
+    const anyOpen = showFriendsModal || showExploreModal || showAddModal || showProfileModal || !!publicProfileUserId || !!selectedSpot
+    if (anyOpen && !prevAnyOpenRef.current) window.history.pushState({ modal: true }, "")
+    prevAnyOpenRef.current = anyOpen
+  }, [showFriendsModal, showExploreModal, showAddModal, showProfileModal, publicProfileUserId, selectedSpot])
 
   // On mount: fetch spots + like counts in parallel (no auth needed)
   useEffect(() => {
@@ -834,12 +868,16 @@ export default function MapView() {
     return result
   }, [spots, user?.id, visibleFriendIds])
 
+  const loveReactions = useMemo(() => reactions.filter(r => r.type === "love"), [reactions])
+
   const visibleSpots = useMemo(() => {
     if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
-    const base = spots.filter((s) => visibleFriendIds.includes(s.user_id))
-    if (friendFilterIds.size > 0) return base.filter((s) => friendFilterIds.has(s.user_id))
+    const friendSet = new Set(visibleFriendIds)
+    let base = spots.filter((s) => friendSet.has(s.user_id))
+    if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
+    if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
-  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds])
+  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds, friendCategoryFilter])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -854,7 +892,15 @@ export default function MapView() {
           duration: 1200,
         })
       },
-      () => setIsLocating(false),
+      (err) => {
+        setIsLocating(false)
+        if (err.code === 1) {
+          toast.error("Localisation refusée", {
+            description: "Active la géolocalisation dans les paramètres de ton navigateur.",
+            duration: 6000,
+          })
+        }
+      },
       { enableHighAccuracy: true }
     )
   }, [])
@@ -881,10 +927,18 @@ export default function MapView() {
     return () => clearInterval(interval)
   }, [publishLocation])
 
-  // Interception du Web Share Target (PWA)
+  // Interception du Web Share Target (PWA) + deep link ?spot=<id>
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search)
+
+      // Deep link: ?spot=<id> — ouvrir un spot partagé
+      const spotDeepLink = urlParams.get("spot")
+      if (spotDeepLink) {
+        pendingSpotIdRef.current = spotDeepLink
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
+
       const sharedUrl = urlParams.get("share_url")
       const sharedText = urlParams.get("text")
 
@@ -918,6 +972,20 @@ export default function MapView() {
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
+  // Deep link: sélectionner et centrer sur un spot dès que les données sont chargées
+  useEffect(() => {
+    if (!pendingSpotIdRef.current || spots.length === 0) return
+    const id = pendingSpotIdRef.current
+    const spot = spots.find(s => s.id === id)
+    if (spot) {
+      pendingSpotIdRef.current = null
+      setSelectedSpot(spot)
+      if (spot.lat && spot.lng) {
+        mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15, duration: 1200 })
+      }
+    }
+  }, [spots])
+
 
   const handleOpenAddSpot = () => {
     setInitialAddUrl("")
@@ -936,6 +1004,7 @@ export default function MapView() {
     opening_hours: Record<string, string> | null
     weekday_descriptions: string[] | null
     maps_url: string | null
+    price_range: string | null
     expires_at: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
@@ -955,6 +1024,15 @@ export default function MapView() {
       profiles: profileSnap,
     }
 
+    // Supprimer l'ancien spot de l'utilisateur à la même adresse (doublon)
+    if (spotData.address) {
+      const duplicate = spots.find(s => s.user_id === user.id && s.address === spotData.address)
+      if (duplicate) {
+        await supabaseRef.current.from("spots").delete().eq("id", duplicate.id)
+        setSpots(prev => prev.filter(s => s.id !== duplicate.id))
+      }
+    }
+
     setSpots((prev) => [optimisticSpot, ...prev])
 
     try {
@@ -969,8 +1047,7 @@ export default function MapView() {
         // Colonne inconnue (42703) → retry sans les champs optionnels non migrés
         if (error.code === "42703" || error.code === "PGRST204") {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { maps_url, weekday_descriptions, image_url, expires_at, ...core } = spotData
+          const { maps_url, weekday_descriptions, image_url, expires_at, price_range, opening_hours, ...core } = spotData
           const { data: fallback, error: fallbackError } = await supabaseRef.current
             .from("spots")
             .insert({ user_id: user.id, ...core, image_url })
@@ -1009,7 +1086,13 @@ export default function MapView() {
       const err = e as { message?: string }
       console.error("Insert error:", err)
       setSpots((prev) => prev.filter((s) => s.id !== tempId))
-      toast.error("Erreur serveur : ton lieu n'a pas pu être sauvegardé.")
+      const msg = err?.message || "Erreur inconnue"
+      // Colonnes manquantes → indiquer la migration à faire
+      if (msg.includes("price_range") || msg.includes("opening_hours") || msg.includes("expires_at") || msg.includes("column")) {
+        toast.error("Migration SQL manquante. Ajoute les colonnes dans Supabase (voir CLAUDE.md).")
+      } else {
+        toast.error(`Erreur serveur : ${msg}`)
+      }
       throw err
     }
   }
@@ -1178,8 +1261,7 @@ export default function MapView() {
       setReactions([])
       return
     }
-    fetchVisits(selectedSpot.id)
-    fetchReactions(selectedSpot.id)
+    Promise.all([fetchVisits(selectedSpot.id), fetchReactions(selectedSpot.id)])
     const channel = supabaseRef.current
       .channel(`spot-${selectedSpot.id}`)
       .on("postgres_changes",
@@ -1195,17 +1277,17 @@ export default function MapView() {
   }, [selectedSpot?.id, fetchVisits, fetchReactions])
 
 
-  const points = visibleSpots.map((spot) => ({
+  const points = useMemo(() => visibleSpots.map((spot) => ({
     type: "Feature" as const,
     properties: { cluster: false, spotId: spot.id, category: spot.category },
     geometry: { type: "Point" as const, coordinates: [spot.lng, spot.lat] },
-  }))
+  })), [visibleSpots])
 
   const { clusters, supercluster } = useSupercluster({
     points,
     bounds,
     zoom,
-    options: { radius: 60, maxZoom: 16 },
+    options: { radius: 25, maxZoom: 16 },
   })
 
   const markerElements = useMemo(() => clusters.map((cluster) => {
@@ -1486,7 +1568,7 @@ export default function MapView() {
                   key={key}
                   onClick={() => {
                     setFilter(key)
-                    if (key === "mine") { setFriendFilterIds(new Set()); setShowFriendFilter(false) }
+                    if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
                   }}
                   className={cn(
                     "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
@@ -1508,14 +1590,14 @@ export default function MapView() {
                   onClick={() => setShowFriendFilter(v => !v)}
                   className={cn(
                     "flex items-center gap-1.5 rounded-full border px-2.5 py-2 text-xs font-medium shadow-md backdrop-blur-md transition-colors",
-                    friendFilterIds.size > 0
+                    friendFilterIds.size > 0 || friendCategoryFilter.size > 0
                       ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
                       : "border-gray-200 dark:border-white/10 bg-white/80 dark:bg-zinc-900/80 text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                   )}
                 >
                   <SlidersHorizontal size={13} />
-                  {friendFilterIds.size > 0 && (
-                    <span>{friendFilterIds.size}</span>
+                  {(friendFilterIds.size > 0 || friendCategoryFilter.size > 0) && (
+                    <span>{friendFilterIds.size + friendCategoryFilter.size}</span>
                   )}
                 </button>
 
@@ -1555,7 +1637,7 @@ export default function MapView() {
                           </button>
                         </div>
                         {/* Liste des amis */}
-                        <div className="mt-2 max-h-52 overflow-y-auto space-y-0.5">
+                        <div className="mt-2 max-h-44 overflow-y-auto space-y-0.5">
                           {friendProfiles
                             .filter(fp => !friendFilterSearch || (fp.username ?? "").toLowerCase().includes(friendFilterSearch.toLowerCase()))
                             .map(fp => (
@@ -1589,6 +1671,32 @@ export default function MapView() {
                               </button>
                             ))}
                         </div>
+
+                        {/* Filtre par catégorie */}
+                        <div className="mt-3 border-t border-gray-100 dark:border-white/[0.07] pt-3">
+                          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-500">Catégories</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {CATEGORIES.map(cat => (
+                              <button
+                                key={cat.key}
+                                onClick={() => setFriendCategoryFilter(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(cat.key)) next.delete(cat.key)
+                                  else next.add(cat.key)
+                                  return next
+                                })}
+                                className={cn(
+                                  "flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors",
+                                  friendCategoryFilter.has(cat.key)
+                                    ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500 text-white"
+                                    : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400"
+                                )}
+                              >
+                                <span>{cat.emoji}</span> {cat.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </motion.div>
                     </>
                   )}
@@ -1601,7 +1709,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className="pointer-events-none absolute right-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-col items-end gap-3 sm:bottom-[4.5rem]">
+      <div className="pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-end gap-3 sm:bottom-[7rem]">
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -1636,7 +1744,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className="pointer-events-none absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-4 z-10 sm:bottom-[4.5rem]">
+      <div className="pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 z-40 sm:bottom-[7rem]">
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -1695,7 +1803,36 @@ export default function MapView() {
             </button>
 
             {/* Tout le contenu est scrollable, photo incluse */}
-            <div className="flex-1 overflow-y-auto">
+            <div
+              ref={spotScrollRef}
+              className="flex-1 overflow-y-auto"
+              onPointerDown={(e) => {
+                if (spotScrollRef.current && spotScrollRef.current.scrollTop === 0) {
+                  spotDragControls.start(e)
+                }
+              }}
+              onTouchStart={(e) => {
+                const el = spotScrollRef.current as any
+                if (!el) return
+                el._touchStartY = e.touches[0].clientY
+                el._touchStartTime = Date.now()
+                el._touchStartScroll = el.scrollTop ?? 0
+              }}
+              onTouchEnd={(e) => {
+                const el = spotScrollRef.current as any
+                if (!el) return
+                const dy = e.changedTouches[0].clientY - (el._touchStartY ?? 0)
+                const dt = Date.now() - (el._touchStartTime ?? 0)
+                const velocity = dy / Math.max(dt, 1)
+                const scrollTop = el._touchStartScroll ?? 0
+                // Fermer si :
+                // – swipe bas lent depuis le haut (scrollTop=0, dy>100)
+                // – swipe bas rapide depuis n'importe où (velocity>0.5 px/ms)
+                if ((scrollTop === 0 && dy > 100) || (dy > 60 && velocity > 0.5)) {
+                  setSelectedSpot(null)
+                }
+              }}
+            >
 
             {selectedSpot.image_url ? (() => {
               const photos = selectedSpot.image_url!.split(",").map(s => s.trim()).filter(Boolean)
@@ -1782,7 +1919,7 @@ export default function MapView() {
                   {selectedSpot.title}
                 </h3>
                 {user && (() => {
-                  const loveList = reactions.filter(r => r.type === "love")
+                  const loveList = loveReactions
                   const hasLoved = loveList.some(r => r.user_id === user.id)
                   return (
                     <button
@@ -1817,6 +1954,12 @@ export default function MapView() {
                 <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-zinc-400">
                   <MapPin size={14} className="text-blue-600 dark:text-indigo-400" />{" "}
                   {selectedSpot.address}
+                </p>
+              )}
+
+              {selectedSpot.price_range && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-base leading-none">💶</span>{selectedSpot.price_range}
                 </p>
               )}
 
@@ -1875,13 +2018,17 @@ export default function MapView() {
                   <>
                     <button
                       onClick={() => {
-                        if (window.confirm("Es-tu sûr de vouloir supprimer ce lieu ?")) {
-                          toast.promise(handleDeleteSpot(selectedSpot.id), {
+                        openConfirm({
+                          title: "Supprimer ce lieu ?",
+                          message: "Cette action est irréversible.",
+                          confirmLabel: "Supprimer",
+                          danger: true,
+                          onConfirm: () => toast.promise(handleDeleteSpot(selectedSpot.id), {
                             loading: "Suppression du spot...",
                             success: "Adieu petit spot ! Supprimé avec succès.",
                             error: "Erreur lors de la suppression.",
-                          })
-                        }
+                          }),
+                        })
                       }}
                       className="flex items-center justify-center rounded-2xl bg-red-500/10 p-3 text-red-500 transition-colors hover:bg-red-500/20"
                       title="Supprimer ce spot"
@@ -2014,14 +2161,14 @@ export default function MapView() {
               <div className="mb-3 flex items-center justify-between">
                 <p className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
                   <Heart size={14} className="fill-red-500 text-red-500" />
-                  {reactions.filter(r => r.type === "love").length} j&apos;adore
+                  {loveReactions.length} j&apos;adore
                 </p>
                 <button onClick={() => setShowLikersPanel(false)} className="rounded-lg p-1 text-gray-400 hover:text-gray-700 dark:hover:text-white">
                   <X size={16} />
                 </button>
               </div>
               <div className="max-h-60 overflow-y-auto space-y-1">
-                {reactions.filter(r => r.type === "love").map(r => (
+                {loveReactions.map(r => (
                   <button
                     key={r.user_id}
                     onClick={() => { setShowLikersPanel(false); if (r.user_id !== user?.id) setPublicProfileUserId(r.user_id) }}
@@ -2084,6 +2231,10 @@ export default function MapView() {
               setShowExploreModal(false)
               setShowFriendsModal(true)
               setIncomingCount(0)
+              // Marquer toutes les notifs actuelles comme vues
+              if (user) {
+                try { localStorage.setItem(`friendspot_notif_seen_${user.id}`, new Date().toISOString()) } catch {}
+              }
             }}
             className={cn(
                "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
@@ -2172,6 +2323,9 @@ export default function MapView() {
         onClose={() => setShowExploreModal(false)}
         spots={spots}
         allSpots={spots}
+        spotsLoaded={spotsLoaded}
+        onAddSpot={() => { setShowExploreModal(false); setShowAddModal(true) }}
+        onOpenFriends={() => { setShowExploreModal(false); setShowFriendsModal(true) }}
         userLocation={userLocation}
         currentUserId={user?.id ?? null}
         followingIds={followingIds}
@@ -2245,6 +2399,10 @@ export default function MapView() {
         }}
         spots={spots}
         userProfile={userProfile}
+        onLocateOuting={(lat, lng) => {
+          setShowFriendsModal(false)
+          mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 })
+        }}
       />
       <ProfileModal
         isOpen={showProfileModal}
@@ -2296,6 +2454,8 @@ export default function MapView() {
         userId={publicProfileUserId}
         onLocateSpot={(spotId, lat, lng) => {
           setPublicProfileUserId(null)
+          setShowFriendsModal(false)
+          setShowExploreModal(false)
           if (publicProfileUserId === user?.id) {
             setFilter("mine")
           } else {
@@ -2326,6 +2486,18 @@ export default function MapView() {
               avatar_url: prev?.avatar_url || null,
             }))
           }}
+        />
+      )}
+
+      {confirmDialog && (
+        <ConfirmDialog
+          open={confirmDialog.open}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
+          onCancel={() => setConfirmDialog(null)}
         />
       )}
     </div>

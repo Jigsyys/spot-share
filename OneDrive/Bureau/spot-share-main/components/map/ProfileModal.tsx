@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X,
@@ -20,11 +21,14 @@ import {
   UserMinus,
   LogOut,
   Heart,
+  Sparkles,
+  UserPlus,
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { useTheme } from "next-themes"
+import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 
 interface Spot {
   id: string
@@ -91,6 +95,13 @@ export default function ProfileModal({
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean; title: string; message: string
+    confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  } | null>(null)
+  const openConfirm = useCallback((opts: {
+    title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  }) => setConfirmDialog({ open: true, ...opts }), [])
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [followersCount, setFollowersCount] = useState(0)
@@ -104,11 +115,17 @@ export default function ProfileModal({
   const [likeHistory, setLikeHistory] = useState<LikeHistoryItem[]>([])
   const [loadingLikes, setLoadingLikes] = useState(false)
 
+  // Suggestions
+  const [suggestions, setSuggestions] = useState<{ id: string; username: string | null; avatar_url: string | null }[]>([])
+  const [showSuggestionsSheet, setShowSuggestionsSheet] = useState(false)
+  const [pendingSuggestions, setPendingSuggestions] = useState<Set<string>>(new Set())
+
   // Inline editing
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState("")
 
   const supabaseRef = useRef(createClient())
+  const swipe = useSwipeToClose(onClose)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
 
@@ -198,38 +215,59 @@ export default function ProfileModal({
     }
   }
 
-  const handleDeleteUserSpot = async (id: string) => {
-    if (!window.confirm("Es-tu sûr de vouloir supprimer ce lieu ?")) return
-    try {
-      await supabaseRef.current.from("spots").delete().eq("id", id)
-      toast.success("Lieu supprimé !")
-      onDeleteSpot?.(id)
-    } catch {
-      toast.error("Erreur lors de la suppression.")
-    }
+  const handleDeleteUserSpot = (id: string) => {
+    openConfirm({
+      title: "Supprimer ce lieu ?",
+      message: "Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await supabaseRef.current.from("spots").delete().eq("id", id)
+          toast.success("Lieu supprimé !")
+          onDeleteSpot?.(id)
+        } catch {
+          toast.error("Erreur lors de la suppression.")
+        }
+      },
+    })
   }
 
-  const handleUnfollowUser = async (targetId: string) => {
+  const handleUnfollowUser = (targetId: string) => {
     if (!user) return
-    if (!window.confirm("Ne plus suivre cet ami ?")) return
-    try {
-      await supabaseRef.current.from("followers").delete().eq("follower_id", user.id).eq("following_id", targetId)
-      setFollowingList(prev => prev.filter(p => p.id !== targetId))
-      setFollowingCount(prev => Math.max(0, prev - 1))
-      onUnfollow?.(targetId)
-      toast.success("Abonnement annulé !")
-    } catch { toast.error("Erreur.") }
+    openConfirm({
+      title: "Ne plus suivre ?",
+      message: "Tu ne verras plus ses spots sur la carte.",
+      confirmLabel: "Se désabonner",
+      danger: false,
+      onConfirm: async () => {
+        try {
+          await supabaseRef.current.from("followers").delete().eq("follower_id", user.id).eq("following_id", targetId)
+          setFollowingList(prev => prev.filter(p => p.id !== targetId))
+          setFollowingCount(prev => Math.max(0, prev - 1))
+          onUnfollow?.(targetId)
+          toast.success("Abonnement annulé !")
+        } catch { toast.error("Erreur.") }
+      },
+    })
   }
 
-  const handleRemoveFollowerUser = async (targetId: string) => {
+  const handleRemoveFollowerUser = (targetId: string) => {
     if (!user) return
-    if (!window.confirm("Retirer cet abonné ?")) return
-    try {
-      await supabaseRef.current.from("followers").delete().eq("follower_id", targetId).eq("following_id", user.id)
-      setFollowersList(prev => prev.filter(p => p.id !== targetId))
-      setFollowersCount(prev => Math.max(0, prev - 1))
-      toast.success("Abonné retiré !")
-    } catch { toast.error("Erreur.") }
+    openConfirm({
+      title: "Retirer cet abonné ?",
+      message: "Il ne pourra plus voir tes spots.",
+      confirmLabel: "Retirer",
+      danger: false,
+      onConfirm: async () => {
+        try {
+          await supabaseRef.current.from("followers").delete().eq("follower_id", targetId).eq("following_id", user.id)
+          setFollowersList(prev => prev.filter(p => p.id !== targetId))
+          setFollowersCount(prev => Math.max(0, prev - 1))
+          toast.success("Abonné retiré !")
+        } catch { toast.error("Erreur.") }
+      },
+    })
   }
 
   // ---------------------------------------------------------------
@@ -297,11 +335,56 @@ export default function ProfileModal({
   }
 
   // ---------------------------------------------------------------
+  // Suggestions
+  // ---------------------------------------------------------------
+  const loadSuggestions = useCallback(async () => {
+    if (!user) { setSuggestions([]); return }
+    try {
+      const excludeIds = [user.id, ...followingIds]
+      if (followingIds.length > 0) {
+        // Amis des amis
+        const { data } = await supabaseRef.current
+          .from("followers").select("following_id")
+          .in("follower_id", followingIds)
+          .not("following_id", "in", `(${excludeIds.join(",")})`)
+          .limit(40)
+        if (data && data.length > 0) {
+          const counts: Record<string, number> = {}
+          data.forEach((r: { following_id: string }) => {
+            counts[r.following_id] = (counts[r.following_id] || 0) + 1
+          })
+          const topIds = Object.entries(counts).sort(([, a], [, b]) => b - a).slice(0, 8).map(([id]) => id)
+          const { data: profiles } = await supabaseRef.current
+            .from("profiles").select("id, username, avatar_url").in("id", topIds)
+          setSuggestions(profiles ?? [])
+          return
+        }
+      }
+      // Fallback : utilisateurs populaires
+      const { data: profiles } = await supabaseRef.current
+        .from("profiles").select("id, username, avatar_url")
+        .neq("id", user.id)
+        .limit(8)
+      setSuggestions(profiles ?? [])
+    } catch { setSuggestions([]) }
+  }, [user, followingIds])
+
+  // ---------------------------------------------------------------
   // Delete account
   // ---------------------------------------------------------------
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = () => {
     if (!user) return
-    if (!window.confirm("Es-tu sûr ? Tous tes spots, relations et données seront définitivement supprimés.")) return
+    openConfirm({
+      title: "Supprimer ton compte ?",
+      message: "Tous tes spots, relations et données seront définitivement supprimés. Cette action est irréversible.",
+      confirmLabel: "Supprimer mon compte",
+      danger: true,
+      onConfirm: async () => { await doDeleteAccount() },
+    })
+  }
+
+  const doDeleteAccount = async () => {
+    if (!user) return
     setDeletingAccount(true)
     try {
       // 1. Supprimer les images de spots depuis le storage
@@ -480,9 +563,9 @@ export default function ProfileModal({
             onDragEnd={(_e, { offset, velocity }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2"
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-[calc(50%+2rem)]"
           >
-            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
+            <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[calc(100vh-7rem)] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
               <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />
 
               {/* Header */}
@@ -501,7 +584,7 @@ export default function ProfileModal({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))]">
+              <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex flex-1 flex-col overflow-y-auto px-5 sm:pb-6">
                 {/* ============================================ */}
                 {/* SUB-VIEW: Spots list */}
                 {/* ============================================ */}
@@ -555,9 +638,35 @@ export default function ProfileModal({
                       Abonnés ({followersCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
+                      <div className="space-y-2 animate-pulse">
+                        {[1,2,3].map(i => (
+                          <div key={i} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
+                            <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-zinc-700 flex-shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 w-1/2 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                              <div className="h-3 w-1/3 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : followersList.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonné.</p>
+                      <div className="py-8 flex flex-col items-center gap-3 text-center">
+                        <p className="text-sm text-gray-400 dark:text-zinc-500">Aucun abonné pour l&apos;instant.</p>
+                        <button
+                          onClick={async () => {
+                            const url = window.location.origin
+                            if (navigator.share) {
+                              try { await navigator.share({ title: "FriendSpot", text: "Rejoins-moi sur FriendSpot !", url }) } catch { /* cancelled */ }
+                            } else {
+                              await navigator.clipboard.writeText(url)
+                              toast.success("Lien copié !")
+                            }
+                          }}
+                          className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                        >
+                          Inviter des amis
+                        </button>
+                      </div>
                     ) : (
                       <div className="space-y-2">
                         {followersList.map((p) => (
@@ -597,7 +706,17 @@ export default function ProfileModal({
                       Abonnements ({followingCount})
                     </p>
                     {loadingList ? (
-                      <div className="flex justify-center py-8"><LoaderCircle size={24} className="animate-spin text-blue-600 dark:text-indigo-400" /></div>
+                      <div className="space-y-2 animate-pulse">
+                        {[1,2,3].map(i => (
+                          <div key={i} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
+                            <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-zinc-700 flex-shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 w-1/2 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                              <div className="h-3 w-1/3 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : followingList.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun abonnement.</p>
                     ) : (
@@ -762,21 +881,16 @@ export default function ProfileModal({
                     </div>
 
                     {/* Stats (clickable) */}
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
                         <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
                         <span className="text-lg font-bold">{spotsCount}</span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
                       </button>
-                      <button onClick={() => openSubView("followers")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
-                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
-                        <span className="text-lg font-bold">{followersCount}</span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnés</span>
-                      </button>
                       <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
                         <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
                         <span className="text-lg font-bold">{followingCount}</span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">Abonnements</span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">Amis</span>
                       </button>
                       <button onClick={() => openSubView("likes")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
                         <span className="text-red-500"><Heart size={14} className="fill-red-500" /></span>
@@ -786,6 +900,69 @@ export default function ProfileModal({
                     </div>
 
                     {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
+
+                    {/* Suggestions vignette */}
+                    <div className="rounded-2xl border border-gray-100 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900/60 overflow-hidden">
+                      <button
+                        onClick={async () => {
+                          if (!showSuggestionsSheet) {
+                            if (suggestions.length === 0) await loadSuggestions()
+                          }
+                          setShowSuggestionsSheet(v => !v)
+                        }}
+                        className="flex w-full items-center justify-between px-4 py-3"
+                      >
+                        <span className="flex items-center gap-2 text-[13px] font-semibold text-gray-700 dark:text-zinc-200">
+                          <Sparkles size={13} className="text-indigo-400" /> Suggestions d&apos;amis
+                        </span>
+                        <span className="text-[11px] text-gray-400 dark:text-zinc-500">
+                          {showSuggestionsSheet ? "Masquer" : "Afficher"}
+                        </span>
+                      </button>
+                      {showSuggestionsSheet && (
+                        <div className="border-t border-gray-100 dark:border-white/[0.06] px-3 py-3">
+                          {suggestions.length === 0 ? (
+                            <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 py-2">Aucune suggestion pour le moment</p>
+                          ) : (
+                            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
+                              {suggestions.map(profile => (
+                                <div key={profile.id} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[60px]">
+                                  <button
+                                    onClick={() => onSelectUser?.(profile.id)}
+                                    className="h-12 w-12 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white active:scale-95 transition-transform"
+                                  >
+                                    {profile.avatar_url
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      ? <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
+                                      : (profile.username?.[0]?.toUpperCase() ?? "?")}
+                                  </button>
+                                  <span className="w-full truncate text-center text-[10px] text-gray-500 dark:text-zinc-500">
+                                    {profile.username ?? "?"}
+                                  </span>
+                                  <button
+                                    onClick={async () => {
+                                      if (pendingSuggestions.has(profile.id)) return
+                                      setPendingSuggestions(prev => new Set([...prev, profile.id]))
+                                      try {
+                                        await supabaseRef.current.from("followers").insert({ follower_id: user!.id, following_id: profile.id })
+                                      } catch {}
+                                    }}
+                                    disabled={pendingSuggestions.has(profile.id)}
+                                    className={`w-full rounded-lg px-1 py-1 text-[9px] font-bold transition-all active:scale-95 disabled:opacity-60 ${
+                                      pendingSuggestions.has(profile.id)
+                                        ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500"
+                                        : "bg-indigo-500 text-white"
+                                    }`}
+                                  >
+                                    {pendingSuggestions.has(profile.id) ? "✓ Suivi" : "+ Suivre"}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Ghost Mode */}
                     <div className="border-t border-gray-200 dark:border-white/10 pt-5">
@@ -860,10 +1037,24 @@ export default function ProfileModal({
                     </div>
                   </div>
                 )}
+                {/* Spacer — empêche le dernier élément d'être sous la barre de navigation */}
+                <div style={{ height: "max(6rem, calc(env(safe-area-inset-bottom) + 5rem))", flexShrink: 0 }} />
               </div>
             </div>
           </motion.div>
+
         </>
+      )}
+      {confirmDialog && (
+        <ConfirmDialog
+          open={confirmDialog.open}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
+          onCancel={() => setConfirmDialog(null)}
+        />
       )}
     </AnimatePresence>
   )

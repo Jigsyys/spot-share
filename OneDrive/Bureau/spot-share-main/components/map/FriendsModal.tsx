@@ -1,5 +1,6 @@
 "use client"
 
+import { toast } from "sonner"
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -15,18 +16,20 @@ import {
   Sparkles,
   UserCheck,
   MapPin,
-  UserMinus,
   CalendarPlus,
   ArrowLeft,
   Calendar,
   CalendarCheck,
   CalendarX,
   ChevronRight,
+  ChevronDown,
   Trophy,
   Heart,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import { useSwipeToClose } from "@/hooks/useSwipeToClose"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utilities
@@ -74,6 +77,19 @@ function isOutingPast(dateString?: string | null): boolean {
   return new Date(dateString) < new Date()
 }
 
+function getCountdown(dateString?: string | null): { label: string; urgent: boolean } | null {
+  if (!dateString) return null
+  const diff = new Date(dateString).getTime() - Date.now()
+  if (diff < 0) return null
+  const hours = Math.floor(diff / 3600000)
+  const days = Math.floor(diff / 86400000)
+  if (hours < 1) return { label: "Maintenant 🔥", urgent: true }
+  if (hours < 24) return { label: `Dans ${hours}h 🔥`, urgent: true }
+  if (days === 1) return { label: "Demain !", urgent: true }
+  if (days < 7) return { label: `Dans ${days} jours`, urgent: false }
+  return { label: `Dans ${days} jours`, urgent: false }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,6 +120,7 @@ interface OutingInviteStatus {
   id: string
   invitee_id: string
   status: "pending" | "accepted" | "declined"
+  reply?: string | null
   profiles?: { username: string | null; avatar_url: string | null }
 }
 
@@ -113,6 +130,9 @@ interface Outing {
   title: string
   description?: string | null
   location_name?: string | null
+  spot_id?: string | null
+  lat?: number | null
+  lng?: number | null
   scheduled_at?: string | null
   status: "active" | "cancelled" | "completed"
   created_at: string
@@ -125,8 +145,10 @@ interface OutingInvitationFull {
   outing_id: string
   invitee_id: string
   status: "pending" | "accepted" | "declined"
+  reply?: string | null
   outings?: Outing & {
     profiles?: { username: string | null; avatar_url: string | null }
+    allInvitations?: OutingInviteStatus[]
   }
 }
 
@@ -156,7 +178,8 @@ interface FriendsModalProps {
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (spotId: string) => void
-  spots?: Array<{ user_id: string; created_at: string; profiles?: { username: string | null; avatar_url: string | null } }>
+  spots?: Array<{ id: string; user_id: string; created_at: string; image_url?: string | null; lat?: number; lng?: number; profiles?: { username: string | null; avatar_url: string | null } }>
+  onLocateOuting?: (lat: number, lng: number) => void
   userProfile?: { username: string | null; avatar_url: string | null } | null
 }
 
@@ -178,17 +201,26 @@ export default function FriendsModal({
   onSelectSpot,
   spots,
   userProfile,
+  onLocateOuting,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean; title: string; message: string
+    confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  } | null>(null)
+  const openConfirm = useCallback((opts: {
+    title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void
+  }) => setConfirmDialog({ open: true, ...opts }), [])
   const [showCreateOuting, setShowCreateOuting] = useState(false)
   const [query, setQuery] = useState("")
   const [invitationsSeen, setInvitationsSeen] = useState(false)
+  const [expandedNotifId, setExpandedNotifId] = useState<string | null>(null)
 
   // ── Data state ──────────────────────────────────────────────
   const [searchResults, setSearchResults] = useState<Profile[]>([])
   const [following, setFollowing] = useState<Profile[]>([])
-  const [pendingSent, setPendingSent] = useState<string[]>([])
+  const [pendingSent, setPendingSent] = useState<{ id: string; username: string | null; avatar_url: string | null }[]>([])
   const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([])
   const [suggestions, setSuggestions] = useState<SuggestionProfile[]>([])
   const [outings, setOutings] = useState<Outing[]>([])
@@ -198,6 +230,7 @@ export default function FriendsModal({
   const [searchLoading, setSearchLoading] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [respondingId, setRespondingId] = useState<string | null>(null)
 
   // ── Create outing form ──────────────────────────────────────
   const [createForm, setCreateForm] = useState({
@@ -208,6 +241,13 @@ export default function FriendsModal({
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+
+  // ── Edit outing ──────────────────────────────────────────────
+  const [editingOuting, setEditingOuting] = useState<Outing | null>(null)
+  const [editForm, setEditForm] = useState({ title: "", description: "", scheduled_at: "" })
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   // ── Location search ─────────────────────────────────────────
   const [locationQuery, setLocationQuery] = useState("")
@@ -226,6 +266,7 @@ export default function FriendsModal({
   const [userTopSpot, setUserTopSpot] = useState<{ spot: TopSpot; rank: number } | null>(null)
 
   const supabaseRef = useRef(createClient())
+  const swipe = useSwipeToClose(onClose, showCreateOuting || !!editingOuting)
   const followingIdsRef = useRef(followingIds)
   followingIdsRef.current = followingIds
   const currentUserRef = useRef(currentUser)
@@ -262,9 +303,15 @@ export default function FriendsModal({
     if (!currentUser) return
     try {
       const { data } = await supabaseRef.current
-        .from("friend_requests").select("to_id")
+        .from("friend_requests").select("to_id, profiles!friend_requests_to_id_fkey(username, avatar_url)")
         .eq("from_id", currentUser.id).eq("status", "pending")
-      if (data) setPendingSent(data.map((r: { to_id: string }) => r.to_id))
+      if (data) {
+        // FK join may fail if to_id references auth.users — fetch profiles separately
+        const ids = data.map((r: { to_id: string }) => r.to_id)
+        const { data: profiles } = await supabaseRef.current.from("profiles").select("id, username, avatar_url").in("id", ids)
+        const profileMap = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
+        setPendingSent(ids.map((id: string) => ({ id, username: profileMap[id]?.username ?? null, avatar_url: profileMap[id]?.avatar_url ?? null })))
+      }
     } catch {}
   }, [currentUser])
 
@@ -323,7 +370,6 @@ export default function FriendsModal({
 
   const loadOutings = useCallback(async () => {
     if (!currentUser) return
-    // Cache instantané
     const cacheKey = `friendspot_outings_${currentUser.id}`
     try {
       const raw = localStorage.getItem(cacheKey)
@@ -333,55 +379,59 @@ export default function FriendsModal({
       }
     } catch {}
     try {
-      // Sorties que j'ai créées (actives)
+      // 1. Sorties créées par moi
       const { data: created } = await supabaseRef.current
         .from("outings")
-        .select(`
-          *,
-          profiles!outings_creator_id_fkey(username, avatar_url),
-          outing_invitations(
-            id, invitee_id, status,
-            profiles!outing_invitations_invitee_id_fkey(username, avatar_url)
-          )
-        `)
+        .select("id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status)")
         .eq("creator_id", currentUser.id)
         .eq("status", "active")
         .order("scheduled_at", { ascending: true })
 
-      // Sorties auxquelles j'ai accepté d'aller (mais pas créées par moi)
-      const { data: attending } = await supabaseRef.current
+      // 2. Sorties où j'ai accepté (pas créées par moi)
+      const { data: accepted } = await supabaseRef.current
         .from("outing_invitations")
-        .select(`
-          outing_id,
-          outings(
-            *,
-            profiles!outings_creator_id_fkey(username, avatar_url),
-            outing_invitations(
-              id, invitee_id, status,
-              profiles!outing_invitations_invitee_id_fkey(username, avatar_url)
-            )
-          )
-        `)
+        .select("outing_id, outings(id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status))")
         .eq("invitee_id", currentUser.id)
         .eq("status", "accepted")
 
       const all: Outing[] = []
       if (created) all.push(...(created as unknown as Outing[]))
-      if (attending) {
-        for (const inv of attending as any[]) {
+      if (accepted) {
+        for (const inv of accepted as any[]) {
           const o = inv.outings as Outing
           if (o && !all.find(a => a.id === o.id)) all.push(o)
         }
       }
-      all.sort((a, b) => {
+
+      // 3. Enrichir les invitations avec les profils des invités
+      const inviteeIds = [...new Set(all.flatMap(o => (o.outing_invitations ?? []).map((i: any) => i.invitee_id)))]
+      const creatorIds = [...new Set(all.map(o => o.creator_id).filter(Boolean))]
+      const allIds = [...new Set([...inviteeIds, ...creatorIds])]
+      let profilesMap: Record<string, { username: string | null; avatar_url: string | null }> = {}
+      if (allIds.length > 0) {
+        const { data: profiles } = await supabaseRef.current
+          .from("profiles").select("id, username, avatar_url").in("id", allIds)
+        profilesMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
+      }
+
+      const enriched = all.map(o => ({
+        ...o,
+        profiles: profilesMap[o.creator_id] ?? null,
+        outing_invitations: (o.outing_invitations ?? []).map((i: any) => ({
+          ...i,
+          profiles: profilesMap[i.invitee_id] ?? null,
+        })),
+      }))
+
+      enriched.sort((a, b) => {
         if (!a.scheduled_at) return 1
         if (!b.scheduled_at) return -1
         return new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
       })
-      setOutings(all)
-      try { localStorage.setItem(cacheKey, JSON.stringify({ data: all, ts: Date.now() })) } catch {}
-    } catch {
-      // Table pas encore créée — fonctionnera après la migration SQL
+      setOutings(enriched as unknown as Outing[])
+      try { localStorage.setItem(cacheKey, JSON.stringify({ data: enriched, ts: Date.now() })) } catch {}
+    } catch (e) {
+      console.error("loadOutings:", e)
     }
   }, [currentUser])
 
@@ -390,11 +440,56 @@ export default function FriendsModal({
     try {
       const { data } = await supabaseRef.current
         .from("outing_invitations")
-        .select("*, outings(*, profiles!outings_creator_id_fkey(username, avatar_url))")
+        .select("*, outings(*)")
         .eq("invitee_id", currentUser.id)
         .eq("status", "pending")
-      if (data) setOutingInvitations(data as unknown as OutingInvitationFull[])
-    } catch {}
+      if (!data) return
+
+      const creatorIds = [...new Set(data.map((d: any) => d.outings?.creator_id).filter(Boolean))]
+      const outingIds = data.map((d: any) => d.outing_id).filter(Boolean)
+
+      // Profils des créateurs
+      let profilesMap: Record<string, { username: string | null; avatar_url: string | null }> = {}
+      if (creatorIds.length > 0) {
+        const { data: profiles } = await supabaseRef.current
+          .from("profiles").select("id, username, avatar_url").in("id", creatorIds)
+        profilesMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
+      }
+
+      // Toutes les invitations pour ces sorties (pour afficher les réponses)
+      let allInvitesMap: Record<string, OutingInviteStatus[]> = {}
+      if (outingIds.length > 0) {
+        const { data: allInvites } = await supabaseRef.current
+          .from("outing_invitations")
+          .select("id, outing_id, invitee_id, status")
+          .in("outing_id", outingIds)
+        if (allInvites) {
+          const inviteeIds = [...new Set(allInvites.map((i: any) => i.invitee_id))]
+          let inviteeProfiles: Record<string, { username: string | null; avatar_url: string | null }> = {}
+          if (inviteeIds.length > 0) {
+            const { data: iProfiles } = await supabaseRef.current
+              .from("profiles").select("id, username, avatar_url").in("id", inviteeIds)
+            inviteeProfiles = Object.fromEntries((iProfiles ?? []).map((p: any) => [p.id, p]))
+          }
+          allInvites.forEach((i: any) => {
+            if (!allInvitesMap[i.outing_id]) allInvitesMap[i.outing_id] = []
+            allInvitesMap[i.outing_id].push({ ...i, profiles: inviteeProfiles[i.invitee_id] ?? null })
+          })
+        }
+      }
+
+      const enriched = data.map((d: any) => ({
+        ...d,
+        outings: d.outings ? {
+          ...d.outings,
+          profiles: profilesMap[d.outings.creator_id] ?? null,
+          allInvitations: allInvitesMap[d.outing_id] ?? [],
+        } : null,
+      }))
+      setOutingInvitations(enriched as unknown as OutingInvitationFull[])
+    } catch (e) {
+      console.error("loadOutingInvitations:", e)
+    }
   }, [currentUser])
 
   // ─── Location search ────────────────────────────────────────
@@ -602,6 +697,18 @@ export default function FriendsModal({
         loadOutingInvitations()
         loadOutings()
       })
+      // Sortie annulée ou modifiée par l'organisateur
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "outings",
+      }, (payload) => {
+        const updated = payload.new as { id: string; status: string }
+        if (updated.status === "cancelled") {
+          setOutings(prev => prev.filter(o => o.id !== updated.id))
+          setOutingInvitations(prev => prev.filter(i => i.outings?.id !== updated.id))
+        } else {
+          loadOutings()
+        }
+      })
       .subscribe()
 
     return () => { supabaseRef.current.removeChannel(channel) }
@@ -647,7 +754,8 @@ export default function FriendsModal({
       const { error } = await supabaseRef.current.from("friend_requests")
         .insert({ from_id: currentUser.id, to_id: targetId, status: "pending" })
       if (error) console.error("sendRequest:", error.message)
-      setPendingSent(prev => [...prev, targetId])
+      const { data: prof } = await supabaseRef.current.from("profiles").select("username, avatar_url").eq("id", targetId).single()
+      setPendingSent(prev => [...prev, { id: targetId, username: prof?.username ?? null, avatar_url: prof?.avatar_url ?? null }])
     } catch (e) { console.error(e) }
     setLoadingId(null)
   }
@@ -658,7 +766,7 @@ export default function FriendsModal({
     try {
       await supabaseRef.current.from("friend_requests").delete()
         .eq("from_id", currentUser.id).eq("to_id", targetId)
-      setPendingSent(prev => prev.filter(id => id !== targetId))
+      setPendingSent(prev => prev.filter(p => p.id !== targetId))
     } catch {}
     setLoadingId(null)
   }
@@ -714,10 +822,69 @@ export default function FriendsModal({
 
   // ─── Outing actions ──────────────────────────────────────────
 
+  const cancelOuting = async (outingId: string) => {
+    openConfirm({
+      title: "Annuler la sortie ?",
+      message: "Les participants seront informés.",
+      confirmLabel: "Annuler la sortie",
+      danger: true,
+      onConfirm: async () => {
+        setCancellingId(outingId)
+        try {
+          await supabaseRef.current.from("outings").update({ status: "cancelled" }).eq("id", outingId)
+          setOutings(prev => prev.filter(o => o.id !== outingId))
+        } catch { /* ignore */ }
+        setCancellingId(null)
+      },
+    })
+  }
+
+  const withdrawOuting = async (outingId: string) => {
+    if (!currentUser) return
+    openConfirm({
+      title: "Se désister ?",
+      message: "Tu seras retiré(e) de cette sortie.",
+      confirmLabel: "Se désister",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await supabaseRef.current.from("outing_invitations")
+            .update({ status: "declined", responded_at: new Date().toISOString() })
+            .eq("outing_id", outingId)
+            .eq("invitee_id", currentUser.id)
+          setOutings(prev => prev.filter(o => o.id !== outingId))
+        } catch { /* ignore */ }
+      },
+    })
+  }
+
+  const updateOuting = async () => {
+    if (!editingOuting) return
+    setSaving(true)
+    setEditError(null)
+    try {
+      const { error } = await supabaseRef.current
+        .from("outings")
+        .update({
+          title: editForm.title.trim() || editingOuting.title,
+          description: editForm.description.trim() || null,
+          scheduled_at: editForm.scheduled_at || null,
+        })
+        .eq("id", editingOuting.id)
+      if (error) throw error
+      setOutings(prev => prev.map(o => o.id === editingOuting.id
+        ? { ...o, title: editForm.title.trim() || o.title, description: editForm.description.trim() || null, scheduled_at: editForm.scheduled_at || null }
+        : o
+      ))
+      setEditingOuting(null)
+    } catch { setEditError("Erreur lors de la modification.") }
+    setSaving(false)
+  }
+
   const createOuting = async () => {
     if (!currentUser) return
     setCreateError(null)
-    if (selectedFriendIds.length === 0) { setCreateError("Invite au moins un ami."); return }
+    if (selectedFriendIds.length === 0) { toast.error("Sélectionne au moins 1 ami"); return }
     const title = createForm.title.trim() || selectedLocation?.label || "Sortie"
     setCreating(true)
     try {
@@ -744,6 +911,7 @@ export default function FriendsModal({
         })))
       if (invErr) throw invErr
 
+      toast.success("Sortie proposée !")
       setShowCreateOuting(false)
       setCreateForm({ title: "", description: "", scheduled_at: "" })
       setSelectedFriendIds([])
@@ -752,22 +920,13 @@ export default function FriendsModal({
       setLocationResults([])
       loadOutings()
     } catch (e: any) {
-      setCreateError(e?.message?.includes("relation")
-        ? "La fonctionnalité sortie n'est pas encore activée. Lance la migration SQL outings."
-        : "Erreur lors de la création. Réessaie.")
+      const msg = (e as any)?.message ?? ""
+      toast.error(msg.includes("relation") || msg.includes("does not exist")
+        ? "La table sorties n'existe pas encore. Lance la migration SQL."
+        : `Erreur : ${msg || "Réessaie."}`)
       console.error("createOuting:", e)
     }
     setCreating(false)
-  }
-
-  const cancelOuting = async (outingId: string) => {
-    if (!currentUser) return
-    try {
-      await supabaseRef.current.from("outings")
-        .update({ status: "cancelled" })
-        .eq("id", outingId).eq("creator_id", currentUser.id)
-      setOutings(prev => prev.filter(o => o.id !== outingId))
-    } catch {}
   }
 
   const respondToOuting = async (invitationId: string, status: "accepted" | "declined") => {
@@ -786,7 +945,7 @@ export default function FriendsModal({
     username ? username.charAt(0).toUpperCase() : "?"
 
   const isFollowingUser = (id: string) => followingIds.includes(id)
-  const isPending = (id: string) => pendingSent.includes(id)
+  const isPending = (id: string) => pendingSent.some(p => p.id === id)
 
   const sortedFollowing = useMemo(() => [...following].sort((a, b) => {
     const aOn = isOnline(a.last_active_at, a.is_ghost_mode) ? 1 : 0
@@ -829,6 +988,7 @@ export default function FriendsModal({
   ]
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && (
         <>
@@ -938,7 +1098,7 @@ export default function FriendsModal({
               )}
 
               {/* ── Scrollable content ──────────────────────────── */}
-              <div className="flex-1 overflow-y-auto px-4">
+              <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-4">
 
                 {/* ════ AMIS ════════════════════════════════════ */}
                 {activeTab === "amis" && (
@@ -963,25 +1123,24 @@ export default function FriendsModal({
                       <ChevronRight size={14} className="text-indigo-400 dark:text-indigo-600 flex-shrink-0" />
                     </button>
 
-                    {/* Sorties à venir */}
+                    {/* Sortie à venir — uniquement la plus proche */}
                     {upcomingOutings.length > 0 && query.length < 2 && (
                       <Section
-                        title="Sorties à venir"
+                        title="Sortie à venir"
                         icon={<CalendarCheck size={10} />}
-                        badge={
+                        badge={upcomingOutings.length > 1 ? (
                           <span className="rounded-full bg-green-500/10 dark:bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400">
-                            {upcomingOutings.length}
+                            +{upcomingOutings.length - 1} autres
                           </span>
-                        }
+                        ) : undefined}
                       >
-                        {upcomingOutings.map(outing => (
-                          <OutingCard
-                            key={outing.id}
-                            outing={outing}
-                            currentUserId={currentUser?.id ?? ""}
-                            onCancel={cancelOuting}
-                          />
-                        ))}
+                        <FeaturedOutingCard
+                          outing={upcomingOutings[0]}
+                          currentUserId={currentUser?.id ?? ""}
+                          spots={spots}
+                          onCancel={cancelOuting}
+                          onLocate={onLocateOuting}
+                        />
                       </Section>
                     )}
 
@@ -1077,50 +1236,6 @@ export default function FriendsModal({
                             ))}
                         </Section>
                       </>
-                    )}
-                    {/* Suggestions carousel (only when not searching) */}
-                    {query.length < 2 && suggestions.length > 0 && (
-                      <div>
-                        <div className="mb-2 flex items-center gap-1.5">
-                          <Sparkles size={10} className="text-gray-400 dark:text-zinc-600" />
-                          <p className="text-[10px] font-semibold tracking-widest text-gray-400 dark:text-zinc-600 uppercase">
-                            Suggestions
-                          </p>
-                        </div>
-                        <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-                          {suggestions.slice(0, 8).map(profile => (
-                            <div key={profile.id} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[60px]">
-                              <div className="relative">
-                                <div className="h-11 w-11 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
-                                  {profile.avatar_url ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
-                                  ) : initials(profile.username)}
-                                </div>
-                                {(profile.mutualCount ?? 0) > 0 && (
-                                  <span className="absolute -bottom-0.5 -right-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full border border-white dark:border-[#0e0e12] bg-indigo-500 text-[8px] font-bold text-white px-0.5">
-                                    {profile.mutualCount}
-                                  </span>
-                                )}
-                              </div>
-                              <span className="w-full truncate text-center text-[9px] font-medium text-gray-500 dark:text-zinc-500">
-                                {profile.username ?? "?"}
-                              </span>
-                              <button
-                                onClick={() => !isPending(profile.id) ? sendRequest(profile.id) : cancelRequest(profile.id)}
-                                disabled={loadingId === profile.id}
-                                className={`w-full rounded-lg px-1 py-1 text-[9px] font-bold transition-all active:scale-95 disabled:opacity-50 ${
-                                  isPending(profile.id)
-                                    ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500"
-                                    : "bg-indigo-500 text-white hover:bg-indigo-400"
-                                }`}
-                              >
-                                {loadingId === profile.id ? "…" : isPending(profile.id) ? "✓ Envoyé" : "+ Suivre"}
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
                     )}
                   </div>
                 )}
@@ -1417,103 +1532,10 @@ export default function FriendsModal({
 
                 {/* ════ INVITATIONS ═════════════════════════════ */}
                 {activeTab === "invitations" && (
-                  <div className="space-y-5">
-                    {/* Prochaines sorties confirmées */}
-                    {upcomingOutings.length > 0 && (
-                      <Section
-                        title="Mes prochaines sorties"
-                        icon={<CalendarCheck size={10} />}
-                        badge={
-                          <span className="rounded-full bg-green-500/10 dark:bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400">
-                            {upcomingOutings.length}
-                          </span>
-                        }
-                      >
-                        {upcomingOutings.map(outing => {
-                          const accepted = (outing.outing_invitations ?? []).filter(i => i.status === "accepted")
-                          const isCreator = outing.creator_id === currentUser?.id
-                          return (
-                            <div key={outing.id} className="rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3">
-                              <div className="flex items-start justify-between gap-2 mb-2">
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold truncate">{outing.title}</p>
-                                  <p className="text-[11px] text-indigo-500 dark:text-indigo-400 font-medium mt-0.5">
-                                    {formatOutingDate(outing.scheduled_at)}
-                                  </p>
-                                  {outing.location_name && (
-                                    <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5">
-                                      <MapPin size={9} />{outing.location_name}
-                                    </p>
-                                  )}
-                                </div>
-                                <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${isCreator ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400" : "bg-green-500/10 text-green-600 dark:text-green-400"}`}>
-                                  {isCreator ? "Organisateur" : "Participant"}
-                                </span>
-                              </div>
-                              {/* Participant avatars */}
-                              {accepted.length > 0 && (
-                                <div className="flex items-center gap-1.5 mt-1.5">
-                                  <div className="flex -space-x-1.5">
-                                    {accepted.slice(0, 5).map(inv => (
-                                      <div key={inv.id} className="h-6 w-6 rounded-full border-2 border-white dark:border-zinc-800 overflow-hidden bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[9px] font-bold text-white">
-                                        {inv.profiles?.avatar_url
-                                          // eslint-disable-next-line @next/next/no-img-element
-                                          ? <img src={inv.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-                                          : (inv.profiles?.username?.[0] ?? "?").toUpperCase()
-                                        }
-                                      </div>
-                                    ))}
-                                    {accepted.length > 5 && (
-                                      <div className="h-6 w-6 rounded-full border-2 border-white dark:border-zinc-800 bg-gray-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-400">
-                                        +{accepted.length - 5}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <span className="text-[11px] text-gray-400 dark:text-zinc-500">
-                                    {accepted.length === 1 ? "1 participant" : `${accepted.length} participants`}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </Section>
-                    )}
+                  <div className="pb-2 -mx-1">
 
-                    {/* Invitations de sortie en attente */}
-                    {outingInvitations.length > 0 && (
-                      <Section
-                        title="Sorties proposées"
-                        icon={<CalendarPlus size={10} />}
-                        badge={<span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-violet-500 px-1.5 text-[10px] font-bold text-white leading-none">{outingInvitations.length}</span>}
-                      >
-                        {outingInvitations.map(inv => (
-                          <OutingInvitationCard
-                            key={inv.id}
-                            invitation={inv}
-                            onAccept={() => respondToOuting(inv.id, "accepted")}
-                            onDecline={() => respondToOuting(inv.id, "declined")}
-                          />
-                        ))}
-                      </Section>
-                    )}
-
-                    {/* Invitations d'amis */}
-                    {incomingRequests.length > 0 ? (
-                      <Section
-                        title="Demandes d'amis" icon={<Bell size={10} />}
-                        badge={<span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white leading-none">{incomingRequests.length}</span>}
-                      >
-                        {incomingRequests.map(req => (
-                          <InvitationRow
-                            key={req.id} req={req}
-                            loading={loadingId === req.from_id}
-                            onAccept={() => acceptRequest(req)}
-                            onDecline={() => declineRequest(req)}
-                          />
-                        ))}
-                      </Section>
-                    ) : outingInvitations.length === 0 && upcomingOutings.length === 0 ? (
+                    {/* Empty state */}
+                    {incomingRequests.length === 0 && outingInvitations.length === 0 && upcomingOutings.length === 0 && pendingSent.length === 0 && (
                       <div className="flex flex-col items-center gap-4 py-8 px-4">
                         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10">
                           <Bell size={24} className="text-indigo-400" />
@@ -1532,31 +1554,421 @@ export default function FriendsModal({
                           </button>
                         )}
                       </div>
-                    ) : null}
-
-                    {/* Demandes envoyées */}
-                    {pendingSent.length > 0 && (
-                      <Section title="Demandes envoyées" icon={<Clock size={10} />}>
-                        {pendingSent.map(id => (
-                          <div key={id} className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-gray-50 dark:bg-zinc-900">
-                            <div className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
-                              {id.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-gray-600 dark:text-zinc-400 truncate">{id.slice(0, 12)}…</p>
-                              <p className="text-[10px] text-gray-400 dark:text-zinc-600">En attente de réponse</p>
-                            </div>
-                            <button
-                              onClick={() => cancelRequest(id)}
-                              disabled={loadingId === id}
-                              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-gray-400 dark:text-zinc-600 transition-colors hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
-                            >
-                              {loadingId === id ? <LoaderCircle size={11} className="animate-spin" /> : <><UserMinus size={11} /> Annuler</>}
-                            </button>
-                          </div>
-                        ))}
-                      </Section>
                     )}
+
+                    {/* 1. Demandes d'amis */}
+                    {incomingRequests.length > 0 && (
+                      <div>
+                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Demandes d&apos;amis · {incomingRequests.length}
+                        </p>
+                        <div className="space-y-1 px-1">
+                          {incomingRequests.map(req => (
+                            <InvitationRow
+                              key={req.id} req={req}
+                              loading={loadingId === req.from_id}
+                              onAccept={() => acceptRequest(req)}
+                              onDecline={() => declineRequest(req)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. Sorties proposées (cartes visuelles) */}
+                    {outingInvitations.length > 0 && (
+                      <div>
+                        <p className="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Sorties proposées · {outingInvitations.length}
+                        </p>
+                        <div className="space-y-3 px-1">
+                          {outingInvitations.map(inv => {
+                            const outing = inv.outings
+                            const creator = outing?.profiles
+                            const allInvitations = outing?.allInvitations ?? []
+                            const appSpot = outing?.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
+                            const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
+                              ?? (outing?.lat && outing?.lng
+                                ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/600x280?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+                                : null)
+                            const countdown = getCountdown(outing?.scheduled_at)
+                            const accepted = allInvitations.filter(i => i.status === "accepted")
+                            const pending = allInvitations.filter(i => i.status === "pending")
+
+                            return (
+                              <div key={inv.id} className="rounded-3xl overflow-hidden bg-white dark:bg-zinc-900 shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-gray-100 dark:border-white/[0.06]">
+
+                                {/* Photo hero */}
+                                {photoUrl ? (
+                                  <div className="relative h-44 w-full overflow-hidden">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={photoUrl} alt={outing?.title} className="h-full w-full object-cover" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                                    {/* Countdown badge */}
+                                    {countdown && (
+                                      <span className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded-full backdrop-blur-sm ${countdown.urgent ? "bg-orange-500 text-white" : "bg-black/40 text-white"}`}>
+                                        {countdown.label}
+                                      </span>
+                                    )}
+                                    {/* Creator avatar */}
+                                    <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-sm px-2 py-1">
+                                      <div className="h-5 w-5 rounded-full overflow-hidden bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                                        {creator?.avatar_url
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          ? <img src={creator.avatar_url} alt="" className="h-full w-full object-cover" />
+                                          : (creator?.username?.[0]?.toUpperCase() ?? "?")}
+                                      </div>
+                                      <span className="text-[10px] font-semibold text-white">@{creator?.username ?? "?"}</span>
+                                    </div>
+                                    {/* Title + info overlay */}
+                                    <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
+                                      <p className="text-white font-bold text-[17px] leading-tight">{outing?.title}</p>
+                                      <div className="flex items-center gap-3 mt-1">
+                                        {outing?.scheduled_at && (
+                                          <p className="flex items-center gap-1 text-white/80 text-[12px]">
+                                            <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
+                                          </p>
+                                        )}
+                                        {outing?.location_name && (
+                                          <button
+                                            onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
+                                            disabled={!outing.lat || !outing.lng}
+                                            className="flex items-center gap-1 text-white/70 text-[11px] truncate hover:text-white transition-colors disabled:cursor-default"
+                                          >
+                                            <MapPin size={9} />{outing.location_name}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* No photo fallback — gradient card */
+                                  <div className="relative h-28 w-full overflow-hidden bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500">
+                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(circle at 30% 50%, white 1px, transparent 1px), radial-gradient(circle at 70% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
+                                    {countdown && (
+                                      <span className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded-full ${countdown.urgent ? "bg-orange-500 text-white" : "bg-white/20 text-white"}`}>
+                                        {countdown.label}
+                                      </span>
+                                    )}
+                                    <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
+                                      <p className="text-white font-bold text-[17px] leading-tight">{outing?.title}</p>
+                                      {outing?.scheduled_at && (
+                                        <p className="flex items-center gap-1 text-white/80 text-[12px] mt-0.5">
+                                          <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Body */}
+                                <div className="px-4 pt-3 pb-4 space-y-3">
+
+                                  {/* Description */}
+                                  {outing?.description && (
+                                    <p className="text-[13px] text-gray-600 dark:text-zinc-400 leading-relaxed">
+                                      {outing.description}
+                                    </p>
+                                  )}
+
+                                  {/* Participants */}
+                                  {allInvitations.length > 0 && (
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex -space-x-2">
+                                        {allInvitations.slice(0, 5).map((p, i) => (
+                                          <div key={p.id + i} className={`h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 flex items-center justify-center text-[9px] font-bold text-white ${p.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
+                                            {p.profiles?.avatar_url
+                                              // eslint-disable-next-line @next/next/no-img-element
+                                              ? <img src={p.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${p.status === "pending" ? "opacity-50" : ""}`} />
+                                              : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <p className="text-[12px] text-gray-500 dark:text-zinc-400">
+                                        {accepted.length > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{accepted.length} {accepted.length > 1 ? "vont" : "va"}</span>}
+                                        {pending.length > 0 && <span className="text-gray-400"> · {pending.length} en attente</span>}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* RSVP Buttons */}
+                                  <div className="flex gap-2 pt-1">
+                                    <button
+                                      onClick={async () => {
+                                        setRespondingId(inv.id)
+                                        await respondToOuting(inv.id, "accepted")
+                                        setRespondingId(null)
+                                      }}
+                                      disabled={respondingId === inv.id}
+                                      className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-[13px] font-bold text-white shadow-md shadow-indigo-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+                                    >
+                                      {respondingId === inv.id ? <LoaderCircle size={13} className="animate-spin" /> : <><CalendarCheck size={13} /> Participer</>}
+                                    </button>
+                                    <button
+                                      onClick={() => openConfirm({
+                                        title: "Décliner cette sortie ?",
+                                        message: "Tu ne seras pas compté(e) parmi les participants.",
+                                        confirmLabel: "Décliner",
+                                        danger: true,
+                                        onConfirm: async () => {
+                                          setRespondingId(inv.id)
+                                          await respondToOuting(inv.id, "declined")
+                                          setRespondingId(null)
+                                        },
+                                      })}
+                                      disabled={respondingId === inv.id}
+                                      className="flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-800 px-4 py-3 text-[13px] font-semibold text-gray-500 dark:text-zinc-400 transition-all active:scale-[0.98] disabled:opacity-50"
+                                    >
+                                      <CalendarX size={13} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Mes sorties (expandables) */}
+                    {upcomingOutings.length > 0 && (
+                      <div>
+                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Mes sorties · {upcomingOutings.length}
+                        </p>
+                        <div className="space-y-2 px-1">
+                          {upcomingOutings.map(outing => {
+                            const notifKey = `outing-${outing.id}`
+                            const isExpanded = expandedNotifId === notifKey
+                            const isCreator = outing.creator_id === currentUser?.id
+                            const countdown = getCountdown(outing.scheduled_at)
+                            const invitations = outing.outing_invitations ?? []
+                            const accepted = invitations.filter(i => i.status === "accepted")
+                            const pending = invitations.filter(i => i.status === "pending")
+                            const creatorEntry = { invitee_id: outing.creator_id, status: "accepted" as const, id: "creator", profiles: outing.profiles }
+                            const allGoing = [creatorEntry, ...accepted]
+                            const allParticipants = [creatorEntry, ...invitations]
+                            const totalParticipants = allGoing.length + pending.length
+                            const appSpot = outing.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
+                            const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
+                              ?? (outing.lat && outing.lng
+                                ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/400x200?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+                                : null)
+                            return (
+                              <div key={outing.id} className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 shadow-sm">
+
+                                {/* ── Rangée compacte ── */}
+                                <button
+                                  onClick={() => setExpandedNotifId(isExpanded ? null : notifKey)}
+                                  className="flex w-full items-center gap-3 px-3 py-3 text-left active:scale-[0.99] transition-all"
+                                >
+                                  <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100 dark:bg-zinc-800">
+                                    {photoUrl
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      ? <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+                                      : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
+                                          <CalendarCheck size={18} className="text-white" />
+                                        </div>
+                                    }
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">{outing.title}</p>
+                                    <p className={`text-[12px] font-semibold mt-0.5 ${countdown?.urgent ? "text-orange-500" : "text-indigo-500 dark:text-indigo-400"}`}>
+                                      {countdown ? countdown.label : formatOutingDate(outing.scheduled_at)}
+                                    </p>
+                                    {outing.location_name && (
+                                      <button
+                                        onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
+                                        disabled={!outing.lat || !outing.lng}
+                                        className="flex items-center gap-0.5 text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5 truncate hover:text-blue-500 dark:hover:text-indigo-400 transition-colors disabled:cursor-default text-left"
+                                      >
+                                        <MapPin size={9} className="flex-shrink-0" />{outing.location_name}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {/* Avatar stack + count */}
+                                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                                    <div className="flex -space-x-1.5">
+                                      {allGoing.slice(0, 3).map((p, i) => (
+                                        <div key={p.invitee_id + i} className="h-6 w-6 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[8px] font-bold text-white">
+                                          {p.profiles?.avatar_url
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                                            : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <ChevronDown size={14} className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                                </button>
+
+                                {/* ── Carte dépliée ── */}
+                                {isExpanded && (
+                                  <div className="border-t border-gray-100 dark:border-white/[0.06]">
+
+                                    {/* Photo */}
+                                    {photoUrl && (
+                                      <button
+                                        onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
+                                        disabled={!outing.lat || !outing.lng}
+                                        className="relative block w-full h-40 overflow-hidden"
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={photoUrl} alt={outing.title} className="h-full w-full object-cover" />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                                        {countdown && (
+                                          <span className={`absolute top-2 left-2 text-[11px] font-bold px-2.5 py-1 rounded-full ${countdown.urgent ? "bg-orange-500 text-white" : "bg-black/40 backdrop-blur-sm text-white"}`}>
+                                            {countdown.label}
+                                          </span>
+                                        )}
+                                        {outing.lat && outing.lng && (
+                                          <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-black/40 backdrop-blur-sm px-2.5 py-1">
+                                            <MapPin size={10} className="text-white" />
+                                            <span className="text-[10px] font-semibold text-white">Voir sur la carte</span>
+                                          </div>
+                                        )}
+                                      </button>
+                                    )}
+
+                                    {/* Infos */}
+                                    <div className="px-3 pt-3 pb-2">
+                                      <p className="text-[14px] font-bold text-gray-900 dark:text-white">{outing.title}</p>
+                                      {outing.scheduled_at && (
+                                        <p className="flex items-center gap-1 text-[12px] text-gray-500 dark:text-zinc-400 mt-0.5">
+                                          <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
+                                        </p>
+                                      )}
+                                      {outing.location_name && (
+                                        <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5">
+                                          <MapPin size={9} />{outing.location_name}
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    {/* Participants — avatars + menu */}
+                                    <div className="px-3 pb-2">
+                                      <button
+                                        onClick={() => setExpandedNotifId(isExpanded ? `${notifKey}-att` : notifKey)}
+                                        className="flex items-center gap-2 w-full text-left"
+                                      >
+                                        <div className="flex -space-x-2">
+                                          {allGoing.slice(0, 4).map((p, i) => (
+                                            <div key={p.invitee_id + i} className="h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[9px] font-bold text-white">
+                                              {p.profiles?.avatar_url
+                                                // eslint-disable-next-line @next/next/no-img-element
+                                                ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                                                : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                                            </div>
+                                          ))}
+                                          {pending.slice(0, 2).map((p, i) => (
+                                            <div key={"pend-" + p.invitee_id + i} className="h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gray-300 dark:bg-zinc-600 flex items-center justify-center text-[9px] font-bold text-gray-500 opacity-60">
+                                              {p.profiles?.avatar_url
+                                                // eslint-disable-next-line @next/next/no-img-element
+                                                ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                                                : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 text-[12px]">
+                                          <span className="font-semibold text-green-600 dark:text-green-400">{allGoing.length} {allGoing.length > 1 ? "vont" : "va"}</span>
+                                          {pending.length > 0 && <span className="text-gray-400 dark:text-zinc-500">· {pending.length} en attente</span>}
+                                          <ChevronDown size={10} className="text-gray-400" />
+                                        </div>
+                                      </button>
+
+                                      {/* Liste participants */}
+                                      <div className="mt-2 rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-50 dark:bg-zinc-800/60 px-3 py-2 space-y-2">
+                                        {allParticipants.map((p, i) => {
+                                          const isOrg = p.invitee_id === outing.creator_id
+                                          return (
+                                            <div key={p.invitee_id + i} className="flex items-center gap-2.5">
+                                              <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white">
+                                                {p.profiles?.avatar_url
+                                                  // eslint-disable-next-line @next/next/no-img-element
+                                                  ? <img src={p.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${p.status === "pending" ? "opacity-50" : ""}`} />
+                                                  : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                                              </div>
+                                              <span className="flex-1 text-[13px] font-medium text-gray-800 dark:text-zinc-100 truncate">
+                                                {p.profiles?.username ?? "Utilisateur"}
+                                              </span>
+                                              {isOrg && <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-400">organisateur</span>}
+                                              {!isOrg && p.status === "pending" && <span className="text-[10px] text-gray-400 dark:text-zinc-500">en attente</span>}
+                                              {!isOrg && p.status === "declined" && <span className="text-[10px] text-red-400">a décliné</span>}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {/* Action principale */}
+                                    <div className="px-3 pb-3 flex gap-2">
+                                      {isCreator ? (
+                                        <>
+                                          <button
+                                            onClick={() => { setEditingOuting(outing); setEditForm({ title: outing.title, description: outing.description ?? "", scheduled_at: outing.scheduled_at ? outing.scheduled_at.slice(0, 16) : "" }); setEditError(null) }}
+                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 px-3 py-2.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400"
+                                          >
+                                            <CalendarPlus size={12} /> Modifier
+                                          </button>
+                                          <button
+                                            onClick={() => cancelOuting(outing.id)}
+                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 dark:bg-red-500/10 px-3 py-2.5 text-[12px] font-semibold text-red-500"
+                                          >
+                                            <CalendarX size={12} /> Annuler
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button
+                                          onClick={() => withdrawOuting(outing.id)}
+                                          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 dark:bg-red-500/10 px-3 py-3 text-[13px] font-semibold text-red-500"
+                                        >
+                                          <CalendarX size={13} /> Se désister
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4. Demandes envoyées (minimal) */}
+                    {pendingSent.length > 0 && (
+                      <div>
+                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Envoyées · {pendingSent.length}
+                        </p>
+                        <div className="space-y-0.5 px-1">
+                          {pendingSent.map(p => (
+                            <div key={p.id} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
+                              <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[11px] font-bold text-white">
+                                {p.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : (p.username?.[0] ?? "?").toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] text-gray-600 dark:text-zinc-400 truncate">
+                                  <span className="font-medium">@{p.username ?? "?"}</span>
+                                  <span className="text-gray-400 dark:text-zinc-600"> · En attente</span>
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => cancelRequest(p.id)}
+                                disabled={loadingId === p.id}
+                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-400 dark:text-zinc-600 transition-colors hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50"
+                              >
+                                {loadingId === p.id ? <LoaderCircle size={10} className="animate-spin" /> : "Annuler"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 )}
                 {/* Spacer universel — empêche le dernier élément d'être sous la barre */}
@@ -1603,19 +2015,36 @@ export default function FriendsModal({
 
                     {/* Form */}
                     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                      {/* Titre */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Titre <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel — sinon le lieu)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex : Soirée Parc Astérix, Week-end ski…"
+                          value={createForm.title}
+                          onChange={e => setCreateForm(f => ({ ...f, title: e.target.value }))}
+                          maxLength={60}
+                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
                       {/* Date & time */}
                       <div>
                         <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
                           Date et heure <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
                         </label>
-                        <input
-                          type="datetime-local"
-                          min={minDateTime}
-                          value={createForm.scheduled_at}
-                          onChange={e => setCreateForm(f => ({ ...f, scheduled_at: e.target.value }))}
-                          className="w-full h-11 rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3 text-gray-900 dark:text-white outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 appearance-none"
-                          style={{ fontSize: "14px", colorScheme: "light dark" }}
-                        />
+                        <div className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 overflow-hidden" style={{ height: "42px" }}>
+                          <input
+                            type="datetime-local"
+                            min={minDateTime}
+                            value={createForm.scheduled_at}
+                            onChange={e => setCreateForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                            className="w-full h-full bg-transparent px-3.5 text-[13px] text-gray-900 dark:text-white outline-none"
+                            style={{ colorScheme: "light dark" }}
+                          />
+                        </div>
                       </div>
 
                       {/* Location */}
@@ -1808,36 +2237,157 @@ export default function FriendsModal({
                         )}
                       </div>
 
-                      {/* Submit — inside scroll zone */}
-                      <div className="pt-2">
-                        {createError && (
-                          <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
-                            {createError}
-                          </p>
+                      {/* Spacer before sticky button */}
+                      <div className="h-4" />
+                    </div>
+
+                    {/* Bouton sticky — toujours visible au bas de l'overlay */}
+                    <div
+                      className="flex-shrink-0 border-t border-gray-100 dark:border-white/[0.06] bg-white dark:bg-[#0e0e12] px-5 pt-3"
+                      style={{ paddingBottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))" }}
+                    >
+                      {createError && (
+                        <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
+                          {createError}
+                        </p>
+                      )}
+                      {selectedFriendIds.length === 0 && !creating && (
+                        <p className="mb-2 text-center text-[11px] text-gray-400 dark:text-zinc-500">
+                          Sélectionne au moins 1 ami pour envoyer
+                        </p>
+                      )}
+                      <button
+                        onClick={createOuting}
+                        disabled={creating || selectedFriendIds.length === 0}
+                        className={`w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-bold transition-all active:scale-[0.98] ${
+                          selectedFriendIds.length === 0
+                            ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed opacity-60"
+                            : "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 cursor-pointer"
+                        }`}
+                      >
+                        {creating ? (
+                          <><LoaderCircle size={15} className="animate-spin" /> Envoi en cours…</>
+                        ) : (
+                          <><CalendarPlus size={15} /> {selectedFriendIds.length === 0 ? "Envoyer les invitations" : `Envoyer (${selectedFriendIds.length} ami${selectedFriendIds.length > 1 ? "s" : ""})`}</>
                         )}
-                        {selectedFriendIds.length === 0 && !creating && (
-                          <p className="mb-2 text-center text-[11px] text-gray-400 dark:text-zinc-500">
-                            Sélectionne au moins 1 ami pour envoyer
-                          </p>
-                        )}
-                        <button
-                          onClick={createOuting}
-                          disabled={creating}
-                          className={`w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-bold transition-all active:scale-[0.98] ${
-                            selectedFriendIds.length === 0
-                              ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed"
-                              : "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 cursor-pointer"
-                          }`}
-                        >
-                          {creating ? (
-                            <><LoaderCircle size={15} className="animate-spin" /> Envoi en cours…</>
-                          ) : (
-                            <><CalendarPlus size={15} /> {selectedFriendIds.length === 0 ? "Envoyer les invitations" : `Envoyer (${selectedFriendIds.length} ami${selectedFriendIds.length > 1 ? "s" : ""})`}</>
-                          )}
-                        </button>
-                        {/* Spacer — empêche le bouton d'être caché sous la barre du bas */}
-                        <div style={{ height: "max(5rem, calc(env(safe-area-inset-bottom) + 4rem))" }} />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ══ EDIT OUTING OVERLAY ══════════════════════════ */}
+              <AnimatePresence>
+                {editingOuting && (
+                  <motion.div
+                    initial={{ x: "100%" }}
+                    animate={{ x: 0 }}
+                    exit={{ x: "100%" }}
+                    transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                    style={{ touchAction: "pan-y" }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="absolute inset-0 z-20 flex flex-col overflow-hidden
+                      bg-white dark:bg-[#0e0e12]
+                      rounded-t-[2rem] sm:rounded-l-2xl sm:rounded-t-none"
+                  >
+                    {/* Header */}
+                    <div className="flex flex-shrink-0 items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-5 pt-5 pb-4">
+                      <button
+                        onClick={() => {
+                          setEditingOuting(null)
+                          setEditError(null)
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-gray-500 dark:text-zinc-400 transition-all hover:bg-gray-100 dark:hover:bg-white/8"
+                      >
+                        <ArrowLeft size={16} />
+                      </button>
+                      <div>
+                        <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">
+                          Modifier la sortie
+                        </h3>
+                        <p className="text-[11px] text-gray-400 dark:text-zinc-600">
+                          Mets à jour les infos
+                        </p>
                       </div>
+                    </div>
+
+                    {/* Form */}
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                      {/* Title */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Titre *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Nom de la sortie"
+                          value={editForm.title}
+                          onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                          maxLength={80}
+                          className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
+                      {/* Date & time */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Date et heure <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
+                        </label>
+                        <div className="w-full rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 overflow-hidden" style={{ height: "42px" }}>
+                          <input
+                            type="datetime-local"
+                            min={minDateTime}
+                            value={editForm.scheduled_at}
+                            onChange={e => setEditForm(f => ({ ...f, scheduled_at: e.target.value }))}
+                            className="w-full h-full bg-transparent px-3.5 text-[13px] text-gray-900 dark:text-white outline-none"
+                            style={{ colorScheme: "light dark" }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Message <span className="normal-case text-gray-300 dark:text-zinc-700">(optionnel)</span>
+                        </label>
+                        <textarea
+                          placeholder="Donne envie ! Infos pratiques, dress code…"
+                          value={editForm.description}
+                          onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                          rows={3}
+                          maxLength={300}
+                          className="w-full resize-none rounded-xl border border-gray-200 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900 px-3.5 py-2.5 text-[15px] text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-zinc-600 outline-none transition-all focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15 sm:text-sm"
+                        />
+                      </div>
+
+                      <div className="h-4" />
+                    </div>
+
+                    {/* Submit */}
+                    <div
+                      className="flex-shrink-0 border-t border-gray-100 dark:border-white/[0.06] bg-white dark:bg-[#0e0e12] px-5 pt-3"
+                      style={{ paddingBottom: "max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem))" }}
+                    >
+                      {editError && (
+                        <p className="mb-2 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400">
+                          {editError}
+                        </p>
+                      )}
+                      <button
+                        onClick={updateOuting}
+                        disabled={saving || !editForm.title.trim()}
+                        className={`w-full flex items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-bold transition-all active:scale-[0.98] ${
+                          saving || !editForm.title.trim()
+                            ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 cursor-not-allowed"
+                            : "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 cursor-pointer"
+                        }`}
+                      >
+                        {saving ? (
+                          <><LoaderCircle size={15} className="animate-spin" /> Enregistrement…</>
+                        ) : (
+                          <><CalendarCheck size={15} /> Enregistrer les modifications</>
+                        )}
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -1848,6 +2398,18 @@ export default function FriendsModal({
         </>
       )}
     </AnimatePresence>
+      {confirmDialog && (
+        <ConfirmDialog
+          open={confirmDialog.open}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -2027,6 +2589,216 @@ function InvitationRow({
   )
 }
 
+function FeaturedOutingCard({
+  outing, currentUserId, spots, onCancel, onLocate, onEdit, onWithdraw,
+}: {
+  outing: Outing
+  currentUserId: string
+  spots?: Array<{ id: string; image_url?: string | null; lat?: number; lng?: number }>
+  onCancel: (id: string) => void
+  onLocate?: (lat: number, lng: number) => void
+  onEdit?: () => void
+  onWithdraw?: () => void
+}) {
+  const [showAttendees, setShowAttendees] = useState(false)
+
+  const isCreator = outing.creator_id === currentUserId
+  const invitations = outing.outing_invitations ?? []
+  const accepted = invitations.filter(i => i.status === "accepted")
+  const pending = invitations.filter(i => i.status === "pending")
+  const declined = invitations.filter(i => i.status === "declined")
+
+  // Créateur inclus dans la liste "qui y va"
+  const creatorEntry = { invitee_id: outing.creator_id, status: "accepted" as const, id: "creator", profiles: outing.profiles }
+  const allGoing = [creatorEntry, ...accepted]
+
+  // Photo : spot de l'app ou Mapbox static
+  const appSpot = outing.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
+  const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
+    ?? (outing.lat && outing.lng
+      ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/400x200?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+      : null)
+
+  const canLocate = !!(outing.lat && outing.lng)
+
+  return (
+    <div className="rounded-2xl overflow-hidden border border-indigo-500/15 dark:border-indigo-500/10 bg-white dark:bg-zinc-900 shadow-sm">
+      {/* Photo */}
+      {photoUrl ? (
+        <button
+          onClick={() => canLocate && onLocate?.(outing.lat!, outing.lng!)}
+          disabled={!canLocate}
+          className={`relative block w-full h-36 overflow-hidden ${canLocate ? "cursor-pointer" : "cursor-default"}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoUrl} alt={outing.title} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+          {canLocate && (
+            <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-white/20 backdrop-blur-sm px-2 py-1">
+              <MapPin size={10} className="text-white" />
+              <span className="text-[10px] font-semibold text-white">Voir sur la carte</span>
+            </div>
+          )}
+          {(() => { const cd = getCountdown(outing.scheduled_at); return cd ? (
+            <span className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${cd.urgent ? "bg-orange-500 text-white" : "bg-black/40 backdrop-blur-sm text-white"}`}>
+              {cd.label}
+            </span>
+          ) : null })()}
+        </button>
+      ) : (
+        <div className="flex items-center justify-between px-3 pt-3">
+          {(() => { const cd = getCountdown(outing.scheduled_at); return cd ? (
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cd.urgent ? "bg-orange-100 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400" : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400"}`}>
+              {cd.label}
+            </span>
+          ) : <span /> })()}
+          {isCreator && !onEdit && (
+            <button onClick={() => onCancel(outing.id)} className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 hover:text-red-500 transition-colors">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="px-3 pb-3 pt-2.5 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">{outing.title}</p>
+            {outing.scheduled_at && (
+              <p className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-500 mt-0.5">
+                <Calendar size={9} />{formatOutingDate(outing.scheduled_at)}
+              </p>
+            )}
+            {outing.location_name && (
+              <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-600">
+                <MapPin size={9} />{outing.location_name}
+              </p>
+            )}
+          </div>
+          {photoUrl && isCreator && !onEdit && (
+            <button onClick={() => onCancel(outing.id)} className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 hover:text-red-500 transition-colors">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+
+        {/* Participants */}
+        <button
+          onClick={() => setShowAttendees(v => !v)}
+          className="flex items-center gap-2 w-full text-left"
+        >
+          <div className="flex -space-x-2">
+            {allGoing.slice(0, 4).map((p, i) => (
+              <div key={p.invitee_id + i} className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 overflow-hidden flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                {p.profiles?.avatar_url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                  : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+              </div>
+            ))}
+            {pending.slice(0, 3).map((p, i) => (
+              <div key={"pending-" + p.invitee_id + i} className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-300 dark:bg-zinc-600 overflow-hidden flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-300 flex-shrink-0 opacity-60">
+                {p.profiles?.avatar_url
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover opacity-60" />
+                  : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+              </div>
+            ))}
+            {(allGoing.length + pending.length) > 7 && (
+              <div className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-400">
+                +{allGoing.length + pending.length - 7}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-1 text-[11px]">
+            <span className="font-semibold text-green-600 dark:text-green-400">{allGoing.length} {allGoing.length > 1 ? "vont" : "va"}</span>
+            {pending.length > 0 && <span className="text-gray-400 dark:text-zinc-600">· {pending.length} en attente</span>}
+            {declined.length > 0 && <span className="text-red-400 dark:text-red-500">· {declined.length} décliné</span>}
+            <ChevronDown size={10} className={`text-gray-400 transition-transform ${showAttendees ? "rotate-180" : ""}`} />
+          </div>
+        </button>
+
+        {/* Expanded attendees list */}
+        {showAttendees && (
+          <div className="rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-50 dark:bg-zinc-800/60 p-2 space-y-1.5">
+            {allGoing.map((p, i) => (
+              <div key={p.invitee_id + i} className="flex items-center gap-2">
+                <div className="h-6 w-6 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 overflow-hidden flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                  {p.profiles?.avatar_url
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                    : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[11px] font-medium text-gray-700 dark:text-zinc-300 truncate">
+                  {p.profiles?.username ?? "Utilisateur"}
+                  {p.invitee_id === outing.creator_id && (
+                    <span className="ml-1 text-[9px] text-indigo-500 font-semibold">organisateur</span>
+                  )}
+                </span>
+              </div>
+            ))}
+            {pending.map(p => (
+              <div key={p.invitee_id} className="flex items-center gap-2 opacity-50">
+                <div className="h-6 w-6 rounded-full bg-gray-300 dark:bg-zinc-700 overflow-hidden flex items-center justify-center text-[9px] font-bold text-gray-500">
+                  {p.profiles?.avatar_url
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                    : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[11px] text-gray-400 dark:text-zinc-500 truncate">
+                  {p.profiles?.username ?? "Utilisateur"} <span className="text-[9px]">· en attente</span>
+                </span>
+              </div>
+            ))}
+            {declined.map(p => (
+              <div key={p.invitee_id} className="flex items-center gap-2 opacity-40">
+                <div className="h-6 w-6 rounded-full bg-red-200 dark:bg-red-900/30 overflow-hidden flex items-center justify-center text-[9px] font-bold text-red-400">
+                  {p.profiles?.avatar_url
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                    : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="text-[11px] text-gray-400 dark:text-zinc-500 truncate line-through">
+                  {p.profiles?.username ?? "Utilisateur"}
+                </span>
+                <span className="text-[9px] text-red-400 no-underline">a décliné</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Footer actions (Invitations tab) */}
+        {isCreator && onEdit && (
+          <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-white/[0.05] mt-1">
+            <button
+              onClick={onEdit}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 px-3 py-2 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-500/20"
+            >
+              <CalendarPlus size={12} /> Modifier
+            </button>
+            <button
+              onClick={() => onCancel(outing.id)}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-500 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-500/20"
+            >
+              <CalendarX size={12} /> Annuler
+            </button>
+          </div>
+        )}
+        {!isCreator && onWithdraw && (
+          <div className="pt-1 border-t border-gray-100 dark:border-white/[0.05] mt-1">
+            <button
+              onClick={onWithdraw}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-red-50 dark:bg-red-500/10 px-3 py-2 text-[12px] font-semibold text-red-500 dark:text-red-400 transition-colors hover:bg-red-100 dark:hover:bg-red-500/20"
+            >
+              <CalendarX size={12} /> Se désister
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OutingCard({
   outing, currentUserId, onCancel, past = false,
 }: {
@@ -2062,15 +2834,22 @@ function OutingCard({
             </p>
           )}
         </div>
-        {isCreator && !past && (
-          <button
-            onClick={() => onCancel(outing.id)}
-            title="Annuler la sortie"
-            className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
-          >
-            <X size={12} />
-          </button>
-        )}
+        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+          {(() => { const cd = getCountdown(outing.scheduled_at); return cd ? (
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cd.urgent ? "bg-orange-100 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400" : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400"}`}>
+              {cd.label}
+            </span>
+          ) : null })()}
+          {isCreator && !past && (
+            <button
+              onClick={() => onCancel(outing.id)}
+              title="Annuler la sortie"
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Attendees row */}
@@ -2124,13 +2903,24 @@ function OutingCard({
 }
 
 function OutingInvitationCard({
-  invitation, onAccept, onDecline,
+  invitation, onAccept, onDecline, spots, onSelectSpot,
 }: {
-  invitation: OutingInvitationFull; onAccept: () => void; onDecline: () => void
+  invitation: OutingInvitationFull
+  onAccept: () => void
+  onDecline: () => void
+  spots?: Array<{ id: string; image_url?: string | null; lat?: number; lng?: number }>
+  onSelectSpot?: (id: string) => void
 }) {
   const [loading, setLoading] = useState(false)
+
   const outing = invitation.outings
-  const creatorName = outing?.profiles?.username
+  const creator = outing?.profiles
+  const allInvitations = outing?.allInvitations ?? []
+  const appSpot = outing?.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
+  const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
+    ?? (outing?.lat && outing?.lng
+      ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/400x180?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+      : null)
 
   const handle = async (fn: () => void) => {
     setLoading(true)
@@ -2138,57 +2928,166 @@ function OutingInvitationCard({
     setLoading(false)
   }
 
+  const statusConfig = {
+    accepted: { label: "Participe", color: "text-green-600 dark:text-green-400", bg: "bg-green-50 dark:bg-green-500/10", dot: "bg-green-500" },
+    pending:  { label: "En attente", color: "text-gray-400 dark:text-zinc-500", bg: "bg-gray-50 dark:bg-zinc-800", dot: "bg-gray-300 dark:bg-zinc-600" },
+    declined: { label: "A décliné", color: "text-red-400 dark:text-red-500", bg: "bg-red-50 dark:bg-red-500/10", dot: "bg-red-400" },
+  }
+
   return (
-    <div className="rounded-xl border border-violet-500/15 dark:border-violet-500/20 bg-violet-500/[0.04] dark:bg-violet-500/[0.06] p-3.5">
-      {/* Outing info */}
-      <div className="flex items-start gap-3 mb-3">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-violet-500/10 dark:bg-violet-500/15">
-          <CalendarPlus size={16} className="text-violet-600 dark:text-violet-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">
-            {outing?.title ?? "Sortie"}
-          </p>
-          {creatorName && (
-            <p className="text-[11px] text-gray-400 dark:text-zinc-600">
-              @{creatorName} t&apos;invite
-            </p>
+    <div className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/[0.07] bg-white dark:bg-zinc-900 shadow-sm">
+
+      {/* Photo du spot */}
+      {photoUrl ? (
+        <button
+          onClick={() => appSpot && onSelectSpot?.(appSpot.id)}
+          disabled={!appSpot}
+          className={`relative block w-full h-40 overflow-hidden ${appSpot ? "cursor-pointer" : "cursor-default"}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoUrl} alt={outing?.title} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 px-3 pb-3">
+            <p className="text-white font-bold text-[14px] leading-tight truncate">{outing?.title}</p>
+            {outing?.location_name && (
+              <p className="flex items-center gap-1 text-white/70 text-[11px] mt-0.5">
+                <MapPin size={9} />{outing.location_name}
+              </p>
+            )}
+          </div>
+          {appSpot && (
+            <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-white/20 backdrop-blur-sm px-2 py-1">
+              <MapPin size={9} className="text-white" />
+              <span className="text-[10px] font-semibold text-white">Voir le spot</span>
+            </div>
           )}
           {outing?.scheduled_at && (
-            <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-violet-600 dark:text-violet-400">
-              <Calendar size={9} />
-              {formatOutingDate(outing.scheduled_at)}
+            <div className="absolute top-2 left-2 flex items-center gap-1 rounded-full bg-black/40 backdrop-blur-sm px-2 py-1">
+              <Calendar size={9} className="text-white/80" />
+              <span className="text-[10px] font-medium text-white/90">{formatOutingDate(outing.scheduled_at)}</span>
+            </div>
+          )}
+        </button>
+      ) : (
+        <div className="px-3 pt-3 pb-1">
+          <p className="font-bold text-[14px]">{outing?.title}</p>
+          {outing?.scheduled_at && (
+            <p className="flex items-center gap-1 text-[11px] text-violet-500 mt-0.5">
+              <Calendar size={9} />{formatOutingDate(outing.scheduled_at)}
             </p>
           )}
           {outing?.location_name && (
-            <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-600">
+            <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-500">
               <MapPin size={9} />{outing.location_name}
             </p>
           )}
-          {outing?.description && (
-            <p className="mt-1.5 text-[11px] text-gray-500 dark:text-zinc-500 line-clamp-2">
-              {outing.description}
-            </p>
-          )}
         </div>
-      </div>
+      )}
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => handle(onAccept)}
-          disabled={loading}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-[12px] font-bold text-white shadow-sm shadow-green-500/25 transition-all hover:bg-green-400 active:scale-[0.98] disabled:opacity-50"
-        >
-          {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarCheck size={12} /> Participer</>}
-        </button>
-        <button
-          onClick={() => handle(onDecline)}
-          disabled={loading}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 py-2 text-[12px] font-semibold text-gray-600 dark:text-zinc-400 transition-all hover:bg-gray-50 dark:hover:bg-zinc-800 active:scale-[0.98] disabled:opacity-50"
-        >
-          {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Décliner</>}
-        </button>
+      <div className="px-3 pt-3 pb-3 space-y-3">
+
+        {/* Description du créateur */}
+        {outing?.description && (
+          <div className="flex items-start gap-2">
+            <div className="h-7 w-7 flex-shrink-0 rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 overflow-hidden flex items-center justify-center text-[10px] font-bold text-white">
+              {creator?.avatar_url
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={creator.avatar_url} alt="" className="h-full w-full object-cover" />
+                : (creator?.username?.[0]?.toUpperCase() ?? "?")}
+            </div>
+            <div className="flex-1 min-w-0 bg-violet-50 dark:bg-violet-500/10 rounded-2xl rounded-tl-sm px-3 py-2">
+              <p className="text-[12px] text-gray-700 dark:text-zinc-200">{outing.description}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Participants invités */}
+        {allInvitations.length > 0 && (
+          <div className="space-y-2">
+            {/* Résumé avatars + compteur (style screenshot) */}
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-2">
+                {allInvitations.slice(0, 4).map((inv, i) => (
+                  <div key={inv.id + i} className={`h-8 w-8 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${
+                    inv.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" :
+                    inv.status === "declined" ? "bg-red-300 dark:bg-red-800" :
+                    "bg-gray-300 dark:bg-zinc-600"
+                  }`}>
+                    {inv.profiles?.avatar_url
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={inv.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${inv.status === "pending" ? "opacity-50" : ""}`} />
+                      : (inv.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                  </div>
+                ))}
+                {allInvitations.length > 4 && (
+                  <div className="h-8 w-8 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-400">
+                    +{allInvitations.length - 4}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[12px]">
+                {(() => {
+                  const acc = allInvitations.filter(i => i.status === "accepted").length
+                  const pend = allInvitations.filter(i => i.status === "pending").length
+                  const dec = allInvitations.filter(i => i.status === "declined").length
+                  return <>
+                    {acc > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{acc} {acc > 1 ? "vont" : "va"}</span>}
+                    {pend > 0 && <span className="text-gray-400 dark:text-zinc-500">· {pend} en attente</span>}
+                    {dec > 0 && <span className="text-red-400">· {dec} décliné</span>}
+                  </>
+                })()}
+              </div>
+            </div>
+            {/* Détail par personne */}
+            <div className="space-y-1">
+              {allInvitations.map(inv => {
+                const cfg = statusConfig[inv.status] ?? statusConfig.pending
+                return (
+                  <div key={inv.id} className="flex items-center gap-2">
+                    <div className={`h-6 w-6 flex-shrink-0 rounded-full overflow-hidden flex items-center justify-center text-[9px] font-bold text-white ${
+                      inv.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" :
+                      inv.status === "declined" ? "bg-red-300 dark:bg-red-800" :
+                      "bg-gray-300 dark:bg-zinc-600"
+                    }`}>
+                      {inv.profiles?.avatar_url
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={inv.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${inv.status === "pending" ? "opacity-50" : ""}`} />
+                        : (inv.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                    </div>
+                    <span className={`flex-1 text-[11px] truncate ${inv.status === "declined" ? "line-through text-gray-400 dark:text-zinc-600" : "text-gray-700 dark:text-zinc-300"}`}>
+                      @{inv.profiles?.username ?? "?"}
+                      {inv.invitee_id === invitation.invitee_id && (
+                        <span className="ml-1 text-[9px] text-indigo-500 font-semibold">vous</span>
+                      )}
+                    </span>
+                    <span className={`flex items-center gap-1 text-[10px] font-semibold ${cfg.color}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                      {cfg.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Participer / Décliner */}
+        <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-white/[0.06]">
+          <button
+            onClick={() => handle(onAccept)}
+            disabled={loading}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-[12px] font-bold text-white shadow-sm shadow-green-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+          >
+            {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarCheck size={12} /> Participer</>}
+          </button>
+          <button
+            onClick={() => handle(onDecline)}
+            disabled={loading}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 py-2 text-[12px] font-semibold text-gray-600 dark:text-zinc-400 transition-all active:scale-[0.98] disabled:opacity-50"
+          >
+            {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Décliner</>}
+          </button>
+        </div>
       </div>
     </div>
   )
