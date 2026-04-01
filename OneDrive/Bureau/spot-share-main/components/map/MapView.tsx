@@ -1067,6 +1067,8 @@ export default function MapView() {
     maps_url: string | null
     price_range: string | null
     expires_at: string | null
+    visibility: 'friends' | 'group' | 'private'
+    group_id: string | null
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
 
@@ -2531,6 +2533,7 @@ export default function MapView() {
         initialUrl={initialAddUrl}
         userLat={userLocation?.lat}
         userLng={userLocation?.lng}
+        groups={groups}
         onClose={() => setShowAddModal(false)}
         onAdd={(spotData) => {
           const promise = handleAddSpot(spotData)

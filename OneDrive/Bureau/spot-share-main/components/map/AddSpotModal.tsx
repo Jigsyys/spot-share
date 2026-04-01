@@ -16,6 +16,7 @@ import {
   UploadCloud,
   Clipboard,
   Wand2,
+  ChevronDown,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
@@ -42,10 +43,13 @@ interface AddSpotModalProps {
     maps_url: string | null
     price_range: string | null
     expires_at: string | null
+    visibility: 'friends' | 'group' | 'private'
+    group_id: string | null
   }) => Promise<void>
   initialUrl?: string
   userLat?: number
   userLng?: number
+  groups?: Array<{ id: string; name: string; emoji: string }>
 }
 
 type Tab = "instagram" | "manual"
@@ -72,8 +76,12 @@ export default function AddSpotModal({
   initialUrl,
   userLat,
   userLng,
+  groups = [],
 }: AddSpotModalProps) {
   const [tab, setTab] = useState<Tab>("instagram")
+  const [visibility, setVisibility] = useState<'friends' | 'group' | 'private'>('friends')
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [showVisibilityPicker, setShowVisibilityPicker] = useState(false)
   const [tabSwitchPending, setTabSwitchPending] = useState<Tab | null>(null)
 
   // ── Shared : place search ──────────────────────────────────────────────────
@@ -316,6 +324,8 @@ export default function AddSpotModal({
         setManAiFillDone(false); setManAiFillLoading(false)
         // Shared reset
         setPlaceQuery(""); setPlaceResults([]); setSelectedPlace(null); setError(null)
+        // Visibility reset
+        setVisibility('friends'); setSelectedGroupId(null); setShowVisibilityPicker(false)
       }, 300)
     } else if (initialUrl && !instagramUrl) {
       setTab("instagram")
@@ -345,6 +355,8 @@ export default function AddSpotModal({
         maps_url: tab === "instagram" ? igMapsUrl : manMapsUrl,
         price_range: tab === "instagram" ? igPriceRange : manPriceRange,
         expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
+        visibility,
+        group_id: visibility === 'group' ? selectedGroupId : null,
       })
       onClose()
     } catch (err) {
@@ -709,6 +721,75 @@ export default function AddSpotModal({
                         className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
                       />
                     </motion.div>
+                  )}
+                </div>
+
+                {/* Sélecteur de visibilité */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">Partager avec</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowVisibilityPicker(v => !v)}
+                    className="w-full flex items-center justify-between gap-2 rounded-xl bg-white/[0.06] border border-white/[0.08] px-3 py-2.5 text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">
+                        {visibility === 'private' ? '🔒' : visibility === 'group' ? (groups.find(g => g.id === selectedGroupId)?.emoji ?? '🗂️') : '👥'}
+                      </span>
+                      <span className="text-[13px] font-semibold text-white">
+                        {visibility === 'private' ? 'Privé' : visibility === 'group' ? (groups.find(g => g.id === selectedGroupId)?.name ?? 'Groupe') : 'Tous mes amis'}
+                      </span>
+                    </div>
+                    <ChevronDown size={14} className={`text-zinc-500 transition-transform ${showVisibilityPicker ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showVisibilityPicker && (
+                    <div className="rounded-xl border border-white/[0.07] bg-zinc-900 overflow-hidden">
+                      {/* Amis */}
+                      <button
+                        type="button"
+                        onClick={() => { setVisibility('friends'); setSelectedGroupId(null); setShowVisibilityPicker(false) }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-white/[0.05] transition-colors ${visibility === 'friends' ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
+                      >
+                        <span className="text-base">👥</span>
+                        <div className="flex-1 text-left">
+                          <p className="text-[12px] font-bold text-white">Tous mes amis</p>
+                          <p className="text-[10px] text-zinc-500">Visible par tous tes abonnés</p>
+                        </div>
+                        {visibility === 'friends' && <span className="text-indigo-400 text-xs font-bold">✓</span>}
+                      </button>
+
+                      {/* Groupes */}
+                      {groups.map(group => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onClick={() => { setVisibility('group'); setSelectedGroupId(group.id); setShowVisibilityPicker(false) }}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-white/[0.05] transition-colors ${visibility === 'group' && selectedGroupId === group.id ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
+                        >
+                          <span className="text-base">{group.emoji}</span>
+                          <div className="flex-1 text-left">
+                            <p className="text-[12px] font-bold text-white">{group.name}</p>
+                            <p className="text-[10px] text-zinc-500">Membres du groupe uniquement</p>
+                          </div>
+                          {visibility === 'group' && selectedGroupId === group.id && <span className="text-indigo-400 text-xs font-bold">✓</span>}
+                        </button>
+                      ))}
+
+                      {/* Privé */}
+                      <button
+                        type="button"
+                        onClick={() => { setVisibility('private'); setSelectedGroupId(null); setShowVisibilityPicker(false) }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors ${visibility === 'private' ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
+                      >
+                        <span className="text-base">🔒</span>
+                        <div className="flex-1 text-left">
+                          <p className="text-[12px] font-bold text-white">Privé</p>
+                          <p className="text-[10px] text-zinc-500">Seulement moi</p>
+                        </div>
+                        {visibility === 'private' && <span className="text-indigo-400 text-xs font-bold">✓</span>}
+                      </button>
+                    </div>
                   )}
                 </div>
 
