@@ -533,10 +533,8 @@ export default function FriendsModal({
         supabaseRef.current.from("spot_group_members").upsert({ group_id: inv.group_id, user_id: currentUser.id }, { onConflict: "group_id,user_id" }),
       ])
       setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
-      const groupId = inv.group_id
-      toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`, {
-        action: { label: "Voir les spots", onClick: () => onGroupJoined?.(groupId) },
-      })
+      onGroupJoined?.(inv.group_id)
+      toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`)
     } catch (e) {
       console.error("acceptGroupInvitation:", e)
       toast.error("Impossible de rejoindre le groupe")
