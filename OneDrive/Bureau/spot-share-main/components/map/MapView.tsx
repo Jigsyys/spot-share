@@ -936,11 +936,18 @@ export default function MapView() {
     if (filter === "groups" && activeGroupId) {
       return spots.filter((s) => s.visibility === "group" && s.group_id === activeGroupId)
     }
-    let base = spots.filter((s) => (s.user_id === user?.id || visibleFriendSet.has(s.user_id)) && (s.visibility === "friends" || !s.visibility))
+    // Mode découverte : si l'utilisateur ne suit personne encore, montrer tous les spots publics
+    const noFollows = visibleFriendSet.size === 0 && followingIds.length === 0
+    let base = spots.filter((s) => {
+      if (s.visibility === "group") return false
+      if (s.visibility === "private") return false
+      if (noFollows) return true // découverte : tout ce qui est 'friends' ou null
+      return s.user_id === user?.id || visibleFriendSet.has(s.user_id)
+    })
     if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
     if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
-  }, [spots, filter, user?.id, visibleFriendSet, friendFilterIds, friendCategoryFilter, activeGroupId])
+  }, [spots, filter, user?.id, visibleFriendSet, followingIds.length, friendFilterIds, friendCategoryFilter, activeGroupId])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
