@@ -247,7 +247,7 @@ export default function GroupSettingsModal({
             </button>
           </div>
 
-          <div className="overflow-y-auto pb-[env(safe-area-inset-bottom,1rem)]">
+          <div className="flex-1 min-h-0 overflow-y-auto pb-[env(safe-area-inset-bottom,1rem)]">
             {/* Inviter */}
             <div className="px-4 pt-3">
               <button
