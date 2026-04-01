@@ -23,6 +23,8 @@ import {
   Heart,
   SlidersHorizontal,
   Shuffle,
+  Layers,
+  Settings,
 } from "lucide-react"
 import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -32,7 +34,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useTheme } from "next-themes"
 import dynamic from "next/dynamic"
 import UserMenu from "./UserMenu"
-import type { Spot, FilterMode } from "@/lib/types"
+import type { Spot, FilterMode, SpotGroup } from "@/lib/types"
 
 const AddSpotModal = dynamic(() => import("./AddSpotModal"), { ssr: false })
 const EditSpotModal = dynamic(() => import("./EditSpotModal"), { ssr: false })
@@ -282,6 +284,8 @@ export default function MapView() {
   const { resolvedTheme } = useTheme()
 
   const [filter, setFilter] = useState<FilterMode>("friends")
+  const [groups, setGroups] = useState<SpotGroup[]>([])
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
   const [friendCategoryFilter, setFriendCategoryFilter] = useState<Set<string>>(new Set())
   const [showFriendFilter, setShowFriendFilter] = useState(false)
@@ -636,6 +640,25 @@ export default function MapView() {
     } catch { /* ignore */ }
   }, [user])
 
+  const loadGroups = useCallback(async () => {
+    if (!user) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_group_members")
+        .select("group_id, spot_groups(id, creator_id, name, emoji, created_at)")
+        .eq("user_id", user.id)
+      if (data) {
+        setGroups(
+          data
+            .map((d: any) => d.spot_groups)
+            .filter(Boolean) as SpotGroup[]
+        )
+      }
+    } catch (e) {
+      console.error("loadGroups:", e)
+    }
+  }, [user])
+
   const markLikesSeen = useCallback(async () => {
     if (!user) return
     try {
@@ -710,7 +733,7 @@ export default function MapView() {
   // When user is available: run all user-specific fetches in parallel
   useEffect(() => {
     if (!user) return
-    Promise.all([fetchFollowing(), fetchUserProfile(), checkNewLikes(), checkIncomingRequests()])
+    Promise.all([fetchFollowing(), fetchUserProfile(), checkNewLikes(), checkIncomingRequests(), loadGroups()])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
@@ -872,12 +895,15 @@ export default function MapView() {
 
   const visibleSpots = useMemo(() => {
     if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
+    if (filter === "groups" && activeGroupId) {
+      return spots.filter((s) => s.visibility === "group" && s.group_id === activeGroupId)
+    }
     const friendSet = new Set(visibleFriendIds)
-    let base = spots.filter((s) => friendSet.has(s.user_id))
+    let base = spots.filter((s) => friendSet.has(s.user_id) && (s.visibility === "friends" || !s.visibility))
     if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
     if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
-  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds, friendCategoryFilter])
+  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds, friendCategoryFilter, activeGroupId])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -1127,6 +1153,7 @@ export default function MapView() {
   }[] = [
     { key: "mine", label: "Moi", icon: <User size={13} /> },
     { key: "friends", label: "Amis", icon: <Users size={13} /> },
+    { key: "groups", label: "Groupes", icon: <Layers size={13} /> },
   ]
 
   const fetchVisits = useCallback(async (spotId: string) => {
