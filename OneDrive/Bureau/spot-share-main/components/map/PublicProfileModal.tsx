@@ -44,30 +44,36 @@ export default function PublicProfileModal({
     if (!userId) return
     setLoading(true)
     try {
-      const { data: pData } = await supabaseRef.current
-        .from("profiles")
-        .select("username, avatar_url, last_active_at")
-        .eq("id", userId)
-        .single()
-      if (pData) setProfile(pData as typeof profile)
+      const [profileRes, spotsRes, followersRes] = await Promise.allSettled([
+        supabaseRef.current
+          .from("profiles")
+          .select("username, avatar_url, last_active_at")
+          .eq("id", userId)
+          .single(),
+        supabaseRef.current
+          .from("spots")
+          .select("id, title, category, address, image_url, lat, lng")
+          .eq("user_id", userId),
+        supabaseRef.current
+          .from("followers")
+          .select("*", { count: "exact", head: true })
+          .eq("following_id", userId),
+      ])
 
-      const { data: sData } = await supabaseRef.current
-        .from("spots")
-        .select("id, title, category, address, image_url, lat, lng")
-        .eq("user_id", userId)
-      if (sData) setSpots(sData as Spot[])
+      if (profileRes.status === "fulfilled" && profileRes.value.data)
+        setProfile(profileRes.value.data as typeof profile)
 
-      const { count } = await supabaseRef.current
-        .from("followers")
-        .select("*", { count: "exact", head: true })
-        .eq("following_id", userId)
-      setFollowers(count || 0)
+      const resolvedSpots =
+        spotsRes.status === "fulfilled" ? (spotsRes.value.data as Spot[] ?? []) : []
+      setSpots(resolvedSpots)
 
-      try {
-        const { data: spotIds } = await supabaseRef.current
-          .from("spots").select("id").eq("user_id", userId)
-        if (spotIds && spotIds.length > 0) {
-          const ids = spotIds.map((s: { id: string }) => s.id)
+      if (followersRes.status === "fulfilled")
+        setFollowers(followersRes.value.count ?? 0)
+
+      // Likes count needs spot IDs — only fetch if spots loaded
+      if (resolvedSpots.length > 0) {
+        try {
+          const ids = resolvedSpots.map(s => s.id)
           const { count: likesCount } = await supabaseRef.current
             .from("spot_reactions")
             .select("*", { count: "exact", head: true })
@@ -75,11 +81,9 @@ export default function PublicProfileModal({
             .eq("type", "love")
             .neq("user_id", userId)
           setTotalLikes(likesCount ?? 0)
-        }
-      } catch { /* */ }
-    } catch {
-      // ignore
-    } finally {
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ } finally {
       setLoading(false)
     }
   }, [userId])
