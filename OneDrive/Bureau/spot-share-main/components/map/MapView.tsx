@@ -1350,7 +1350,7 @@ export default function MapView() {
   })), [visibleSpots])
 
   const visibleSpotsMap = useMemo(
-    () => visibleSpots.reduce((m, s) => { m.set(s.id, s); return m }, new Map<string, Spot>()),
+    () => Object.fromEntries(visibleSpots.map(s => [s.id, s])) as Record<string, Spot>,
     [visibleSpots]
   )
 
@@ -1392,7 +1392,7 @@ export default function MapView() {
     }
 
     const spotId = cluster.properties.spotId
-    const spot = visibleSpotsMap.get(spotId)
+    const spot = visibleSpotsMap[spotId]
     if (!spot) return null
 
     const color = CATEGORY_COLORS[spot.category ?? "default"] ?? CATEGORY_COLORS.default
