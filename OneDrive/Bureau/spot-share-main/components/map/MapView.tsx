@@ -1350,7 +1350,7 @@ export default function MapView() {
   })), [visibleSpots])
 
   const visibleSpotsMap = useMemo(
-    () => new Map<string, Spot>(visibleSpots.map(s => [s.id, s] as [string, Spot])),
+    () => visibleSpots.reduce((m, s) => { m.set(s.id, s); return m }, new Map<string, Spot>()),
     [visibleSpots]
   )
 
