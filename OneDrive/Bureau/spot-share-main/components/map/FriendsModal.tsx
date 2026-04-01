@@ -177,7 +177,7 @@ interface FriendsModalProps {
   visibleFriendIds: string[]
   setVisibleFriendIds: (ids: string[] | ((prev: string[]) => string[])) => void
   onRefreshFollowing?: () => void
-  onRefreshGroups?: () => void
+  onGroupJoined?: (groupId: string) => void
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (spotId: string) => void
@@ -199,7 +199,7 @@ export default function FriendsModal({
   visibleFriendIds,
   setVisibleFriendIds,
   onRefreshFollowing,
-  onRefreshGroups,
+  onGroupJoined,
   onLocateFriend,
   onSelectUser,
   onSelectSpot,
@@ -533,15 +533,17 @@ export default function FriendsModal({
         supabaseRef.current.from("spot_group_members").upsert({ group_id: inv.group_id, user_id: currentUser.id }, { onConflict: "group_id,user_id" }),
       ])
       setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
-      onRefreshGroups?.()
-      toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`)
+      const groupId = inv.group_id
+      toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`, {
+        action: { label: "Voir les spots", onClick: () => onGroupJoined?.(groupId) },
+      })
     } catch (e) {
       console.error("acceptGroupInvitation:", e)
       toast.error("Impossible de rejoindre le groupe")
     } finally {
       setRespondingGroupInviteId(null)
     }
-  }, [currentUser, respondingGroupInviteId, onRefreshGroups])
+  }, [currentUser, respondingGroupInviteId, onGroupJoined])
 
   const declineGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
     if (respondingGroupInviteId) return
