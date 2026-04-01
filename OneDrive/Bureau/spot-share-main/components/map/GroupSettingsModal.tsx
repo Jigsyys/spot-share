@@ -207,12 +207,12 @@ export default function GroupSettingsModal({
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
         <motion.div
-          className="relative z-10 w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-900 border border-white/[0.07] overflow-hidden"
+          className="relative z-10 w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-zinc-900 border border-white/[0.07] overflow-hidden flex flex-col max-h-[85dvh]"
           initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
         >
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/[0.06] flex-shrink-0">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xl flex-shrink-0">
               {group.emoji}
             </div>
@@ -223,7 +223,7 @@ export default function GroupSettingsModal({
                     value={editEmoji}
                     onChange={e => setEditEmoji(e.target.value)}
                     onBlur={saveGroupInfo}
-                    className="w-9 text-center rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-base py-1 focus:outline-none focus:border-indigo-500"
+                    className="w-8 text-center rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-sm py-1 focus:outline-none focus:border-indigo-500"
                     maxLength={2}
                   />
                   <input
@@ -231,7 +231,7 @@ export default function GroupSettingsModal({
                     onChange={e => setEditName(e.target.value)}
                     onBlur={saveGroupInfo}
                     onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
-                    className="flex-1 min-w-0 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-[14px] font-bold px-2 py-1 focus:outline-none focus:border-indigo-500"
+                    className="flex-1 min-w-0 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-[13px] font-bold px-2 py-1 focus:outline-none focus:border-indigo-500"
                   />
                   {saving && <LoaderCircle size={12} className="animate-spin text-zinc-500 flex-shrink-0" />}
                 </div>
@@ -247,7 +247,7 @@ export default function GroupSettingsModal({
             </button>
           </div>
 
-          <div className="max-h-[70vh] overflow-y-auto">
+          <div className="overflow-y-auto pb-[env(safe-area-inset-bottom,1rem)]">
             {/* Inviter */}
             <div className="px-4 pt-3">
               <button
