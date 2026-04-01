@@ -1225,6 +1225,7 @@ export async function GET(request: Request) {
       image_url:            result.photos[0] ?? null,
       coordinates:          result.coordonnees,
       weekday_descriptions: result.horaires.length > 0 ? result.horaires : null,
+      price_range:          result.price_range ?? null,
     })
   } catch (e) {
     console.error("[Pipeline error]:", e)

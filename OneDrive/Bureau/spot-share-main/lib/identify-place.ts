@@ -32,6 +32,7 @@ export interface IdentifiedPlace {
   coordonnees: { lat: number; lng: number }
   photos: string[]
   horaires: string[]
+  price_range: string | null
 }
 
 export interface IdentifyPlaceError {
@@ -479,5 +480,6 @@ export async function identifyPlace(meta: VideoMetadata): Promise<IdentifyPlaceR
     },
     photos: googlePhotosUrls,
     horaires,
+    price_range: best.priceLevel ? (PRICE_LABELS[best.priceLevel] ?? null) : null,
   }
 }

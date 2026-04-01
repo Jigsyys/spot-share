@@ -153,7 +153,7 @@ export default async function SpotPage({ params }: Props) {
         {/* CTA */}
         <div className="space-y-3 pt-2">
           <a
-            href="/"
+            href={`/?spot=${id}`}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-base font-bold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500"
           >
             📍 Ouvrir dans FriendSpot

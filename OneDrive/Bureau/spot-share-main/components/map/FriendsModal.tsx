@@ -399,7 +399,7 @@ export default function FriendsModal({
       if (accepted) {
         for (const inv of accepted as any[]) {
           const o = inv.outings as Outing
-          if (o && !all.find(a => a.id === o.id)) all.push(o)
+          if (o && o.status !== "cancelled" && !all.find(a => a.id === o.id)) all.push(o)
         }
       }
 
@@ -478,14 +478,16 @@ export default function FriendsModal({
         }
       }
 
-      const enriched = data.map((d: any) => ({
-        ...d,
-        outings: d.outings ? {
-          ...d.outings,
-          profiles: profilesMap[d.outings.creator_id] ?? null,
-          allInvitations: allInvitesMap[d.outing_id] ?? [],
-        } : null,
-      }))
+      const enriched = data
+        .filter((d: any) => d.outings?.status !== "cancelled")
+        .map((d: any) => ({
+          ...d,
+          outings: d.outings ? {
+            ...d.outings,
+            profiles: profilesMap[d.outings.creator_id] ?? null,
+            allInvitations: allInvitesMap[d.outing_id] ?? [],
+          } : null,
+        }))
       setOutingInvitations(enriched as unknown as OutingInvitationFull[])
     } catch (e) {
       console.error("loadOutingInvitations:", e)
@@ -2912,6 +2914,7 @@ function OutingInvitationCard({
   onSelectSpot?: (id: string) => void
 }) {
   const [loading, setLoading] = useState(false)
+  const [showAttendees, setShowAttendees] = useState(false)
 
   const outing = invitation.outings
   const creator = outing?.profiles
@@ -3002,74 +3005,108 @@ function OutingInvitationCard({
         )}
 
         {/* Participants invités */}
-        {allInvitations.length > 0 && (
-          <div className="space-y-2">
-            {/* Résumé avatars + compteur (style screenshot) */}
-            <div className="flex items-center gap-2">
-              <div className="flex -space-x-2">
-                {allInvitations.slice(0, 4).map((inv, i) => (
-                  <div key={inv.id + i} className={`h-8 w-8 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${
-                    inv.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" :
-                    inv.status === "declined" ? "bg-red-300 dark:bg-red-800" :
-                    "bg-gray-300 dark:bg-zinc-600"
-                  }`}>
-                    {inv.profiles?.avatar_url
-                      // eslint-disable-next-line @next/next/no-img-element
-                      ? <img src={inv.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${inv.status === "pending" ? "opacity-50" : ""}`} />
-                      : (inv.profiles?.username?.[0]?.toUpperCase() ?? "?")}
-                  </div>
-                ))}
-                {allInvitations.length > 4 && (
-                  <div className="h-8 w-8 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-400">
-                    +{allInvitations.length - 4}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-1 text-[12px]">
-                {(() => {
-                  const acc = allInvitations.filter(i => i.status === "accepted").length
-                  const pend = allInvitations.filter(i => i.status === "pending").length
-                  const dec = allInvitations.filter(i => i.status === "declined").length
-                  return <>
-                    {acc > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{acc} {acc > 1 ? "vont" : "va"}</span>}
-                    {pend > 0 && <span className="text-gray-400 dark:text-zinc-500">· {pend} en attente</span>}
-                    {dec > 0 && <span className="text-red-400">· {dec} décliné</span>}
-                  </>
-                })()}
-              </div>
-            </div>
-            {/* Détail par personne */}
-            <div className="space-y-1">
-              {allInvitations.map(inv => {
-                const cfg = statusConfig[inv.status] ?? statusConfig.pending
-                return (
-                  <div key={inv.id} className="flex items-center gap-2">
-                    <div className={`h-6 w-6 flex-shrink-0 rounded-full overflow-hidden flex items-center justify-center text-[9px] font-bold text-white ${
-                      inv.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" :
-                      inv.status === "declined" ? "bg-red-300 dark:bg-red-800" :
-                      "bg-gray-300 dark:bg-zinc-600"
-                    }`}>
-                      {inv.profiles?.avatar_url
+        {(creator || allInvitations.length > 0) && (() => {
+          const accepted = allInvitations.filter(i => i.status === "accepted")
+          const pending = allInvitations.filter(i => i.status === "pending")
+          const declined = allInvitations.filter(i => i.status === "declined")
+          const creatorEntry = { invitee_id: outing?.creator_id ?? "", status: "accepted" as const, id: "creator", profiles: creator }
+          const allGoing = [creatorEntry, ...accepted]
+          const totalShown = Math.min(allGoing.length, 4) + Math.min(pending.length, 3)
+          const totalAll = allGoing.length + pending.length
+          return (
+            <div>
+              <button
+                onClick={() => setShowAttendees(v => !v)}
+                className="flex items-center gap-2 w-full text-left"
+              >
+                <div className="flex -space-x-2">
+                  {allGoing.slice(0, 4).map((p, i) => (
+                    <div key={p.invitee_id + i} className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 overflow-hidden flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                      {p.profiles?.avatar_url
                         // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={inv.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${inv.status === "pending" ? "opacity-50" : ""}`} />
-                        : (inv.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                        ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                        : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
                     </div>
-                    <span className={`flex-1 text-[11px] truncate ${inv.status === "declined" ? "line-through text-gray-400 dark:text-zinc-600" : "text-gray-700 dark:text-zinc-300"}`}>
-                      @{inv.profiles?.username ?? "?"}
-                      {inv.invitee_id === invitation.invitee_id && (
-                        <span className="ml-1 text-[9px] text-indigo-500 font-semibold">vous</span>
-                      )}
-                    </span>
-                    <span className={`flex items-center gap-1 text-[10px] font-semibold ${cfg.color}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-                      {cfg.label}
-                    </span>
-                  </div>
-                )
-              })}
+                  ))}
+                  {pending.slice(0, 3).map((p, i) => (
+                    <div key={"pending-" + p.invitee_id + i} className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-300 dark:bg-zinc-600 overflow-hidden flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-300 flex-shrink-0 opacity-60">
+                      {p.profiles?.avatar_url
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover opacity-60" />
+                        : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                    </div>
+                  ))}
+                  {totalAll > totalShown && (
+                    <div className="h-7 w-7 rounded-full border-2 border-white dark:border-zinc-900 bg-gray-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-gray-500 dark:text-zinc-400">
+                      +{totalAll - totalShown}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 text-[11px]">
+                  <span className="font-semibold text-green-600 dark:text-green-400">{allGoing.length} {allGoing.length > 1 ? "vont" : "va"}</span>
+                  {pending.length > 0 && <span className="text-gray-400 dark:text-zinc-600">· {pending.length} en attente</span>}
+                  {declined.length > 0 && <span className="text-red-400 dark:text-red-500">· {declined.length} décliné</span>}
+                  <ChevronDown size={10} className={`text-gray-400 transition-transform ${showAttendees ? "rotate-180" : ""}`} />
+                </div>
+              </button>
+
+              {showAttendees && (
+                <div className="mt-2 rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-50 dark:bg-zinc-800/60 p-2 space-y-1.5">
+                  {allGoing.map((p, i) => (
+                    <div key={p.invitee_id + i} className="flex items-center gap-2">
+                      <div className="h-6 w-6 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 overflow-hidden flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                        {p.profiles?.avatar_url
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                          : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                      </div>
+                      <span className="text-[11px] font-medium text-gray-700 dark:text-zinc-300 truncate flex-1">
+                        {p.profiles?.username ?? "Utilisateur"}
+                        {p.invitee_id === outing?.creator_id && (
+                          <span className="ml-1 text-[9px] text-indigo-500 font-semibold">organisateur</span>
+                        )}
+                        {p.invitee_id === invitation.invitee_id && (
+                          <span className="ml-1 text-[9px] text-indigo-500 font-semibold">vous</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  {pending.map(p => (
+                    <div key={p.invitee_id} className="flex items-center gap-2 opacity-50">
+                      <div className="h-6 w-6 rounded-full bg-gray-300 dark:bg-zinc-700 overflow-hidden flex items-center justify-center text-[9px] font-bold text-gray-500 flex-shrink-0">
+                        {p.profiles?.avatar_url
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                          : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                      </div>
+                      <span className="text-[11px] text-gray-400 dark:text-zinc-500 truncate flex-1">
+                        {p.profiles?.username ?? "Utilisateur"}
+                        {p.invitee_id === invitation.invitee_id && (
+                          <span className="ml-1 text-[9px] text-indigo-500 font-semibold">vous</span>
+                        )}
+                        <span className="text-[9px]"> · en attente</span>
+                      </span>
+                    </div>
+                  ))}
+                  {declined.map(p => (
+                    <div key={p.invitee_id} className="flex items-center gap-2 opacity-40">
+                      <div className="h-6 w-6 rounded-full bg-red-200 dark:bg-red-900/30 overflow-hidden flex items-center justify-center text-[9px] font-bold text-red-400 flex-shrink-0">
+                        {p.profiles?.avatar_url
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+                          : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
+                      </div>
+                      <span className="text-[11px] text-gray-400 dark:text-zinc-500 truncate line-through flex-1">
+                        {p.profiles?.username ?? "Utilisateur"}
+                      </span>
+                      <span className="text-[9px] text-red-400">a décliné</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Participer / Décliner */}
         <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-white/[0.06]">

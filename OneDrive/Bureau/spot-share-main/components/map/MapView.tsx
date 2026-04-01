@@ -328,7 +328,7 @@ export default function MapView() {
   }) => setConfirmDialog({ open: true, ...opts }), [])
   const [followingIds, setFollowingIds] = useState<string[]>([])
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
-  const visibleFriendIdsRef = useRef<string[]>([])
+  const visibleFriendIdsRef = useRef<Set<string>>(new Set())
   // In-memory cache: avoids re-fetching reactions/visits for already-opened spots
   type SpotDataCache = globalThis.Map<string, {
     reactions: { user_id: string; type: "love" | "save"; username: string | null; avatar_url: string | null }[]
@@ -734,7 +734,7 @@ export default function MapView() {
   }, [user])
 
   // Garde le ref à jour pour les closures realtime
-  useEffect(() => { visibleFriendIdsRef.current = visibleFriendIds }, [visibleFriendIds])
+  useEffect(() => { visibleFriendIdsRef.current = new Set(visibleFriendIds) }, [visibleFriendIds])
 
   // Bouton retour navigateur → ferme le modal du dessus
   const closeTopModalRef = useRef<() => void>(() => {})
@@ -885,7 +885,7 @@ export default function MapView() {
         async (payload) => {
           const raw = payload.new as Spot
           if (raw.user_id === user.id) return
-          if (!visibleFriendIdsRef.current.includes(raw.user_id)) return
+          if (!visibleFriendIdsRef.current.has(raw.user_id)) return
           const { data } = await supabaseRef.current
             .from("spots")
             .select("*, profiles(id, username, avatar_url, created_at)")
@@ -915,17 +915,19 @@ export default function MapView() {
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [user, checkIncomingRequests])
 
+  const visibleFriendSet = useMemo(() => new Set(visibleFriendIds), [visibleFriendIds])
+
   const friendProfiles = useMemo(() => {
     const seen = new Set<string>()
     const result: { id: string; username: string | null; avatar_url: string | null }[] = []
     for (const s of spots) {
-      if (s.user_id !== user?.id && visibleFriendIds.includes(s.user_id) && !seen.has(s.user_id)) {
+      if (s.user_id !== user?.id && visibleFriendSet.has(s.user_id) && !seen.has(s.user_id)) {
         seen.add(s.user_id)
         result.push({ id: s.user_id, username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null })
       }
     }
     return result
-  }, [spots, user?.id, visibleFriendIds])
+  }, [spots, user?.id, visibleFriendSet])
 
   const loveReactions = useMemo(() => reactions.filter(r => r.type === "love"), [reactions])
 
@@ -934,12 +936,11 @@ export default function MapView() {
     if (filter === "groups" && activeGroupId) {
       return spots.filter((s) => s.visibility === "group" && s.group_id === activeGroupId)
     }
-    const friendSet = new Set(visibleFriendIds)
-    let base = spots.filter((s) => friendSet.has(s.user_id) && (s.visibility === "friends" || !s.visibility))
+    let base = spots.filter((s) => visibleFriendSet.has(s.user_id) && (s.visibility === "friends" || !s.visibility))
     if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
     if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
-  }, [spots, filter, user?.id, visibleFriendIds, friendFilterIds, friendCategoryFilter, activeGroupId])
+  }, [spots, filter, user?.id, visibleFriendSet, friendFilterIds, friendCategoryFilter, activeGroupId])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -1348,6 +1349,8 @@ export default function MapView() {
     geometry: { type: "Point" as const, coordinates: [spot.lng, spot.lat] },
   })), [visibleSpots])
 
+  const visibleSpotsMap = useMemo(() => new Map(visibleSpots.map(s => [s.id, s])), [visibleSpots])
+
   const { clusters, supercluster } = useSupercluster({
     points,
     bounds,
@@ -1386,7 +1389,7 @@ export default function MapView() {
     }
 
     const spotId = cluster.properties.spotId
-    const spot = visibleSpots.find((s) => s.id === spotId)
+    const spot = visibleSpotsMap.get(spotId)
     if (!spot) return null
 
     const color = CATEGORY_COLORS[spot.category ?? "default"] ?? CATEGORY_COLORS.default
@@ -1457,7 +1460,7 @@ export default function MapView() {
         </div>
       </MapMarker>
     )
-  }), [clusters, supercluster, visibleSpots, zoom, user?.id])
+  }), [clusters, supercluster, visibleSpotsMap, zoom, user?.id])
 
   if (authLoading) {
     return (
