@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import type { SpotGroupInvitation } from "@/lib/types"
 import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
@@ -175,6 +176,7 @@ interface FriendsModalProps {
   visibleFriendIds: string[]
   setVisibleFriendIds: (ids: string[] | ((prev: string[]) => string[])) => void
   onRefreshFollowing?: () => void
+  onRefreshGroups?: () => void
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (spotId: string) => void
@@ -196,6 +198,7 @@ export default function FriendsModal({
   visibleFriendIds,
   setVisibleFriendIds,
   onRefreshFollowing,
+  onRefreshGroups,
   onLocateFriend,
   onSelectUser,
   onSelectSpot,
@@ -225,6 +228,8 @@ export default function FriendsModal({
   const [suggestions, setSuggestions] = useState<SuggestionProfile[]>([])
   const [outings, setOutings] = useState<Outing[]>([])
   const [outingInvitations, setOutingInvitations] = useState<OutingInvitationFull[]>([])
+  type GroupInvitationEnriched = SpotGroupInvitation & { inviterProfile: { username: string | null; avatar_url: string | null } | null }
+  const [groupInvitations, setGroupInvitations] = useState<GroupInvitationEnriched[]>([])
 
   // ── Loading state ───────────────────────────────────────────
   const [searchLoading, setSearchLoading] = useState(false)
@@ -494,6 +499,55 @@ export default function FriendsModal({
     }
   }, [currentUser])
 
+  const loadGroupInvitations = useCallback(async () => {
+    if (!currentUser) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_group_invitations")
+        .select("*, spot_groups(*)")
+        .eq("invitee_id", currentUser.id)
+        .eq("status", "pending")
+      if (!data) return
+
+      const inviterIds = [...new Set(data.map((d: any) => d.inviter_id).filter(Boolean))]
+      let profilesMap: Record<string, { username: string | null; avatar_url: string | null }> = {}
+      if (inviterIds.length > 0) {
+        const { data: profiles } = await supabaseRef.current
+          .from("profiles").select("id, username, avatar_url").in("id", inviterIds)
+        profilesMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
+      }
+
+      setGroupInvitations(data.map((d: any) => ({ ...d, inviterProfile: profilesMap[d.inviter_id] ?? null })))
+    } catch (e) {
+      console.error("loadGroupInvitations:", e)
+    }
+  }, [currentUser])
+
+  const acceptGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
+    if (!currentUser) return
+    try {
+      await Promise.all([
+        supabaseRef.current.from("spot_group_invitations").update({ status: "accepted" }).eq("id", inv.id),
+        supabaseRef.current.from("spot_group_members").insert({ group_id: inv.group_id, user_id: currentUser.id }),
+      ])
+      setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
+      onRefreshGroups?.()
+      toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`)
+    } catch (e) {
+      console.error("acceptGroupInvitation:", e)
+      toast.error("Impossible de rejoindre le groupe")
+    }
+  }, [currentUser, onRefreshGroups])
+
+  const declineGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
+    try {
+      await supabaseRef.current.from("spot_group_invitations").update({ status: "declined" }).eq("id", inv.id)
+      setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
+    } catch (e) {
+      console.error("declineGroupInvitation:", e)
+    }
+  }, [])
+
   // ─── Location search ────────────────────────────────────────
 
   const searchLocations = useCallback(async (q: string) => {
@@ -673,6 +727,7 @@ export default function FriendsModal({
     loadSuggestions()
     loadOutings()
     loadOutingInvitations()
+    loadGroupInvitations()
 
     const channel = supabaseRef.current
       .channel(`friends-modal-${currentUser.id}`)
@@ -699,6 +754,10 @@ export default function FriendsModal({
         loadOutingInvitations()
         loadOutings()
       })
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "spot_group_invitations",
+        filter: `invitee_id=eq.${currentUser.id}`,
+      }, () => loadGroupInvitations())
       // Sortie annulée ou modifiée par l'organisateur
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "outings",
@@ -717,7 +776,7 @@ export default function FriendsModal({
   }, [
     isOpen, currentUser,
     loadFollowing, loadSentRequests, loadIncomingRequests,
-    loadSuggestions, loadOutings, loadOutingInvitations, onRefreshFollowing,
+    loadSuggestions, loadOutings, loadOutingInvitations, loadGroupInvitations, onRefreshFollowing,
   ])
 
   // ─── Search ──────────────────────────────────────────────────
@@ -1537,7 +1596,7 @@ export default function FriendsModal({
                   <div className="pb-2 -mx-1">
 
                     {/* Empty state */}
-                    {incomingRequests.length === 0 && outingInvitations.length === 0 && upcomingOutings.length === 0 && pendingSent.length === 0 && (
+                    {incomingRequests.length === 0 && outingInvitations.length === 0 && groupInvitations.length === 0 && upcomingOutings.length === 0 && pendingSent.length === 0 && (
                       <div className="flex flex-col items-center gap-4 py-8 px-4">
                         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10">
                           <Bell size={24} className="text-indigo-400" />
@@ -1577,7 +1636,47 @@ export default function FriendsModal({
                       </div>
                     )}
 
-                    {/* 2. Sorties proposées (cartes visuelles) */}
+                    {/* 2. Invitations de groupe */}
+                    {groupInvitations.length > 0 && (
+                      <div>
+                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Invitations de groupe · {groupInvitations.length}
+                        </p>
+                        <div className="space-y-1.5 px-1">
+                          {groupInvitations.map(inv => (
+                            <div key={inv.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 px-3 py-2.5">
+                              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-xl">
+                                {inv.spot_groups?.emoji ?? "🏠"}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-gray-800 dark:text-zinc-100">
+                                  {inv.spot_groups?.name ?? "Groupe"}
+                                </p>
+                                <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">
+                                  Invité par @{inv.inviterProfile?.username ?? "quelqu'un"}
+                                </p>
+                              </div>
+                              <div className="flex gap-1.5 flex-shrink-0">
+                                <button
+                                  onClick={() => acceptGroupInvitation(inv)}
+                                  className="rounded-xl bg-indigo-500 px-3 py-1.5 text-[12px] font-semibold text-white transition active:scale-95 hover:bg-indigo-400"
+                                >
+                                  Rejoindre
+                                </button>
+                                <button
+                                  onClick={() => declineGroupInvitation(inv)}
+                                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-[12px] font-medium text-gray-500 dark:text-zinc-400 transition hover:bg-gray-50 dark:hover:bg-white/5 active:scale-95"
+                                >
+                                  Décliner
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Sorties proposées (cartes visuelles) */}
                     {outingInvitations.length > 0 && (
                       <div>
                         <p className="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">

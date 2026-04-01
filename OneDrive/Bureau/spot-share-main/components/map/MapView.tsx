@@ -726,8 +726,15 @@ export default function MapView() {
         .eq("status", "pending")
       if (seenAt) outingQuery = outingQuery.gt("created_at", seenAt) as typeof outingQuery
 
-      const [{ count: friendCount }, { count: outingCount }] = await Promise.all([friendQuery, outingQuery])
-      setIncomingCount((friendCount || 0) + (outingCount || 0))
+      let groupQuery = supabaseRef.current
+        .from("spot_group_invitations")
+        .select("*", { count: "exact", head: true })
+        .eq("invitee_id", user.id)
+        .eq("status", "pending")
+      if (seenAt) groupQuery = groupQuery.gt("created_at", seenAt) as typeof groupQuery
+
+      const [{ count: friendCount }, { count: outingCount }, { count: groupCount }] = await Promise.all([friendQuery, outingQuery, groupQuery])
+      setIncomingCount((friendCount || 0) + (outingCount || 0) + (groupCount || 0))
     } catch {
       /* ignore */
     }
@@ -2569,6 +2576,7 @@ export default function MapView() {
           setVisibleFriendIds((prev) => [...new Set([...prev, ...newIds])])
         }}
         onRefreshFollowing={fetchFollowing}
+        onRefreshGroups={loadGroups}
         visibleFriendIds={visibleFriendIds}
         setVisibleFriendIds={setVisibleFriendIds}
         onLocateFriend={(lat, lng) => {
