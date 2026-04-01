@@ -38,6 +38,9 @@ export default function GroupSettingsModal({
   const [invitingId, setInvitingId] = useState<string | null>(null)
   const [showInvitePicker, setShowInvitePicker] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [editName, setEditName] = useState(group.name)
+  const [editEmoji, setEditEmoji] = useState(group.emoji)
+  const [saving, setSaving] = useState(false)
 
   const isCreator = group.creator_id === currentUserId
 
@@ -141,6 +144,25 @@ export default function GroupSettingsModal({
     }
   }
 
+  const saveGroupInfo = async () => {
+    if (!isCreator) return
+    const name = editName.trim()
+    if (!name || (name === group.name && editEmoji === group.emoji)) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.current
+        .from("spot_groups")
+        .update({ name, emoji: editEmoji })
+        .eq("id", group.id)
+      if (error) throw error
+      onGroupUpdated({ ...group, name, emoji: editEmoji })
+      toast.success("Groupe mis à jour")
+    } catch {
+      toast.error("Impossible de mettre à jour le groupe")
+    }
+    setSaving(false)
+  }
+
   const alreadyInGroup = new Set([
     ...members.map(m => m.user_id),
     ...pending.map(p => p.invitee_id),
@@ -165,8 +187,30 @@ export default function GroupSettingsModal({
               {group.emoji}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[14px] font-bold text-white truncate">{group.name}</p>
-              <p className="text-[11px] text-zinc-500">{members.length} membre{members.length > 1 ? "s" : ""}</p>
+              {isCreator ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={editEmoji}
+                    onChange={e => setEditEmoji(e.target.value)}
+                    onBlur={saveGroupInfo}
+                    className="w-9 text-center rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-base py-1 focus:outline-none focus:border-indigo-500"
+                    maxLength={2}
+                  />
+                  <input
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    onBlur={saveGroupInfo}
+                    onKeyDown={e => e.key === "Enter" && e.currentTarget.blur()}
+                    className="flex-1 min-w-0 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-[14px] font-bold px-2 py-1 focus:outline-none focus:border-indigo-500"
+                  />
+                  {saving && <LoaderCircle size={12} className="animate-spin text-zinc-500 flex-shrink-0" />}
+                </div>
+              ) : (
+                <>
+                  <p className="text-[14px] font-bold text-white truncate">{group.name}</p>
+                  <p className="text-[11px] text-zinc-500">{members.length} membre{members.length > 1 ? "s" : ""}</p>
+                </>
+              )}
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-zinc-400 hover:text-white">
               <X size={15} />
