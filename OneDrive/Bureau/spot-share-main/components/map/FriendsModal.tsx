@@ -28,7 +28,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
-import type { SpotGroupInvitation } from "@/lib/types"
+
 import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
@@ -154,6 +154,7 @@ interface OutingInvitationFull {
 }
 
 type Tab = "amis" | "classement" | "invitations"
+type GroupInvitationEnriched = import("@/lib/types").SpotGroupInvitation & { inviterProfile: { username: string | null; avatar_url: string | null } | null }
 
 type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
 
@@ -228,12 +229,12 @@ export default function FriendsModal({
   const [suggestions, setSuggestions] = useState<SuggestionProfile[]>([])
   const [outings, setOutings] = useState<Outing[]>([])
   const [outingInvitations, setOutingInvitations] = useState<OutingInvitationFull[]>([])
-  type GroupInvitationEnriched = SpotGroupInvitation & { inviterProfile: { username: string | null; avatar_url: string | null } | null }
   const [groupInvitations, setGroupInvitations] = useState<GroupInvitationEnriched[]>([])
 
   // ── Loading state ───────────────────────────────────────────
   const [searchLoading, setSearchLoading] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [respondingGroupInviteId, setRespondingGroupInviteId] = useState<string | null>(null)
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const [respondingId, setRespondingId] = useState<string | null>(null)
 
@@ -524,11 +525,12 @@ export default function FriendsModal({
   }, [currentUser])
 
   const acceptGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
-    if (!currentUser) return
+    if (!currentUser || respondingGroupInviteId) return
+    setRespondingGroupInviteId(inv.id)
     try {
       await Promise.all([
         supabaseRef.current.from("spot_group_invitations").update({ status: "accepted" }).eq("id", inv.id),
-        supabaseRef.current.from("spot_group_members").insert({ group_id: inv.group_id, user_id: currentUser.id }),
+        supabaseRef.current.from("spot_group_members").upsert({ group_id: inv.group_id, user_id: currentUser.id }, { onConflict: "group_id,user_id" }),
       ])
       setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
       onRefreshGroups?.()
@@ -536,17 +538,23 @@ export default function FriendsModal({
     } catch (e) {
       console.error("acceptGroupInvitation:", e)
       toast.error("Impossible de rejoindre le groupe")
+    } finally {
+      setRespondingGroupInviteId(null)
     }
-  }, [currentUser, onRefreshGroups])
+  }, [currentUser, respondingGroupInviteId, onRefreshGroups])
 
   const declineGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
+    if (respondingGroupInviteId) return
+    setRespondingGroupInviteId(inv.id)
     try {
       await supabaseRef.current.from("spot_group_invitations").update({ status: "declined" }).eq("id", inv.id)
       setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
     } catch (e) {
       console.error("declineGroupInvitation:", e)
+    } finally {
+      setRespondingGroupInviteId(null)
     }
-  }, [])
+  }, [respondingGroupInviteId])
 
   // ─── Location search ────────────────────────────────────────
 
@@ -1659,13 +1667,15 @@ export default function FriendsModal({
                               <div className="flex gap-1.5 flex-shrink-0">
                                 <button
                                   onClick={() => acceptGroupInvitation(inv)}
-                                  className="rounded-xl bg-indigo-500 px-3 py-1.5 text-[12px] font-semibold text-white transition active:scale-95 hover:bg-indigo-400"
+                                  disabled={respondingGroupInviteId === inv.id}
+                                  className="rounded-xl bg-indigo-500 px-3 py-1.5 text-[12px] font-semibold text-white transition active:scale-95 hover:bg-indigo-400 disabled:opacity-50 disabled:pointer-events-none"
                                 >
-                                  Rejoindre
+                                  {respondingGroupInviteId === inv.id ? "…" : "Rejoindre"}
                                 </button>
                                 <button
                                   onClick={() => declineGroupInvitation(inv)}
-                                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-[12px] font-medium text-gray-500 dark:text-zinc-400 transition hover:bg-gray-50 dark:hover:bg-white/5 active:scale-95"
+                                  disabled={respondingGroupInviteId === inv.id}
+                                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-[12px] font-medium text-gray-500 dark:text-zinc-400 transition hover:bg-gray-50 dark:hover:bg-white/5 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
                                 >
                                   Décliner
                                 </button>
