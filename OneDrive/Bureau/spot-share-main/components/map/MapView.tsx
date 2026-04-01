@@ -1349,7 +1349,10 @@ export default function MapView() {
     geometry: { type: "Point" as const, coordinates: [spot.lng, spot.lat] },
   })), [visibleSpots])
 
-  const visibleSpotsMap = useMemo(() => new Map(visibleSpots.map(s => [s.id, s])), [visibleSpots])
+  const visibleSpotsMap = useMemo(
+    () => new Map<string, Spot>(visibleSpots.map(s => [s.id, s] as [string, Spot])),
+    [visibleSpots]
+  )
 
   const { clusters, supercluster } = useSupercluster({
     points,
