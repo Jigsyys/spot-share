@@ -286,6 +286,12 @@ export default function MapView() {
   const [filter, setFilter] = useState<FilterMode>("friends")
   const [groups, setGroups] = useState<SpotGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [showGroupsDropdown, setShowGroupsDropdown] = useState(false)
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState("")
+  const [newGroupEmoji, setNewGroupEmoji] = useState("🗂️")
+  const [creatingGroup, setCreatingGroup] = useState(false)
+  const [selectedGroupForSettings, setSelectedGroupForSettings] = useState<SpotGroup | null>(null)
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
   const [friendCategoryFilter, setFriendCategoryFilter] = useState<Set<string>>(new Set())
   const [showFriendFilter, setShowFriendFilter] = useState(false)
@@ -658,6 +664,31 @@ export default function MapView() {
       console.error("loadGroups:", e)
     }
   }, [user])
+
+  const handleCreateGroup = async () => {
+    if (!user || !newGroupName.trim()) return
+    setCreatingGroup(true)
+    try {
+      const { data: group, error } = await supabaseRef.current
+        .from("spot_groups")
+        .insert({ creator_id: user.id, name: newGroupName.trim(), emoji: newGroupEmoji })
+        .select()
+        .single()
+      if (error) throw error
+      // Ajouter le créateur comme membre
+      await supabaseRef.current
+        .from("spot_group_members")
+        .insert({ group_id: group.id, user_id: user.id })
+      setGroups(prev => [...prev, group as SpotGroup])
+      setNewGroupName("")
+      setNewGroupEmoji("🗂️")
+      setShowCreateGroup(false)
+      toast.success(`Groupe "${group.name}" créé !`)
+    } catch (e) {
+      toast.error("Erreur lors de la création du groupe")
+    }
+    setCreatingGroup(false)
+  }
 
   const markLikesSeen = useCallback(async () => {
     if (!user) return
@@ -1588,27 +1619,137 @@ export default function MapView() {
 
       <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-2">
+          <div className="relative flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
               {filterButtons.map(({ key, label, icon }) => (
                 <motion.button
                   key={key}
                   onClick={() => {
-                    setFilter(key)
-                    if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
+                    if (key === "groups") {
+                      setShowGroupsDropdown(v => !v)
+                    } else {
+                      setFilter(key)
+                      setActiveGroupId(null)
+                      setShowGroupsDropdown(false)
+                      if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
+                    }
                   }}
                   className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
-                    filter === key
+                    "relative flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
+                    (filter === key || (key === "groups" && showGroupsDropdown))
                       ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
                       : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
                   )}
                   whileTap={{ scale: 0.95 }}
                 >
                   {icon} {label}
+                  {key === "groups" && activeGroupId && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-indigo-300 border border-indigo-500" />
+                  )}
                 </motion.button>
               ))}
             </div>
+
+            {/* Overlay to close dropdown */}
+            {showGroupsDropdown && (
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowGroupsDropdown(false)}
+              />
+            )}
+
+            {/* Groups dropdown */}
+            {showGroupsDropdown && (
+              <div
+                className="absolute top-full mt-2 left-0 z-50 w-64 rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-xl overflow-hidden"
+                onPointerDown={e => e.stopPropagation()}
+              >
+                {groups.map(group => (
+                  <div
+                    key={group.id}
+                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] cursor-pointer border-b border-white/[0.05]"
+                    onClick={() => {
+                      setActiveGroupId(activeGroupId === group.id ? null : group.id)
+                      setFilter("groups")
+                      setShowGroupsDropdown(false)
+                    }}
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-base flex-shrink-0">
+                      {group.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-bold text-white truncate">{group.name}</p>
+                    </div>
+                    {activeGroupId === group.id && (
+                      <div className="w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center">
+                        <span className="text-white text-[9px] font-bold">✓</span>
+                      </div>
+                    )}
+                    <button
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => {
+                        e.stopPropagation()
+                        setSelectedGroupForSettings(group)
+                        setShowGroupsDropdown(false)
+                      }}
+                      className="w-7 h-7 rounded-lg bg-white/[0.05] flex items-center justify-center text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+                    >
+                      <Settings size={12} />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Créer un groupe */}
+                {!showCreateGroup ? (
+                  <button
+                    onClick={() => setShowCreateGroup(true)}
+                    className="flex items-center gap-3 px-3 py-2.5 w-full hover:bg-white/[0.04] transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-xl border-2 border-dashed border-indigo-500/40 flex items-center justify-center text-indigo-400 text-lg flex-shrink-0">
+                      +
+                    </div>
+                    <div>
+                      <p className="text-[12px] font-semibold text-indigo-400">Créer un groupe</p>
+                      <p className="text-[10px] text-zinc-600">Inviter des amis, partager des spots</p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="px-3 py-2.5 space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={newGroupEmoji}
+                        onChange={e => setNewGroupEmoji(e.target.value)}
+                        className="w-10 text-center rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-sm py-1.5"
+                        maxLength={2}
+                      />
+                      <input
+                        autoFocus
+                        value={newGroupName}
+                        onChange={e => setNewGroupName(e.target.value)}
+                        placeholder="Nom du groupe..."
+                        className="flex-1 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white text-[12px] px-2.5 py-1.5 placeholder:text-zinc-600"
+                        onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowCreateGroup(false)}
+                        className="flex-1 rounded-lg bg-white/[0.05] py-1.5 text-[11px] font-semibold text-zinc-500"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        onClick={handleCreateGroup}
+                        disabled={!newGroupName.trim() || creatingGroup}
+                        className="flex-1 rounded-lg bg-indigo-500 py-1.5 text-[11px] font-bold text-white disabled:opacity-50"
+                      >
+                        {creatingGroup ? "..." : "Créer"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Bouton filtre amis — petit, discret, visible seulement en mode Amis */}
             {filter === "friends" && friendProfiles.length > 0 && (
