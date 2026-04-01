@@ -1708,6 +1708,29 @@ export default function MapView() {
                 className="absolute top-full mt-2 left-0 z-50 w-64 rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-xl overflow-hidden"
                 onPointerDown={e => e.stopPropagation()}
               >
+                {/* Entrée "Amis" — groupe par défaut */}
+                <div
+                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] cursor-pointer border-b border-white/[0.05]"
+                  onClick={() => {
+                    setFilter("friends")
+                    setActiveGroupId(null)
+                    setShowGroupsDropdown(false)
+                  }}
+                >
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                    <Users size={16} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-bold text-white truncate">Amis</p>
+                    <p className="text-[10px] text-zinc-500">Tous tes amis</p>
+                  </div>
+                  {filter === "friends" && !activeGroupId && (
+                    <div className="w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center">
+                      <span className="text-white text-[9px] font-bold">✓</span>
+                    </div>
+                  )}
+                </div>
+
                 {groups.map(group => (
                   <div
                     key={group.id}
@@ -1797,7 +1820,7 @@ export default function MapView() {
             )}
 
             {/* Bouton filtre amis — petit, discret, visible seulement en mode Amis */}
-            {filter === "friends" && friendProfiles.length > 0 && (
+            {(filter === "friends" || filter === "groups") && friendProfiles.length > 0 && (
               <div className="relative">
                 <button
                   onClick={() => setShowFriendFilter(v => !v)}
@@ -1826,64 +1849,68 @@ export default function MapView() {
                         transition={{ duration: 0.15 }}
                         className="fixed left-1/2 -translate-x-1/2 z-50 w-[min(17rem,88vw)] rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-2xl p-4" style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
                       >
-                        {/* Recherche */}
-                        <input
-                          type="text"
-                          placeholder="Rechercher..."
-                          value={friendFilterSearch}
-                          onChange={e => setFriendFilterSearch(e.target.value)}
-                          className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800 px-3 py-2 text-xs text-gray-800 dark:text-zinc-200 outline-none placeholder-gray-400 dark:placeholder-zinc-500"
-                        />
-                        {/* Tout cocher / tout décocher */}
-                        <div className="mt-2 flex gap-1.5">
-                          <button
-                            onClick={() => setFriendFilterIds(new Set(friendProfiles.map(f => f.id)))}
-                            className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
-                          >
-                            Tout cocher
-                          </button>
-                          <button
-                            onClick={() => setFriendFilterIds(new Set())}
-                            className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
-                          >
-                            Tout décocher
-                          </button>
-                        </div>
-                        {/* Liste des amis */}
-                        <div className="mt-2 max-h-44 overflow-y-auto space-y-0.5">
-                          {friendProfiles
-                            .filter(fp => !friendFilterSearch || (fp.username ?? "").toLowerCase().includes(friendFilterSearch.toLowerCase()))
-                            .map(fp => (
+                        {filter === "friends" && (
+                          <>
+                            {/* Recherche */}
+                            <input
+                              type="text"
+                              placeholder="Rechercher..."
+                              value={friendFilterSearch}
+                              onChange={e => setFriendFilterSearch(e.target.value)}
+                              className="w-full rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-800 px-3 py-2 text-xs text-gray-800 dark:text-zinc-200 outline-none placeholder-gray-400 dark:placeholder-zinc-500"
+                            />
+                            {/* Tout cocher / tout décocher */}
+                            <div className="mt-2 flex gap-1.5">
                               <button
-                                key={fp.id}
-                                onClick={() => setFriendFilterIds(prev => {
-                                  const next = new Set(prev)
-                                  if (next.has(fp.id)) next.delete(fp.id)
-                                  else next.add(fp.id)
-                                  return next
-                                })}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                                onClick={() => setFriendFilterIds(new Set(friendProfiles.map(f => f.id)))}
+                                className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
                               >
-                                {fp.avatar_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={fp.avatar_url} alt="" className="h-7 w-7 flex-shrink-0 rounded-full object-cover" />
-                                ) : (
-                                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-xs font-bold text-white">
-                                    {(fp.username ?? "?")[0].toUpperCase()}
-                                  </div>
-                                )}
-                                <span className="flex-1 text-left text-xs text-gray-700 dark:text-zinc-300">@{fp.username ?? "ami"}</span>
-                                <div className={cn(
-                                  "flex h-4 w-4 items-center justify-center rounded border-2 transition-colors",
-                                  friendFilterIds.has(fp.id)
-                                    ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500"
-                                    : "border-gray-300 dark:border-zinc-600"
-                                )}>
-                                  {friendFilterIds.has(fp.id) && <div className="h-1.5 w-1.5 rounded-sm bg-white" />}
-                                </div>
+                                Tout cocher
                               </button>
-                            ))}
-                        </div>
+                              <button
+                                onClick={() => setFriendFilterIds(new Set())}
+                                className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-1.5 text-[11px] font-medium text-gray-700 dark:text-zinc-300 hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                              >
+                                Tout décocher
+                              </button>
+                            </div>
+                            {/* Liste des amis */}
+                            <div className="mt-2 max-h-44 overflow-y-auto space-y-0.5">
+                              {friendProfiles
+                                .filter(fp => !friendFilterSearch || (fp.username ?? "").toLowerCase().includes(friendFilterSearch.toLowerCase()))
+                                .map(fp => (
+                                  <button
+                                    key={fp.id}
+                                    onClick={() => setFriendFilterIds(prev => {
+                                      const next = new Set(prev)
+                                      if (next.has(fp.id)) next.delete(fp.id)
+                                      else next.add(fp.id)
+                                      return next
+                                    })}
+                                    className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800"
+                                  >
+                                    {fp.avatar_url ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={fp.avatar_url} alt="" className="h-7 w-7 flex-shrink-0 rounded-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-xs font-bold text-white">
+                                        {(fp.username ?? "?")[0].toUpperCase()}
+                                      </div>
+                                    )}
+                                    <span className="flex-1 text-left text-xs text-gray-700 dark:text-zinc-300">@{fp.username ?? "ami"}</span>
+                                    <div className={cn(
+                                      "flex h-4 w-4 items-center justify-center rounded border-2 transition-colors",
+                                      friendFilterIds.has(fp.id)
+                                        ? "border-blue-600 dark:border-indigo-500 bg-blue-600 dark:bg-indigo-500"
+                                        : "border-gray-300 dark:border-zinc-600"
+                                    )}>
+                                      {friendFilterIds.has(fp.id) && <div className="h-1.5 w-1.5 rounded-sm bg-white" />}
+                                    </div>
+                                  </button>
+                                ))}
+                            </div>
+                          </>
+                        )}
 
                         {/* Filtre par catégorie */}
                         <div className="mt-3 border-t border-gray-100 dark:border-white/[0.07] pt-3">
