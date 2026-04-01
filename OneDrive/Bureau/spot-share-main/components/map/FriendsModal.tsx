@@ -528,10 +528,13 @@ export default function FriendsModal({
     if (!currentUser || respondingGroupInviteId) return
     setRespondingGroupInviteId(inv.id)
     try {
-      await Promise.all([
+      const [invRes, memberRes] = await Promise.all([
         supabaseRef.current.from("spot_group_invitations").update({ status: "accepted" }).eq("id", inv.id),
-        supabaseRef.current.from("spot_group_members").upsert({ group_id: inv.group_id, user_id: currentUser.id }, { onConflict: "group_id,user_id" }),
+        supabaseRef.current.from("spot_group_members").insert({ group_id: inv.group_id, user_id: currentUser.id }),
       ])
+      if (invRes.error) throw invRes.error
+      // code 23505 = already a member, safe to ignore
+      if (memberRes.error && memberRes.error.code !== "23505") throw memberRes.error
       setGroupInvitations(prev => prev.filter(i => i.id !== inv.id))
       onGroupJoined?.(inv.group_id)
       toast.success(`Tu as rejoint ${inv.spot_groups?.emoji ?? "🏠"} ${inv.spot_groups?.name ?? "le groupe"} !`)
