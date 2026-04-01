@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, UserPlus, Trash2, LoaderCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
@@ -37,14 +37,11 @@ export default function GroupSettingsModal({
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [invitingId, setInvitingId] = useState<string | null>(null)
   const [showInvitePicker, setShowInvitePicker] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const isCreator = group.creator_id === currentUserId
 
-  useEffect(() => {
-    loadMembers()
-  }, [group.id])
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     setLoading(true)
     try {
       const { data: memberData } = await supabase.current
@@ -59,25 +56,34 @@ export default function GroupSettingsModal({
         .eq("status", "pending")
 
       if (memberData) {
-        const ids = memberData.map((m: any) => m.user_id)
+        const typedMemberData = memberData as { user_id: string }[]
+        const ids = typedMemberData.map(m => m.user_id)
         const { data: profiles } = await supabase.current
           .from("profiles").select("id, username, avatar_url").in("id", ids)
-        const profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
-        setMembers(memberData.map((m: any) => ({ user_id: m.user_id, profiles: profileMap[m.user_id] })))
+        const typedProfiles = (profiles ?? []) as { id: string; username: string | null; avatar_url: string | null }[]
+        const profileMap = Object.fromEntries(typedProfiles.map(p => [p.id, p]))
+        setMembers(typedMemberData.map(m => ({ user_id: m.user_id, profiles: profileMap[m.user_id] })))
       }
 
       if (inviteData) {
-        const ids = inviteData.map((i: any) => i.invitee_id)
+        const typedInviteData = inviteData as { id: string; invitee_id: string }[]
+        const ids = typedInviteData.map(i => i.invitee_id)
         const { data: profiles } = await supabase.current
           .from("profiles").select("id, username, avatar_url").in("id", ids)
-        const profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
-        setPending(inviteData.map((i: any) => ({ ...i, profiles: profileMap[i.invitee_id] })))
+        const typedProfiles = (profiles ?? []) as { id: string; username: string | null; avatar_url: string | null }[]
+        const profileMap = Object.fromEntries(typedProfiles.map(p => [p.id, p]))
+        setPending(typedInviteData.map(i => ({ ...i, profiles: profileMap[i.invitee_id] })))
       }
     } catch (e) {
       console.error("loadMembers:", e)
+      toast.error("Impossible de charger les membres")
     }
     setLoading(false)
-  }
+  }, [group.id])
+
+  useEffect(() => {
+    loadMembers()
+  }, [loadMembers])
 
   const inviteFriend = async (friendId: string, friendUsername: string | null) => {
     setInvitingId(friendId)
@@ -89,8 +95,8 @@ export default function GroupSettingsModal({
       toast.success(`Invitation envoyée à @${friendUsername ?? friendId}`)
       setShowInvitePicker(false)
       loadMembers()
-    } catch (e: any) {
-      if (e?.code === "23505") toast.error("Déjà invité")
+    } catch (e: unknown) {
+      if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "23505") toast.error("Déjà invité")
       else toast.error("Erreur lors de l'invitation")
     }
     setInvitingId(null)
@@ -99,11 +105,16 @@ export default function GroupSettingsModal({
   const removeMember = async (userId: string) => {
     setRemovingId(userId)
     try {
-      await supabase.current
+      const { error } = await supabase.current
         .from("spot_group_members")
         .delete()
         .eq("group_id", group.id)
         .eq("user_id", userId)
+      if (error) {
+        toast.error("Erreur lors de la suppression du membre")
+        setRemovingId(null)
+        return
+      }
       setMembers(prev => prev.filter(m => m.user_id !== userId))
       toast.success("Membre retiré")
     } catch {
@@ -113,13 +124,20 @@ export default function GroupSettingsModal({
   }
 
   const deleteGroup = async () => {
+    setDeleting(true)
     try {
-      await supabase.current.from("spot_groups").delete().eq("id", group.id)
+      const { error } = await supabase.current.from("spot_groups").delete().eq("id", group.id)
+      if (error) {
+        toast.error("Impossible de supprimer le groupe")
+        return
+      }
       onGroupDeleted(group.id)
       onClose()
       toast.success(`Groupe "${group.name}" supprimé`)
     } catch {
-      toast.error("Erreur lors de la suppression")
+      toast.error("Impossible de supprimer le groupe")
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -249,9 +267,10 @@ export default function GroupSettingsModal({
               <div className="px-4 py-3 mt-1 border-t border-white/[0.05]">
                 <button
                   onClick={deleteGroup}
-                  className="flex items-center gap-2 text-[12px] font-semibold text-red-400 hover:text-red-300 transition-colors"
+                  disabled={deleting}
+                  className="flex items-center gap-2 text-[12px] font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Trash2 size={13} />
+                  {deleting ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />}
                   Supprimer le groupe
                 </button>
               </div>
