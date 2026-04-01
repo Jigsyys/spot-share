@@ -503,22 +503,31 @@ export default function FriendsModal({
   const loadGroupInvitations = useCallback(async () => {
     if (!currentUser) return
     try {
-      const { data } = await supabaseRef.current
+      const { data: invData } = await supabaseRef.current
         .from("spot_group_invitations")
-        .select("*, spot_groups(*)")
+        .select("*")
         .eq("invitee_id", currentUser.id)
         .eq("status", "pending")
-      if (!data) return
+      if (!invData || invData.length === 0) { setGroupInvitations([]); return }
 
-      const inviterIds = [...new Set(data.map((d: any) => d.inviter_id).filter(Boolean))]
-      let profilesMap: Record<string, { username: string | null; avatar_url: string | null }> = {}
-      if (inviterIds.length > 0) {
-        const { data: profiles } = await supabaseRef.current
-          .from("profiles").select("id, username, avatar_url").in("id", inviterIds)
-        profilesMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
-      }
+      const groupIds = [...new Set(invData.map((d: any) => d.group_id).filter(Boolean))]
+      const inviterIds = [...new Set(invData.map((d: any) => d.inviter_id).filter(Boolean))]
 
-      setGroupInvitations(data.map((d: any) => ({ ...d, inviterProfile: profilesMap[d.inviter_id] ?? null })))
+      const [groupsRes, profilesRes] = await Promise.all([
+        supabaseRef.current.from("spot_groups").select("id, name, emoji, creator_id").in("id", groupIds),
+        inviterIds.length > 0
+          ? supabaseRef.current.from("profiles").select("id, username, avatar_url").in("id", inviterIds)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const groupsMap = Object.fromEntries((groupsRes.data ?? []).map((g: any) => [g.id, g]))
+      const profilesMap = Object.fromEntries(((profilesRes as any).data ?? []).map((p: any) => [p.id, p]))
+
+      setGroupInvitations(invData.map((d: any) => ({
+        ...d,
+        spot_groups: groupsMap[d.group_id] ?? null,
+        inviterProfile: profilesMap[d.inviter_id] ?? null,
+      })))
     } catch (e) {
       console.error("loadGroupInvitations:", e)
     }
