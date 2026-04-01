@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { X, UserPlus, Trash2, LoaderCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
-import type { SpotGroup } from "@/lib/types"
+import type { SpotGroup, Profile } from "@/lib/types"
 
 interface Member {
   user_id: string
@@ -21,7 +21,7 @@ interface PendingInvite {
 interface GroupSettingsModalProps {
   group: SpotGroup
   currentUserId: string
-  followingProfiles: Array<{ id: string; username: string | null; avatar_url: string | null }>
+  followingProfiles: Pick<Profile, "id" | "username" | "avatar_url">[]
   onClose: () => void
   onGroupDeleted: (groupId: string) => void
   onGroupUpdated: (group: SpotGroup) => void
@@ -157,42 +157,40 @@ export default function GroupSettingsModal({
 
           <div className="max-h-[70vh] overflow-y-auto">
             {/* Inviter */}
-            {isCreator && (
-              <div className="px-4 pt-3">
-                <button
-                  onClick={() => setShowInvitePicker(v => !v)}
-                  className="flex items-center gap-2 w-full rounded-xl bg-indigo-500/10 border border-indigo-500/20 px-3 py-2.5 text-indigo-400 hover:bg-indigo-500/15 transition-colors"
-                >
-                  <UserPlus size={14} />
-                  <span className="text-[12px] font-semibold">Inviter un ami</span>
-                </button>
-                {showInvitePicker && (
-                  <div className="mt-2 rounded-xl border border-white/[0.07] bg-zinc-800 overflow-hidden">
-                    {invitableFriends.length > 0 ? invitableFriends.map(f => (
-                      <button
-                        key={f.id}
-                        onClick={() => inviteFriend(f.id, f.username)}
-                        disabled={invitingId === f.id}
-                        className="flex items-center gap-3 w-full px-3 py-2 hover:bg-white/[0.04] border-b border-white/[0.05] last:border-0 transition-colors"
-                      >
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 overflow-hidden">
-                          {f.avatar_url
-                            // eslint-disable-next-line @next/next/no-img-element
-                            ? <img src={f.avatar_url} alt="" className="w-full h-full object-cover" />
-                            : (f.username?.[0]?.toUpperCase() ?? "?")}
-                        </div>
-                        <span className="text-[12px] font-medium text-white flex-1 text-left">@{f.username ?? "?"}</span>
-                        {invitingId === f.id
-                          ? <LoaderCircle size={12} className="animate-spin text-zinc-500" />
-                          : <span className="text-[10px] text-indigo-400 font-semibold">Inviter</span>}
-                      </button>
-                    )) : (
-                      <p className="text-center text-[11px] text-zinc-500 py-3">Tous tes amis sont déjà dans ce groupe</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="px-4 pt-3">
+              <button
+                onClick={() => setShowInvitePicker(v => !v)}
+                className="flex items-center gap-2 w-full rounded-xl bg-indigo-500/10 border border-indigo-500/20 px-3 py-2.5 text-indigo-400 hover:bg-indigo-500/15 transition-colors"
+              >
+                <UserPlus size={14} />
+                <span className="text-[12px] font-semibold">Inviter un ami</span>
+              </button>
+              {showInvitePicker && (
+                <div className="mt-2 rounded-xl border border-white/[0.07] bg-zinc-800 overflow-hidden">
+                  {invitableFriends.length > 0 ? invitableFriends.map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => inviteFriend(f.id, f.username)}
+                      disabled={invitingId === f.id}
+                      className="flex items-center gap-3 w-full px-3 py-2 hover:bg-white/[0.04] border-b border-white/[0.05] last:border-0 transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 overflow-hidden">
+                        {f.avatar_url
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={f.avatar_url} alt="" className="w-full h-full object-cover" />
+                          : (f.username?.[0]?.toUpperCase() ?? "?")}
+                      </div>
+                      <span className="text-[12px] font-medium text-white flex-1 text-left">@{f.username ?? "?"}</span>
+                      {invitingId === f.id
+                        ? <LoaderCircle size={12} className="animate-spin text-zinc-500" />
+                        : <span className="text-[10px] text-indigo-400 font-semibold">Inviter</span>}
+                    </button>
+                  )) : (
+                    <p className="text-center text-[11px] text-zinc-500 py-3">Tous tes amis sont déjà dans ce groupe</p>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Membres */}
             <div className="px-4 pt-3 pb-1">
