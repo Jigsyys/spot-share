@@ -1206,7 +1206,6 @@ export default function MapView() {
   }[] = [
     { key: "mine", label: "Moi", icon: <User size={13} /> },
     { key: "friends", label: "Amis", icon: <Users size={13} /> },
-    { key: "groups", label: "Groupes", icon: <Layers size={13} /> },
   ]
 
   const fetchVisits = useCallback(async (spotId: string) => {
@@ -1648,33 +1647,51 @@ export default function MapView() {
           <div className="flex flex-col items-center gap-2">
           <div className="relative flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
-              {filterButtons.map(({ key, label, icon }) => (
-                <motion.button
-                  key={key}
-                  onClick={() => {
-                    if (key === "groups") {
-                      setShowGroupsDropdown(v => !v)
-                    } else {
-                      setFilter(key)
-                      setActiveGroupId(null)
-                      setShowGroupsDropdown(false)
-                      if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
-                    }
-                  }}
-                  className={cn(
-                    "relative flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
-                    (filter === key || (key === "groups" && showGroupsDropdown))
-                      ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
-                      : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
-                  )}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {icon} {label}
-                  {key === "groups" && activeGroupId && (
-                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-indigo-300 border border-indigo-500" />
-                  )}
-                </motion.button>
-              ))}
+              {filterButtons.map(({ key, label, icon }) => {
+                const isAmisKey = key === "friends"
+                const isActive = filter === key || (isAmisKey && filter === "groups")
+                const activeGroup = isAmisKey && activeGroupId ? groups.find(g => g.id === activeGroupId) : null
+                const displayLabel = activeGroup ? activeGroup.name : label
+                const displayIcon = activeGroup
+                  ? <span className="text-sm leading-none">{activeGroup.emoji}</span>
+                  : icon
+                return (
+                  <motion.button
+                    key={key}
+                    onClick={() => {
+                      if (isAmisKey) {
+                        if (isActive) {
+                          setShowGroupsDropdown(v => !v)
+                        } else {
+                          setFilter("friends")
+                          setActiveGroupId(null)
+                          setShowGroupsDropdown(false)
+                        }
+                      } else {
+                        setFilter(key)
+                        setActiveGroupId(null)
+                        setShowGroupsDropdown(false)
+                        if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
+                      }
+                    }}
+                    className={cn(
+                      "relative flex items-center justify-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors",
+                      isActive
+                        ? "bg-blue-600 dark:bg-indigo-500 text-white shadow-[0_2px_10px_rgba(37,99,235,0.5)] dark:shadow-[0_2px_10px_rgba(99,102,241,0.5)]"
+                        : "text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white"
+                    )}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {displayIcon} {displayLabel}
+                    {isAmisKey && isActive && (
+                      <ChevronDown size={11} className={cn("ml-0.5 transition-transform", showGroupsDropdown && "rotate-180")} />
+                    )}
+                    {isAmisKey && activeGroupId && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-indigo-300 border border-indigo-500" />
+                    )}
+                  </motion.button>
+                )
+              })}
             </div>
 
             {/* Overlay to close dropdown */}
