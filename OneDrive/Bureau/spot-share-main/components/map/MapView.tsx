@@ -2620,7 +2620,12 @@ export default function MapView() {
           setVisibleFriendIds((prev) => [...new Set([...prev, ...newIds])])
         }}
         onRefreshFollowing={fetchFollowing}
-        onRefreshGroups={loadGroups}
+        onGroupJoined={async (groupId) => {
+          await loadGroups()
+          setFilter("groups")
+          setActiveGroupId(groupId)
+          setShowFriendsModal(false)
+        }}
         visibleFriendIds={visibleFriendIds}
         setVisibleFriendIds={setVisibleFriendIds}
         onLocateFriend={(lat, lng) => {
