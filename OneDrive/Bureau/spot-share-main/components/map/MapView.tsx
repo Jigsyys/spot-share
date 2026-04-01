@@ -936,7 +936,7 @@ export default function MapView() {
     if (filter === "groups" && activeGroupId) {
       return spots.filter((s) => s.visibility === "group" && s.group_id === activeGroupId)
     }
-    let base = spots.filter((s) => visibleFriendSet.has(s.user_id) && (s.visibility === "friends" || !s.visibility))
+    let base = spots.filter((s) => (s.user_id === user?.id || visibleFriendSet.has(s.user_id)) && (s.visibility === "friends" || !s.visibility))
     if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
     if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
