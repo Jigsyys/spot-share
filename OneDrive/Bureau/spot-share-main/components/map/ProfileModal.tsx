@@ -1075,19 +1075,23 @@ export default function ProfileModal({
                     {/* Notifications Toggle */}
                     {"Notification" in window && (
                       <div className="border-t border-gray-200 dark:border-white/10 pt-5">
-                        <button
-                          onClick={handleToggleNotifications}
-                          disabled={notifLoading}
-                          className="flex w-full items-center justify-between rounded-xl px-4 py-3 bg-gray-50 dark:bg-zinc-800/60 hover:bg-gray-100 dark:hover:bg-zinc-700/60 transition-colors disabled:opacity-50"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Bell size={16} className="text-gray-500 dark:text-zinc-400" />
-                            <span className="text-sm text-gray-700 dark:text-zinc-300">Notifications</span>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="flex items-center gap-2 text-sm font-semibold">
+                              <Bell size={14} className="text-gray-500 dark:text-zinc-400" /> Notifications
+                            </h3>
+                            <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
+                              Reçois une alerte quand tes amis ajoutent des spots.
+                            </p>
                           </div>
-                          <div className={`h-5 w-9 rounded-full transition-colors ${notifPermission === "granted" ? "bg-indigo-500" : "bg-gray-200 dark:bg-zinc-700"}`}>
-                            <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform mx-0.5 mt-0.5 ${notifPermission === "granted" ? "translate-x-4" : "translate-x-0"}`} />
-                          </div>
-                        </button>
+                          <button
+                            onClick={handleToggleNotifications}
+                            disabled={notifLoading}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${notifPermission === "granted" ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
+                          >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifPermission === "granted" ? "translate-x-6" : "translate-x-1"}`} />
+                          </button>
+                        </div>
                       </div>
                     )}
 

@@ -1860,15 +1860,13 @@ export default function MapView() {
                         if (isActive) {
                           setShowGroupsDropdown(v => !v)
                         } else {
-                          // Revenir au groupe précédemment sélectionné s'il y en a un
-                          setFilter(activeGroupId ? "groups" : "friends")
+                          setFilter("friends")
+                          setActiveGroupId(null)
                           setShowGroupsDropdown(false)
                         }
                       } else {
                         setFilter(key)
-                        // Conserver activeGroupId quand on passe sur "Moi"
-                        // pour pouvoir y revenir ensuite
-                        if (key !== "mine") setActiveGroupId(null)
+                        setActiveGroupId(null)
                         setShowGroupsDropdown(false)
                         if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
                       }
