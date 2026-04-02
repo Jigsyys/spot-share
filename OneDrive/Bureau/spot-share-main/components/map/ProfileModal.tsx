@@ -23,6 +23,7 @@ import {
   Heart,
   Sparkles,
   UserPlus,
+  Bell,
 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
@@ -108,6 +109,8 @@ export default function ProfileModal({
   const [followingCount, setFollowingCount] = useState(0)
   const [totalLikes, setTotalLikes] = useState(0)
   const [isGhostMode, setIsGhostMode] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
+  const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [subView, setSubView] = useState<SubView>(null)
   const [followersList, setFollowersList] = useState<FollowProfile[]>([])
   const [followingList, setFollowingList] = useState<FollowProfile[]>([])
@@ -124,71 +127,77 @@ export default function ProfileModal({
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState("")
 
+  // Notifications
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default")
+  const [notifLoading, setNotifLoading] = useState(false)
+
   const supabaseRef = useRef(createClient())
   const swipe = useSwipeToClose(onClose)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { theme, setTheme } = useTheme()
 
   // ---------------------------------------------------------------
-  // Load profile
+  // Load profile — RPC + cache localStorage (stale-while-revalidate)
   // ---------------------------------------------------------------
+  const STATS_CACHE_TTL = 5 * 60 * 1000
+
+  const applyStats = useCallback((d: {
+    username: string | null; avatar_url: string | null; is_ghost_mode: boolean
+    followers_count: number; following_count: number; total_likes: number
+  }, fromEmail?: string) => {
+    const name = d.username || fromEmail || ""
+    setUsername(name)
+    setNameInput(name)
+    if (d.avatar_url) setAvatarUrl(d.avatar_url)
+    setIsGhostMode(!!d.is_ghost_mode)
+    setFollowersCount(d.followers_count ?? 0)
+    setFollowingCount(d.following_count ?? 0)
+    setTotalLikes(d.total_likes ?? 0)
+  }, [])
+
   useEffect(() => {
     if (!isOpen || !user) return
     setSubView(null)
+    if ("Notification" in window) {
+      setNotifPermission(Notification.permission)
+    }
 
-    const loadProfile = async () => {
-      try {
-        const { data } = await supabaseRef.current
-          .from("profiles")
-          .select("username, avatar_url, is_ghost_mode")
-          .eq("id", user.id)
-          .single()
-        if (data) {
-          const name = data.username || user.email?.split("@")[0] || ""
-          setUsername(name)
-          setNameInput(name)
-          if (data.avatar_url) setAvatarUrl(data.avatar_url)
-          if (data.is_ghost_mode !== undefined) setIsGhostMode(!!data.is_ghost_mode)
-        }
-      } catch {
+    // 1. Afficher le cache immédiatement si disponible
+    let hasCachedData = false
+    try {
+      const raw = localStorage.getItem(`profile_stats_${user.id}`)
+      if (raw) {
+        const { data: cached, ts } = JSON.parse(raw)
+        applyStats(cached, user.email?.split("@")[0])
+        hasCachedData = true
+        if (Date.now() - ts < STATS_CACHE_TTL) return // cache frais → pas de refetch
+      }
+    } catch { /* ignore */ }
+
+    // 2. Skeleton seulement si aucun cache (150ms délai pour éviter le flash)
+    if (!hasCachedData) {
+      skeletonTimerRef.current = setTimeout(() => setStatsLoading(true), 150)
+    }
+
+    // 3. RPC en arrière-plan
+    supabaseRef.current.rpc("get_profile_stats", { p_user_id: user.id }).then(({ data }) => {
+      if (skeletonTimerRef.current) { clearTimeout(skeletonTimerRef.current); skeletonTimerRef.current = null }
+      setStatsLoading(false)
+      if (data) {
+        applyStats(data, user.email?.split("@")[0])
+        try { localStorage.setItem(`profile_stats_${user.id}`, JSON.stringify({ data, ts: Date.now() })) } catch { /* ignore */ }
+      } else if (!hasCachedData) {
+        // Fallback email si RPC échoue et pas de cache
         const fallback = user.email?.split("@")[0] ?? ""
         setUsername(fallback)
         setNameInput(fallback)
       }
+    })
 
-      try {
-        const [{ count: followers }, { count: following }] = await Promise.all([
-          supabaseRef.current
-            .from("followers")
-            .select("*", { count: "exact", head: true })
-            .eq("following_id", user.id),
-          supabaseRef.current
-            .from("followers")
-            .select("*", { count: "exact", head: true })
-            .eq("follower_id", user.id),
-        ])
-        setFollowersCount(followers ?? 0)
-        setFollowingCount(following ?? 0)
-      } catch { /* */ }
-
-      try {
-        const { data: spotIds } = await supabaseRef.current
-          .from("spots").select("id").eq("user_id", user.id)
-        if (spotIds && spotIds.length > 0) {
-          const ids = spotIds.map((s: { id: string }) => s.id)
-          const { count } = await supabaseRef.current
-            .from("spot_reactions")
-            .select("*", { count: "exact", head: true })
-            .in("spot_id", ids)
-            .eq("type", "love")
-            .neq("user_id", user.id)
-          setTotalLikes(count ?? 0)
-        }
-      } catch { /* */ }
+    return () => {
+      if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
     }
-
-    loadProfile()
-  }, [isOpen, user])
+  }, [isOpen, user, applyStats]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------
   // Save username
@@ -206,6 +215,10 @@ export default function ProfileModal({
       setUsername(finalName)
       setEditingName(false)
       onProfileUpdate?.(finalName, avatarUrl)
+      try {
+        const raw = localStorage.getItem(`profile_stats_${user.id}`)
+        if (raw) { const p = JSON.parse(raw); p.data.username = finalName; p.ts = Date.now(); localStorage.setItem(`profile_stats_${user.id}`, JSON.stringify(p)) }
+      } catch { /* ignore */ }
       toast.success("Nom mis à jour !")
     } catch (e: unknown) {
       const err = e as { message?: string }
@@ -244,7 +257,11 @@ export default function ProfileModal({
         try {
           await supabaseRef.current.from("followers").delete().eq("follower_id", user.id).eq("following_id", targetId)
           setFollowingList(prev => prev.filter(p => p.id !== targetId))
-          setFollowingCount(prev => Math.max(0, prev - 1))
+          setFollowingCount(prev => {
+            const next = Math.max(0, prev - 1)
+            try { const raw = localStorage.getItem(`profile_stats_${user!.id}`); if (raw) { const p = JSON.parse(raw); p.data.following_count = next; localStorage.setItem(`profile_stats_${user!.id}`, JSON.stringify(p)) } } catch { /* */ }
+            return next
+          })
           onUnfollow?.(targetId)
           toast.success("Abonnement annulé !")
         } catch { toast.error("Erreur.") }
@@ -263,7 +280,11 @@ export default function ProfileModal({
         try {
           await supabaseRef.current.from("followers").delete().eq("follower_id", targetId).eq("following_id", user.id)
           setFollowersList(prev => prev.filter(p => p.id !== targetId))
-          setFollowersCount(prev => Math.max(0, prev - 1))
+          setFollowersCount(prev => {
+            const next = Math.max(0, prev - 1)
+            try { const raw = localStorage.getItem(`profile_stats_${user!.id}`); if (raw) { const p = JSON.parse(raw); p.data.followers_count = next; localStorage.setItem(`profile_stats_${user!.id}`, JSON.stringify(p)) } } catch { /* */ }
+            return next
+          })
           toast.success("Abonné retiré !")
         } catch { toast.error("Erreur.") }
       },
@@ -305,6 +326,10 @@ export default function ProfileModal({
       if (updateError) throw updateError
       setAvatarUrl(publicUrl)
       onProfileUpdate?.(username, publicUrl)
+      try {
+        const raw = localStorage.getItem(`profile_stats_${user.id}`)
+        if (raw) { const p = JSON.parse(raw); p.data.avatar_url = publicUrl; p.ts = Date.now(); localStorage.setItem(`profile_stats_${user.id}`, JSON.stringify(p)) }
+      } catch { /* ignore */ }
       toast.success("Photo mise à jour !")
     } catch (err) {
       console.error("[Avatar upload error]:", err)
@@ -333,6 +358,57 @@ export default function ProfileModal({
       toast.error("Erreur lors de la mise à jour. La colonne is_ghost_mode existe-t-elle ?")
     }
   }
+
+  // ---------------------------------------------------------------
+  // Notifications toggle
+  // ---------------------------------------------------------------
+  const handleToggleNotifications = useCallback(async () => {
+    if (notifLoading) return
+    setNotifLoading(true)
+    try {
+      if (notifPermission === "granted") {
+        const reg = await navigator.serviceWorker.getRegistration("/sw.js")
+        if (reg) {
+          const sub = await reg.pushManager.getSubscription()
+          if (sub) {
+            await sub.unsubscribe()
+            await fetch("/api/push/subscribe", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ endpoint: sub.endpoint }),
+            })
+          }
+        }
+        toast.success("Notifications désactivées")
+        setNotifPermission("denied")
+      } else {
+        const perm = await Notification.requestPermission()
+        setNotifPermission(perm)
+        if (perm === "granted") {
+          const reg = await navigator.serviceWorker.register("/sw.js")
+          const existing = await reg.pushManager.getSubscription()
+          const sub = existing ?? await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+          })
+          const { endpoint, keys } = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } }
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint, p256dh: keys.p256dh, auth: keys.auth }),
+          })
+          toast.success("Notifications activées !")
+        } else {
+          toast.error("Permission refusée par le navigateur")
+        }
+      }
+    } catch (err) {
+      console.error("toggle notif error:", err)
+      toast.error("Erreur lors de la configuration des notifications")
+    } finally {
+      setNotifLoading(false)
+    }
+  }, [notifPermission, notifLoading])
 
   // ---------------------------------------------------------------
   // Suggestions
@@ -881,23 +957,35 @@ export default function ProfileModal({
                     </div>
 
                     {/* Stats (clickable) */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
-                        <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
-                        <span className="text-lg font-bold">{spotsCount}</span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
-                      </button>
-                      <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
-                        <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
-                        <span className="text-lg font-bold">{followingCount}</span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">Amis</span>
-                      </button>
-                      <button onClick={() => openSubView("likes")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
-                        <span className="text-red-500"><Heart size={14} className="fill-red-500" /></span>
-                        <span className="text-lg font-bold">{totalLikes}</span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">Likes reçus</span>
-                      </button>
-                    </div>
+                    {statsLoading ? (
+                      <div className="grid grid-cols-3 gap-2 animate-pulse">
+                        {[0,1,2].map(i => (
+                          <div key={i} className="flex flex-col items-center gap-2 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3">
+                            <div className="h-3.5 w-3.5 rounded bg-gray-200 dark:bg-zinc-700" />
+                            <div className="h-5 w-8 rounded bg-gray-200 dark:bg-zinc-700" />
+                            <div className="h-2.5 w-10 rounded bg-gray-200 dark:bg-zinc-700" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                          <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
+                          <span className="text-lg font-bold">{spotsCount}</span>
+                          <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
+                        </button>
+                        <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
+                          <span className="text-blue-600 dark:text-indigo-400"><Users size={14} /></span>
+                          <span className="text-lg font-bold">{followingCount}</span>
+                          <span className="text-xs text-gray-400 dark:text-zinc-500">Amis</span>
+                        </button>
+                        <button onClick={() => openSubView("likes")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-red-500/30 hover:bg-red-500/5">
+                          <span className="text-red-500"><Heart size={14} className="fill-red-500" /></span>
+                          <span className="text-lg font-bold">{totalLikes}</span>
+                          <span className="text-xs text-gray-400 dark:text-zinc-500">Likes reçus</span>
+                        </button>
+                      </div>
+                    )}
 
                     {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
 
@@ -983,6 +1071,25 @@ export default function ProfileModal({
                         </button>
                       </div>
                     </div>
+
+                    {/* Notifications Toggle */}
+                    {"Notification" in window && (
+                      <div className="border-t border-gray-200 dark:border-white/10 pt-5">
+                        <button
+                          onClick={handleToggleNotifications}
+                          disabled={notifLoading}
+                          className="flex w-full items-center justify-between rounded-xl px-4 py-3 bg-gray-50 dark:bg-zinc-800/60 hover:bg-gray-100 dark:hover:bg-zinc-700/60 transition-colors disabled:opacity-50"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Bell size={16} className="text-gray-500 dark:text-zinc-400" />
+                            <span className="text-sm text-gray-700 dark:text-zinc-300">Notifications</span>
+                          </div>
+                          <div className={`h-5 w-9 rounded-full transition-colors ${notifPermission === "granted" ? "bg-indigo-500" : "bg-gray-200 dark:bg-zinc-700"}`}>
+                            <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform mx-0.5 mt-0.5 ${notifPermission === "granted" ? "translate-x-4" : "translate-x-0"}`} />
+                          </div>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Theme Toggle */}
                     <div className="border-t border-gray-200 dark:border-white/10 pt-5">
