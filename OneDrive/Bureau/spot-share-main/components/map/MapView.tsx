@@ -1184,15 +1184,19 @@ export default function MapView() {
     }
 
     // Supprimer l'ancien spot de l'utilisateur à la même adresse (doublon)
+    let duplicateId: string | undefined
     if (spotDbData.address) {
       const duplicate = spots.find(s => s.user_id === user.id && s.address === spotDbData.address)
       if (duplicate) {
+        duplicateId = duplicate.id
         await supabaseRef.current.from("spots").delete().eq("id", duplicate.id)
-        setSpots(prev => prev.filter(s => s.id !== duplicate.id))
       }
     }
 
-    setSpots((prev) => [optimisticSpot, ...prev])
+    setSpots((prev) => [
+      optimisticSpot,
+      ...(duplicateId ? prev.filter(s => s.id !== duplicateId) : prev),
+    ])
 
     try {
       // Tenter insert avec tous les champs, dont maps_url
