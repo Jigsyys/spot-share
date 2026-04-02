@@ -64,6 +64,31 @@ const LIGHT_HIDDEN_LAYERS = ["motorway", "trunk", "poi", "landmark", "monument",
 // Classes de route à exclure des labels (numéros A1, A4…)
 const LIGHT_HIDDEN_ROAD_CLASSES = ["motorway", "motorway_link", "trunk", "trunk_link"]
 
+// ─── Push notifications helpers ─────────────────────────────────────────────
+async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js")
+    return reg
+  } catch { return null }
+}
+
+async function subscribeToPush(reg: ServiceWorkerRegistration): Promise<void> {
+  try {
+    const existing = await reg.pushManager.getSubscription()
+    const sub = existing ?? await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    })
+    const { endpoint, keys } = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } }
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, p256dh: keys.p256dh, auth: keys.auth }),
+    })
+  } catch { /* ignore — user bloqué ou SW non dispo */ }
+}
+
 function geoDistKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371, dLat = ((lat2 - lat1) * Math.PI) / 180, dLng = ((lng2 - lng1) * Math.PI) / 180
   const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
@@ -291,10 +316,13 @@ export default function MapView() {
   const [groups, setGroups] = useState<SpotGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [groupSpotIds, setGroupSpotIds] = useState<Set<string>>(new Set())
+  // true une fois que loadGroups a eu la chance de restaurer depuis localStorage
+  const groupRestoredRef = useRef(false)
 
   // Persister le groupe sélectionné dans localStorage
+  // Ne s'exécute qu'après la restauration initiale pour ne pas effacer la valeur sauvegardée
   useEffect(() => {
-    if (!user) return
+    if (!user || !groupRestoredRef.current) return
     try {
       if (activeGroupId) {
         localStorage.setItem(`friendspot_active_group_${user.id}`, activeGroupId)
@@ -306,7 +334,7 @@ export default function MapView() {
   const [showGroupsDropdown, setShowGroupsDropdown] = useState(false)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
-  const [newGroupEmoji, setNewGroupEmoji] = useState("🗂️")
+  const [newGroupEmoji, setNewGroupEmoji] = useState("🍻")
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [selectedGroupForSettings, setSelectedGroupForSettings] = useState<SpotGroup | null>(null)
   const [friendFilterIds, setFriendFilterIds] = useState<Set<string>>(new Set())
@@ -359,6 +387,8 @@ export default function MapView() {
   const [incomingCount, setIncomingCount] = useState(0)
   const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
+  const [showPushBanner, setShowPushBanner] = useState(false)
+  const swRegRef = useRef<ServiceWorkerRegistration | null>(null)
   const [userLocation, setUserLocation] = useState<{
     lat: number
     lng: number
@@ -394,6 +424,21 @@ export default function MapView() {
 
   const themeRef = useRef(resolvedTheme)
   useEffect(() => { themeRef.current = resolvedTheme }, [resolvedTheme])
+
+  // Enregistrer le service worker + logique bannière permission
+  useEffect(() => {
+    if (!user) return
+    registerServiceWorker().then(reg => { swRegRef.current = reg })
+
+    try {
+      const count = parseInt(localStorage.getItem("friendspot_open_count") ?? "0", 10) + 1
+      localStorage.setItem("friendspot_open_count", String(count))
+      const alreadyDismissed = localStorage.getItem("friendspot_push_dismissed")
+      if (count >= 3 && !alreadyDismissed && Notification.permission === "default") {
+        setShowPushBanner(true)
+      }
+    } catch { /* ignore */ }
+  }, [user])
 
   useEffect(() => {
     if (!showGroupsDropdown) setShowCreateGroup(false)
@@ -701,6 +746,7 @@ export default function MapView() {
             setFilter("groups" as FilterMode)
           }
         } catch { /* ignore */ }
+        groupRestoredRef.current = true
       }
     } catch (e) {
       console.error("loadGroups:", e)
@@ -723,7 +769,7 @@ export default function MapView() {
         .insert({ group_id: group.id, user_id: user.id })
       setGroups(prev => [...prev, group as SpotGroup])
       setNewGroupName("")
-      setNewGroupEmoji("🗂️")
+      setNewGroupEmoji("🍻")
       setShowCreateGroup(false)
       toast.success(`Groupe "${group.name}" créé !`)
     } catch (e) {
@@ -918,7 +964,7 @@ export default function MapView() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
         () => {
-          checkIncomingRequestsRef.current()
+          setIncomingCount(prev => prev + 1)
           toast("🔔 Nouvelle demande !", {
             description: "Quelqu'un veut s'abonner à toi.",
             action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
@@ -928,19 +974,22 @@ export default function MapView() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
-        () => checkIncomingRequestsRef.current()
+        (payload) => {
+          const s = (payload.new as { status: string }).status
+          if (s !== "pending") setIncomingCount(prev => Math.max(0, prev - 1))
+        }
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
-        () => checkIncomingRequestsRef.current()
+        () => setIncomingCount(prev => Math.max(0, prev - 1))
       )
       // ── outing_invitations ─────────────────────────────────────────────
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
         () => {
-          checkIncomingRequestsRef.current()
+          setIncomingCount(prev => prev + 1)
           toast("🗓️ Nouvelle sortie !", {
             description: "On t'a invité à une sortie.",
             action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
@@ -950,12 +999,35 @@ export default function MapView() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
-        () => checkIncomingRequestsRef.current()
+        (payload) => {
+          const s = (payload.new as { status: string }).status
+          if (s !== "pending") setIncomingCount(prev => Math.max(0, prev - 1))
+        }
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
-        () => checkIncomingRequestsRef.current()
+        () => setIncomingCount(prev => Math.max(0, prev - 1))
+      )
+      // ── spot_group_invitations ──────────────────────────────────────────
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "spot_group_invitations", filter: `invitee_id=eq.${user.id}` },
+        () => {
+          setIncomingCount(prev => prev + 1)
+          toast("👥 Invitation groupe !", {
+            description: "On t'a invité à rejoindre un groupe.",
+            action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
+          })
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "spot_group_invitations", filter: `invitee_id=eq.${user.id}` },
+        (payload) => {
+          const s = (payload.new as { status: string }).status
+          if (s !== "pending") setIncomingCount(prev => Math.max(0, prev - 1))
+        }
       )
       // ── followers (ami accepté) ───────────────────────────────────────────
       .on(
@@ -1140,6 +1212,21 @@ export default function MapView() {
     }
   }, [spots])
 
+
+  const handlePushAccept = useCallback(async () => {
+    setShowPushBanner(false)
+    try { localStorage.setItem("friendspot_push_dismissed", "1") } catch {}
+    const perm = await Notification.requestPermission()
+    if (perm === "granted" && swRegRef.current) {
+      await subscribeToPush(swRegRef.current)
+      toast.success("Notifications activées !")
+    }
+  }, [])
+
+  const handlePushDismiss = useCallback(() => {
+    setShowPushBanner(false)
+    try { localStorage.setItem("friendspot_push_dismissed", "1") } catch {}
+  }, [])
 
   const handleOpenAddSpot = () => {
     setInitialAddUrl("")
@@ -1773,13 +1860,15 @@ export default function MapView() {
                         if (isActive) {
                           setShowGroupsDropdown(v => !v)
                         } else {
-                          setFilter("friends")
-                          setActiveGroupId(null)
+                          // Revenir au groupe précédemment sélectionné s'il y en a un
+                          setFilter(activeGroupId ? "groups" : "friends")
                           setShowGroupsDropdown(false)
                         }
                       } else {
                         setFilter(key)
-                        setActiveGroupId(null)
+                        // Conserver activeGroupId quand on passe sur "Moi"
+                        // pour pouvoir y revenir ensuite
+                        if (key !== "mine") setActiveGroupId(null)
                         setShowGroupsDropdown(false)
                         if (key === "mine") { setFriendFilterIds(new Set()); setFriendCategoryFilter(new Set()); setShowFriendFilter(false) }
                       }
@@ -1815,12 +1904,12 @@ export default function MapView() {
             {/* Groups dropdown */}
             {showGroupsDropdown && (
               <div
-                className="absolute top-full mt-2 left-0 z-50 w-64 rounded-2xl border border-white/[0.08] bg-zinc-900 shadow-xl overflow-hidden"
+                className="absolute top-full mt-2 left-0 z-50 w-64 rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 shadow-xl overflow-hidden"
                 onPointerDown={e => e.stopPropagation()}
               >
                 {/* Entrée "Amis" — groupe par défaut */}
                 <div
-                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] cursor-pointer border-b border-white/[0.05]"
+                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-white/[0.04] cursor-pointer border-b border-gray-100 dark:border-white/[0.05]"
                   onClick={() => {
                     setFilter("friends")
                     setActiveGroupId(null)
@@ -1831,8 +1920,8 @@ export default function MapView() {
                     <Users size={16} className="text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-bold text-white truncate">Amis</p>
-                    <p className="text-[10px] text-zinc-500">Tous tes amis</p>
+                    <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">Amis</p>
+                    <p className="text-[10px] text-gray-400 dark:text-zinc-500">Tous tes amis</p>
                   </div>
                   {filter === "friends" && !activeGroupId && (
                     <div className="w-4 h-4 rounded-full bg-indigo-500 flex items-center justify-center">
@@ -1844,7 +1933,7 @@ export default function MapView() {
                 {groups.map(group => (
                   <div
                     key={group.id}
-                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] cursor-pointer border-b border-white/[0.05]"
+                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-white/[0.04] cursor-pointer border-b border-gray-100 dark:border-white/[0.05]"
                     onClick={() => {
                       const nextId = activeGroupId === group.id ? null : group.id
                       setActiveGroupId(nextId)
@@ -2059,7 +2148,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-[7rem]", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -2094,7 +2183,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-[7rem]", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2135,7 +2224,7 @@ export default function MapView() {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-6 sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
             {/* Drag Handle Mobile — glisser ici pour fermer */}
             <div
@@ -2621,9 +2710,9 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar */}
+      {/* Bottom Navigation Bar — mobile only */}
       <div
-        className="fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
+        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">
@@ -2738,6 +2827,89 @@ export default function MapView() {
             <span className="text-[10px] font-medium">Profil</span>
           </button>
         </div>
+      </div>
+
+      {/* ── Desktop Sidebar Navigation — hidden on mobile ─────────── */}
+      <div className="hidden sm:flex fixed left-0 top-0 bottom-0 z-[90] w-16 flex-col items-center border-r border-gray-200 dark:border-white/[0.06] bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl py-4 gap-1">
+        {/* Logo */}
+        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-500 shadow-md">
+          <MapPin size={16} className="text-white" />
+        </div>
+
+        {/* Carte */}
+        <button
+          onClick={() => { setSelectedSpot(null); setShowProfileModal(false); setShowFriendsModal(false); setShowAddModal(false); setShowExploreModal(false) }}
+          title="Carte"
+          className={cn("flex h-10 w-10 flex-col items-center justify-center rounded-xl transition-colors",
+            !showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal
+              ? "bg-blue-50 dark:bg-indigo-500/15 text-blue-600 dark:text-indigo-400"
+              : "text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300")}
+        >
+          <MapPin size={20} />
+        </button>
+
+        {/* Amis */}
+        <button
+          onClick={() => { fetchFollowing(); setShowProfileModal(false); setShowAddModal(false); setShowExploreModal(false); setShowFriendsModal(true); setIncomingCount(0); if (user) { try { localStorage.setItem(`friendspot_notif_seen_${user.id}`, new Date().toISOString()) } catch {} } }}
+          title="Amis"
+          className={cn("relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+            showFriendsModal
+              ? "bg-blue-50 dark:bg-indigo-500/15 text-blue-600 dark:text-indigo-400"
+              : "text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300")}
+        >
+          <Users size={20} />
+          {incomingCount > 0 && (
+            <div className="absolute top-1 right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white border border-white dark:border-zinc-950">
+              {incomingCount > 9 ? "9+" : incomingCount}
+            </div>
+          )}
+        </button>
+
+        {/* Ajouter */}
+        <button
+          onClick={() => { setShowProfileModal(false); setShowFriendsModal(false); setShowExploreModal(false); handleOpenAddSpot() }}
+          title="Ajouter un spot"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-md transition-transform hover:scale-105 active:scale-95"
+        >
+          <Plus size={20} strokeWidth={2.5} />
+        </button>
+
+        {/* Explorer */}
+        <button
+          onClick={() => { setShowProfileModal(false); setShowFriendsModal(false); setShowAddModal(false); setShowExploreModal(true) }}
+          title="Explorer"
+          className={cn("flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+            showExploreModal
+              ? "bg-blue-50 dark:bg-indigo-500/15 text-blue-600 dark:text-indigo-400"
+              : "text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300")}
+        >
+          <Search size={20} />
+        </button>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Profil */}
+        <button
+          onClick={() => { setShowFriendsModal(false); setShowAddModal(false); setShowExploreModal(false); setShowProfileModal(true); markLikesSeen() }}
+          title="Profil"
+          className={cn("relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+            showProfileModal
+              ? "bg-blue-50 dark:bg-indigo-500/15 text-blue-600 dark:text-indigo-400"
+              : "text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-700 dark:hover:text-zinc-300")}
+        >
+          {userProfile?.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={userProfile.avatar_url} alt="" className="h-8 w-8 rounded-lg object-cover" />
+          ) : (
+            <User size={20} />
+          )}
+          {newLikesCount > 0 && (
+            <div className="absolute top-1 right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white border border-white dark:border-zinc-950">
+              {newLikesCount > 9 ? "9+" : newLikesCount}
+            </div>
+          )}
+        </button>
       </div>
 
       {editingSpot && (
@@ -2957,6 +3129,41 @@ export default function MapView() {
         />
       )}
 
+      {/* Bannière permission push notifications */}
+      <AnimatePresence>
+        {showPushBanner && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm"
+          >
+            <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 shadow-xl p-4">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
+                🔔 Ne rate rien
+              </p>
+              <p className="text-xs text-gray-500 dark:text-zinc-400 mb-3">
+                Active les notifications pour savoir quand tes amis ajoutent des spots.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handlePushAccept}
+                  className="flex-1 rounded-xl bg-indigo-500 py-2 text-xs font-semibold text-white hover:bg-indigo-400 transition-colors"
+                >
+                  Activer
+                </button>
+                <button
+                  onClick={handlePushDismiss}
+                  className="rounded-xl px-3 py-2 text-xs text-gray-400 dark:text-zinc-500 hover:text-gray-600 transition-colors"
+                >
+                  Plus tard
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {selectedGroupForSettings && (
         <GroupSettingsModal
           group={selectedGroupForSettings}
@@ -2968,6 +3175,14 @@ export default function MapView() {
             if (activeGroupId === id) { setActiveGroupId(null); setFilter("friends") }
           }}
           onGroupUpdated={(updated) => setGroups(prev => prev.map(g => g.id === updated.id ? updated : g))}
+          onSelectSpot={(spotId) => {
+            const spot = spots.find(s => s.id === spotId)
+            setSelectedGroupForSettings(null)
+            if (spot) {
+              setSelectedSpot(spot)
+              mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
+            }
+          }}
         />
       )}
     </div>
