@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo, startTransition } from "react"
 import Map, { Marker as MapMarker, MapRef, Layer } from "react-map-gl/mapbox"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { toast } from "sonner"
@@ -25,6 +25,9 @@ import {
   Shuffle,
   Layers,
   Settings,
+  CalendarPlus,
+  Check,
+  LoaderCircle,
 } from "lucide-react"
 import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import useSupercluster from "use-supercluster"
@@ -287,6 +290,19 @@ export default function MapView() {
   const [filter, setFilter] = useState<FilterMode>("friends")
   const [groups, setGroups] = useState<SpotGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [groupSpotIds, setGroupSpotIds] = useState<Set<string>>(new Set())
+
+  // Persister le groupe sélectionné dans localStorage
+  useEffect(() => {
+    if (!user) return
+    try {
+      if (activeGroupId) {
+        localStorage.setItem(`friendspot_active_group_${user.id}`, activeGroupId)
+      } else {
+        localStorage.removeItem(`friendspot_active_group_${user.id}`)
+      }
+    } catch { /* ignore */ }
+  }, [activeGroupId, user])
   const [showGroupsDropdown, setShowGroupsDropdown] = useState(false)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
@@ -299,6 +315,10 @@ export default function MapView() {
   const [friendFilterSearch, setFriendFilterSearch] = useState("")
 
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null)
+  const [proposeOutingSpot, setProposeOutingSpot] = useState<Spot | null>(null)
+  const [showGroupPicker, setShowGroupPicker] = useState(false)
+  const [pickerSpotGroupIds, setPickerSpotGroupIds] = useState<Set<string>>(new Set())
+  const [togglingGroupId, setTogglingGroupId] = useState<string | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
   const [descExpanded, setDescExpanded] = useState(false)
@@ -327,6 +347,7 @@ export default function MapView() {
     title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void
   }) => setConfirmDialog({ open: true, ...opts }), [])
   const [followingIds, setFollowingIds] = useState<string[]>([])
+  const [followingProfilesMap, setFollowingProfilesMap] = useState<Record<string, { username: string | null; avatar_url: string | null }>>({})
   const [visibleFriendIds, setVisibleFriendIds] = useState<string[]>([])
   const visibleFriendIdsRef = useRef<Set<string>>(new Set())
   // In-memory cache: avoids re-fetching reactions/visits for already-opened spots
@@ -346,6 +367,7 @@ export default function MapView() {
     username: string
     avatar_url: string | null
     is_ghost_mode?: boolean
+    is_admin?: boolean
   } | null>(null)
   const [initialAddUrl, setInitialAddUrl] = useState<string>("")
   const [visits, setVisits] = useState<{ user_id: string; username: string | null; avatar_url: string | null }[]>([])
@@ -417,7 +439,7 @@ export default function MapView() {
     try {
       const { data, error } = await supabaseRef.current
         .from("profiles")
-        .select("username, avatar_url, is_ghost_mode")
+        .select("username, avatar_url, is_ghost_mode, is_admin")
         .eq("id", user.id)
         .single()
       if (error) {
@@ -566,6 +588,16 @@ export default function MapView() {
         setFollowingIds(ids)
         setVisibleFriendIds((prev) => [...new Set([...prev, ...ids])])
         try { localStorage.setItem(cacheKey, JSON.stringify({ data: ids, ts: Date.now() })) } catch {}
+        // Fetch profiles for all followed users
+        if (ids.length > 0) {
+          const { data: profiles } = await supabaseRef.current
+            .from("profiles").select("id, username, avatar_url").in("id", ids)
+          if (profiles) {
+            setFollowingProfilesMap(Object.fromEntries(
+              profiles.map((p: any) => [p.id, { username: p.username, avatar_url: p.avatar_url }])
+            ))
+          }
+        }
       }
     } catch {
       /* table might not exist */
@@ -659,11 +691,16 @@ export default function MapView() {
         .select("group_id, spot_groups(id, creator_id, name, emoji, created_at)")
         .eq("user_id", user.id)
       if (data) {
-        setGroups(
-          data
-            .map((d: any) => d.spot_groups)
-            .filter(Boolean) as SpotGroup[]
-        )
+        const loaded = data.map((d: any) => d.spot_groups).filter(Boolean) as SpotGroup[]
+        setGroups(loaded)
+        // Restaurer le groupe sélectionné depuis localStorage
+        try {
+          const saved = localStorage.getItem(`friendspot_active_group_${user.id}`)
+          if (saved && loaded.some(g => g.id === saved)) {
+            setActiveGroupId(saved)
+            setFilter("groups" as FilterMode)
+          }
+        } catch { /* ignore */ }
       }
     } catch (e) {
       console.error("loadGroups:", e)
@@ -693,6 +730,37 @@ export default function MapView() {
       toast.error("Erreur lors de la création du groupe")
     }
     setCreatingGroup(false)
+  }
+
+  const openGroupPicker = async (spotId: string) => {
+    const { data } = await supabaseRef.current
+      .from("spot_group_spots").select("group_id").eq("spot_id", spotId)
+    setPickerSpotGroupIds(new Set((data ?? []).map((r: any) => r.group_id as string)))
+    setShowGroupPicker(true)
+  }
+
+  const handleToggleSpotInGroup = async (groupId: string, spotId: string) => {
+    if (!user) return
+    setTogglingGroupId(groupId)
+    const isIn = pickerSpotGroupIds.has(groupId)
+    try {
+      if (isIn) {
+        const { error } = await supabaseRef.current.from("spot_group_spots").delete()
+          .eq("spot_id", spotId).eq("group_id", groupId)
+        if (error) throw error
+        setPickerSpotGroupIds(prev => { const n = new Set(prev); n.delete(groupId); return n })
+        if (groupId === activeGroupId) setGroupSpotIds(prev => { const n = new Set(prev); n.delete(spotId); return n })
+      } else {
+        const { error } = await supabaseRef.current.from("spot_group_spots")
+          .insert({ spot_id: spotId, group_id: groupId, added_by: user.id })
+        if (error) throw error
+        setPickerSpotGroupIds(prev => new Set([...prev, groupId]))
+        if (groupId === activeGroupId) setGroupSpotIds(prev => new Set([...prev, spotId]))
+      }
+    } catch {
+      toast.error("Erreur lors de la mise à jour du groupe")
+    }
+    setTogglingGroupId(null)
   }
 
   const markLikesSeen = useCallback(async () => {
@@ -783,6 +851,18 @@ export default function MapView() {
   useEffect(() => {
     fetchFriendLocations()
   }, [fetchFriendLocations])
+
+  // Charger les IDs des spots du groupe actif
+  useEffect(() => {
+    if (!activeGroupId) { setGroupSpotIds(new Set()); return }
+    supabaseRef.current
+      .from("spot_group_spots")
+      .select("spot_id")
+      .eq("group_id", activeGroupId)
+      .then(({ data }) => {
+        setGroupSpotIds(new Set((data ?? []).map((r: { spot_id: string }) => r.spot_id)))
+      })
+  }, [activeGroupId])
 
   const handleSurpriseFromMap = useCallback(() => {
     if (!followingIds.length) { toast.error("Suis des amis pour utiliser cette fonctionnalité !"); return }
@@ -925,36 +1005,29 @@ export default function MapView() {
   const visibleFriendSet = useMemo(() => new Set(visibleFriendIds), [visibleFriendIds])
 
   const friendProfiles = useMemo(() => {
-    const seen = new Set<string>()
-    const result: { id: string; username: string | null; avatar_url: string | null }[] = []
-    for (const s of spots) {
-      if (s.user_id !== user?.id && visibleFriendSet.has(s.user_id) && !seen.has(s.user_id)) {
-        seen.add(s.user_id)
-        result.push({ id: s.user_id, username: s.profiles?.username ?? null, avatar_url: s.profiles?.avatar_url ?? null })
-      }
-    }
-    return result
-  }, [spots, user?.id, visibleFriendSet])
+    return followingIds.map(id => ({
+      id,
+      username: followingProfilesMap[id]?.username ?? null,
+      avatar_url: followingProfilesMap[id]?.avatar_url ?? null,
+    }))
+  }, [followingIds, followingProfilesMap])
 
   const loveReactions = useMemo(() => reactions.filter(r => r.type === "love"), [reactions])
 
   const visibleSpots = useMemo(() => {
     if (filter === "mine") return spots.filter((s) => s.user_id === user?.id)
     if (filter === "groups" && activeGroupId) {
-      return spots.filter((s) => s.visibility === "group" && s.group_id === activeGroupId)
+      return spots.filter((s) => groupSpotIds.has(s.id))
     }
-    // Mode découverte : si l'utilisateur ne suit personne encore, montrer tous les spots publics
-    const noFollows = visibleFriendSet.size === 0 && followingIds.length === 0
     let base = spots.filter((s) => {
       if (s.visibility === "group") return false
       if (s.visibility === "private") return false
-      if (noFollows) return true // découverte : tout ce qui est 'friends' ou null
       return s.user_id === user?.id || visibleFriendSet.has(s.user_id)
     })
     if (friendFilterIds.size > 0) base = base.filter((s) => friendFilterIds.has(s.user_id))
     if (friendCategoryFilter.size > 0) base = base.filter((s) => friendCategoryFilter.has(s.category ?? "other"))
     return base
-  }, [spots, filter, user?.id, visibleFriendSet, followingIds.length, friendFilterIds, friendCategoryFilter, activeGroupId])
+  }, [spots, filter, user?.id, visibleFriendSet, friendFilterIds, friendCategoryFilter, activeGroupId, groupSpotIds])
 
   const locateUser = useCallback(() => {
     if (!navigator.geolocation || !mapRef.current) return
@@ -1046,6 +1119,7 @@ export default function MapView() {
     setCarouselIdx(0)
     setDescExpanded(false)
     setShowLikersPanel(false)
+    setShowGroupPicker(false)
     if (carouselRef.current) carouselRef.current.scrollLeft = 0
   }, [selectedSpot?.id])
 
@@ -1083,10 +1157,13 @@ export default function MapView() {
     maps_url: string | null
     price_range: string | null
     expires_at: string | null
-    visibility: 'friends' | 'group' | 'private'
-    group_id: string | null
+    visibility: 'friends' | 'private'
+    groupIds: string[]
   }) => {
     if (!user) throw new Error("Tu dois être connecté !")
+
+    // Extraire groupIds (non stocké dans spots)
+    const { groupIds, ...spotDbData } = spotData
 
     const tempId = `temp-${Date.now()}`
     const profileSnap = {
@@ -1098,14 +1175,14 @@ export default function MapView() {
     const optimisticSpot: Spot = {
       id: tempId,
       user_id: user.id,
-      ...spotData,
+      ...spotDbData,
       created_at: new Date().toISOString(),
       profiles: profileSnap,
     }
 
     // Supprimer l'ancien spot de l'utilisateur à la même adresse (doublon)
-    if (spotData.address) {
-      const duplicate = spots.find(s => s.user_id === user.id && s.address === spotData.address)
+    if (spotDbData.address) {
+      const duplicate = spots.find(s => s.user_id === user.id && s.address === spotDbData.address)
       if (duplicate) {
         await supabaseRef.current.from("spots").delete().eq("id", duplicate.id)
         setSpots(prev => prev.filter(s => s.id !== duplicate.id))
@@ -1118,7 +1195,7 @@ export default function MapView() {
       // Tenter insert avec tous les champs, dont maps_url
       const { data: inserted, error } = await supabaseRef.current
         .from("spots")
-        .insert({ user_id: user.id, ...spotData })
+        .insert({ user_id: user.id, ...spotDbData })
         .select()
         .single()
 
@@ -1126,7 +1203,7 @@ export default function MapView() {
         // Colonne inconnue (42703) → retry sans les champs optionnels non migrés
         if (error.code === "42703" || error.code === "PGRST204") {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { maps_url, weekday_descriptions, image_url, expires_at, price_range, opening_hours, ...core } = spotData
+          const { maps_url, weekday_descriptions, image_url, expires_at, price_range, opening_hours, ...core } = spotDbData
           const { data: fallback, error: fallbackError } = await supabaseRef.current
             .from("spots")
             .insert({ user_id: user.id, ...core, image_url })
@@ -1134,15 +1211,21 @@ export default function MapView() {
             .single()
           if (fallbackError) throw new Error(fallbackError.message)
           if (fallback) {
+            if (groupIds.length > 0) {
+              await supabaseRef.current.from("spot_group_spots").insert(
+                groupIds.map(gid => ({ spot_id: fallback.id, group_id: gid, added_by: user.id }))
+              )
+              setGroupSpotIds(prev => { const next = new Set(prev); groupIds.forEach(gid => { if (gid === activeGroupId) next.add(fallback.id) }); return next })
+            }
             const realSpot: Spot = {
               ...fallback,
-              maps_url: spotData.maps_url,
-              weekday_descriptions: spotData.weekday_descriptions,
+              maps_url: spotDbData.maps_url,
+              weekday_descriptions: spotDbData.weekday_descriptions,
               profiles: profileSnap,
             }
             setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
             setSelectedSpot(realSpot)
-            mapRef.current?.flyTo({ center: [spotData.lng, spotData.lat], zoom: 15, duration: 1200 })
+            mapRef.current?.flyTo({ center: [spotDbData.lng, spotDbData.lat], zoom: 15, duration: 1200 })
           } else {
             await fetchSpots()
           }
@@ -1151,16 +1234,24 @@ export default function MapView() {
         throw new Error(error.message || "Erreur Supabase RLS")
       }
 
+      // Insérer dans spot_group_spots si des groupes sont sélectionnés
+      if (groupIds.length > 0 && inserted) {
+        await supabaseRef.current.from("spot_group_spots").insert(
+          groupIds.map(gid => ({ spot_id: inserted.id, group_id: gid, added_by: user.id }))
+        )
+        setGroupSpotIds(prev => { const next = new Set(prev); groupIds.forEach(gid => { if (gid === activeGroupId) next.add(inserted.id) }); return next })
+      }
+
       // Succès : remplacer le spot optimiste par le vrai et l'ouvrir
       const realSpot: Spot = {
         ...inserted,
-        maps_url: spotData.maps_url,
-        weekday_descriptions: spotData.weekday_descriptions,
+        maps_url: spotDbData.maps_url,
+        weekday_descriptions: spotDbData.weekday_descriptions,
         profiles: profileSnap,
       }
       setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
       setSelectedSpot(realSpot)
-      mapRef.current?.flyTo({ center: [spotData.lng, spotData.lat], zoom: 15, duration: 1200 })
+      mapRef.current?.flyTo({ center: [spotDbData.lng, spotDbData.lat], zoom: 15, duration: 1200 })
     } catch (e: unknown) {
       const err = e as { message?: string }
       console.error("Insert error:", err)
@@ -1176,15 +1267,15 @@ export default function MapView() {
     }
   }
 
+  const isAdmin = userProfile?.is_admin === true
+
   const handleDeleteSpot = async (spotId: string) => {
     if (!user) return
     try {
       await supabaseRef.current.from("spot_reactions").delete().eq("spot_id", spotId)
-      const { error } = await supabaseRef.current
-        .from("spots")
-        .delete()
-        .eq("id", spotId)
-        .eq("user_id", user.id)
+      let q = supabaseRef.current.from("spots").delete().eq("id", spotId)
+      if (!isAdmin) q = q.eq("user_id", user.id)
+      const { error } = await q
       if (error) throw error
       setSpots((prev) => prev.filter((s) => s.id !== spotId))
       if (selectedSpot?.id === spotId) setSelectedSpot(null)
@@ -1197,6 +1288,16 @@ export default function MapView() {
   const handleUpdateSpot = (updatedSpot: Spot) => {
     setSpots((prev) => prev.map((s) => s.id === updatedSpot.id ? updatedSpot : s))
     if (selectedSpot?.id === updatedSpot.id) setSelectedSpot(updatedSpot)
+    // Rafraîchir les IDs du groupe actif si le spot édité en fait partie
+    if (activeGroupId) {
+      supabaseRef.current
+        .from("spot_group_spots")
+        .select("spot_id")
+        .eq("group_id", activeGroupId)
+        .then(({ data }) => {
+          setGroupSpotIds(new Set((data ?? []).map((r: { spot_id: string }) => r.spot_id)))
+        })
+    }
   }
 
   const filterButtons: {
@@ -1525,11 +1626,13 @@ export default function MapView() {
             }
           }}
           onMove={() => {
-            if (mapRef.current) {
-              const b = mapRef.current.getBounds()?.toArray().flat()
+            if (!mapRef.current) return
+            const b = mapRef.current.getBounds()?.toArray().flat()
+            const z = mapRef.current.getZoom()
+            startTransition(() => {
               if (b) setBounds(b as [number, number, number, number])
-              setZoom(mapRef.current.getZoom())
-            }
+              setZoom(z)
+            })
           }}
           style={{ width: "100%", height: "100%" }}
         >
@@ -1949,7 +2052,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className="pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-end gap-3 sm:bottom-[7rem]">
+      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-[7rem]", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -1984,7 +2087,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className="pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 z-40 sm:bottom-[7rem]">
+      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-[7rem]", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2226,6 +2329,32 @@ export default function MapView() {
                 </div>
               )}
 
+              {user && followingIds.length > 0 && (
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => {
+                      setProposeOutingSpot(selectedSpot)
+                      setSelectedSpot(null)
+                      setShowFriendsModal(true)
+                    }}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 px-4 py-2.5 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 transition-colors hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-[0.98]"
+                  >
+                    <CalendarPlus size={14} /> Proposer ici
+                  </button>
+                  {groups.length > 0 && (
+                    <button
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => openGroupPicker(selectedSpot.id)}
+                      title="Ajouter au groupe"
+                      className="flex items-center justify-center rounded-2xl bg-gray-100 dark:bg-white/[0.07] p-2.5 text-gray-700 dark:text-zinc-300 transition-colors hover:bg-gray-200 dark:hover:bg-white/[0.12] active:scale-[0.98]"
+                    >
+                      <Layers size={16} />
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <a
                   href={selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`}
@@ -2254,7 +2383,7 @@ export default function MapView() {
                 >
                   <Share size={16} /> Partager
                 </button>
-                {selectedSpot.user_id === user?.id && (
+                {(selectedSpot.user_id === user?.id || isAdmin) && (
                   <>
                     <button
                       onClick={() => {
@@ -2376,7 +2505,61 @@ export default function MapView() {
               </div>
             </div>{/* fin px-5 pb-6 pt-4 */}
             </div>{/* fin flex-1 overflow-y-auto */}
+
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Group picker overlay (fixed, au-dessus de la nav bar) ── */}
+      <AnimatePresence>
+        {showGroupPicker && selectedSpot && (
+          <div className="fixed inset-0 z-[100] flex flex-col justify-end">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowGroupPicker(false)} />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 400, damping: 34 }}
+              className="relative z-10 rounded-t-3xl bg-white dark:bg-zinc-950 px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))]"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-[15px] font-bold text-gray-900 dark:text-white">Ajouter à un groupe</p>
+                <button onClick={() => setShowGroupPicker(false)} className="rounded-xl p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-white">
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="space-y-2">
+                {groups.map(group => {
+                  const isIn = pickerSpotGroupIds.has(group.id)
+                  const toggling = togglingGroupId === group.id
+                  return (
+                    <button
+                      key={group.id}
+                      onClick={() => handleToggleSpotInGroup(group.id, selectedSpot.id)}
+                      disabled={toggling}
+                      className={cn(
+                        "w-full flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-all active:scale-[0.99] disabled:opacity-60",
+                        isIn
+                          ? "border-indigo-300 dark:border-indigo-500/40 bg-indigo-50 dark:bg-indigo-500/[0.08]"
+                          : "border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 hover:bg-gray-50 dark:hover:bg-zinc-800"
+                      )}
+                    >
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-lg">
+                        {group.emoji}
+                      </div>
+                      <p className="flex-1 text-[14px] font-semibold text-gray-800 dark:text-zinc-100 truncate">{group.name}</p>
+                      {toggling
+                        ? <LoaderCircle size={16} className="flex-shrink-0 animate-spin text-indigo-400" />
+                        : isIn
+                          ? <Check size={16} className="flex-shrink-0 text-indigo-500" />
+                          : null
+                      }
+                    </button>
+                  )
+                })}
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -2555,6 +2738,8 @@ export default function MapView() {
           spot={editingSpot}
           onClose={() => setEditingSpot(null)}
           onUpdate={handleUpdateSpot}
+          groups={groups}
+          currentUserId={user?.id}
         />
       )}
 
@@ -2646,6 +2831,23 @@ export default function MapView() {
         }}
         spots={spots}
         userProfile={userProfile}
+        groups={groups}
+        onCreateGroup={async (name, emoji) => {
+          if (!user) return
+          const { data: group, error } = await supabaseRef.current
+            .from("spot_groups")
+            .insert({ creator_id: user.id, name: name.trim(), emoji })
+            .select()
+            .single()
+          if (error) throw error
+          await supabaseRef.current
+            .from("spot_group_members")
+            .insert({ group_id: group.id, user_id: user.id })
+          setGroups(prev => [...prev, group as SpotGroup])
+        }}
+        proposeOutingSpot={proposeOutingSpot}
+        onProposeConsumed={() => setProposeOutingSpot(null)}
+        onOpenGroupSettings={(group) => setSelectedGroupForSettings(group as SpotGroup)}
         onLocateOuting={(lat, lng) => {
           setShowFriendsModal(false)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 })
