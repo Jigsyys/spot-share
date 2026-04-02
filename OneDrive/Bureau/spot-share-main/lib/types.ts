@@ -49,6 +49,22 @@ export interface Spot {
 
 export type FilterMode = "all" | "friends" | "mine" | "groups"
 
+export interface Activity {
+  id: string
+  type: "spot_added" | "reaction" | "friend_request_accepted" | "outing_invite"
+  actor_id: string
+  target_user_id: string
+  spot_id: string | null
+  outing_id: string | null
+  read_at: string | null
+  created_at: string
+  // champs joints
+  actor_username: string | null
+  actor_avatar_url: string | null
+  spot_title: string | null
+  spot_image_url: string | null
+}
+
 export interface GeocodingResult {
   id: string
   place_name: string

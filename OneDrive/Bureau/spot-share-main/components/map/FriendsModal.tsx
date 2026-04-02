@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import type { Activity } from "@/lib/types"
 
 import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
@@ -153,7 +154,7 @@ interface OutingInvitationFull {
   }
 }
 
-type Tab = "amis" | "classement" | "invitations"
+type Tab = "amis" | "sorties" | "activite"
 type GroupInvitationEnriched = import("@/lib/types").SpotGroupInvitation & { inviterProfile: { username: string | null; avatar_url: string | null } | null }
 
 type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
@@ -181,9 +182,80 @@ interface FriendsModalProps {
   onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (spotId: string) => void
-  spots?: Array<{ id: string; user_id: string; created_at: string; image_url?: string | null; lat?: number; lng?: number; profiles?: { username: string | null; avatar_url: string | null } }>
+  spots?: Array<{ id: string; user_id: string; created_at: string; title?: string | null; image_url?: string | null; lat?: number; lng?: number; profiles?: { username: string | null; avatar_url: string | null } }>
   onLocateOuting?: (lat: number, lng: number) => void
   userProfile?: { username: string | null; avatar_url: string | null } | null
+  groups?: Array<{ id: string; name: string; emoji: string; creator_id: string }>
+  onCreateGroup?: (name: string, emoji: string) => Promise<void>
+  proposeOutingSpot?: { id: string; title: string; lat?: number; lng?: number } | null
+  onProposeConsumed?: () => void
+  onOpenGroupSettings?: (group: { id: string; name: string; emoji: string; creator_id: string }) => void
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ActivityRow
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ActivityRow({
+  activity,
+  onSelectSpot,
+}: {
+  activity: Activity
+  onSelectSpot?: (spotId: string) => void
+}) {
+  const timeAgoShort = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const min = Math.floor(diff / 60000)
+    if (min < 60) return `${min}m`
+    const h = Math.floor(min / 60)
+    if (h < 24) return `${h}h`
+    return `${Math.floor(h / 24)}j`
+  }
+
+  const text = () => {
+    const name = activity.actor_username ?? "Quelqu'un"
+    switch (activity.type) {
+      case "spot_added": return `${name} a ajouté un nouveau spot`
+      case "reaction": return `${name} a aimé ton spot${activity.spot_title ? ` "${activity.spot_title}"` : ""}`
+      case "friend_request_accepted": return `${name} a accepté ta demande d'ami`
+      case "outing_invite": return `${name} t'invite à une sortie`
+    }
+  }
+
+  const handleClick = () => {
+    if (activity.spot_id && onSelectSpot) onSelectSpot(activity.spot_id)
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800/60 active:scale-[0.98]"
+    >
+      {activity.actor_avatar_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={activity.actor_avatar_url}
+          alt=""
+          className="h-9 w-9 rounded-full object-cover flex-shrink-0"
+        />
+      ) : (
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-sm font-bold text-indigo-600 dark:text-indigo-400">
+          {(activity.actor_username ?? "?")[0].toUpperCase()}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] text-gray-800 dark:text-zinc-200 leading-snug line-clamp-2">
+          {text()}
+        </p>
+        <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
+          {timeAgoShort(activity.created_at)}
+        </p>
+      </div>
+      {!activity.read_at && (
+        <div className="h-2 w-2 rounded-full bg-indigo-500 flex-shrink-0" />
+      )}
+    </button>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -206,6 +278,11 @@ export default function FriendsModal({
   spots,
   userProfile,
   onLocateOuting,
+  groups = [],
+  onCreateGroup,
+  proposeOutingSpot,
+  onProposeConsumed,
+  onOpenGroupSettings,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
@@ -218,8 +295,11 @@ export default function FriendsModal({
   }) => setConfirmDialog({ open: true, ...opts }), [])
   const [showCreateOuting, setShowCreateOuting] = useState(false)
   const [query, setQuery] = useState("")
-  const [invitationsSeen, setInvitationsSeen] = useState(false)
   const [expandedNotifId, setExpandedNotifId] = useState<string | null>(null)
+  const [showCreateGroupForm, setShowCreateGroupForm] = useState(false)
+  const [newGroupFormName, setNewGroupFormName] = useState("")
+  const [newGroupFormEmoji, setNewGroupFormEmoji] = useState("🍻")
+  const [creatingGroupLocal, setCreatingGroupLocal] = useState(false)
 
   // ── Data state ──────────────────────────────────────────────
   const [searchResults, setSearchResults] = useState<Profile[]>([])
@@ -233,6 +313,7 @@ export default function FriendsModal({
 
   // ── Loading state ───────────────────────────────────────────
   const [searchLoading, setSearchLoading] = useState(false)
+  const [followingLoading, setFollowingLoading] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [respondingGroupInviteId, setRespondingGroupInviteId] = useState<string | null>(null)
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
@@ -271,8 +352,13 @@ export default function FriendsModal({
   const [userMonthlyRank, setUserMonthlyRank] = useState<{ entry: RankEntry; rank: number } | null>(null)
   const [userTopSpot, setUserTopSpot] = useState<{ spot: TopSpot; rank: number } | null>(null)
 
+  // ── Activity feed state ──────────────────────────────────────
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [activitiesLoading, setActivitiesLoading] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+
   const supabaseRef = useRef(createClient())
-  const swipe = useSwipeToClose(onClose, showCreateOuting || !!editingOuting)
+  const swipe = useSwipeToClose(onClose, showCreateOuting || !!editingOuting || showCreateGroupForm)
   const followingIdsRef = useRef(followingIds)
   followingIdsRef.current = followingIds
   const currentUserRef = useRef(currentUser)
@@ -287,10 +373,12 @@ export default function FriendsModal({
       const ids = customIds ?? followingIdsRef.current
       if (!currentUser || ids.length === 0) { setFollowing([]); return }
       // Afficher immédiatement depuis le cache localStorage
+      let hasCached = false
       try {
         const cached = localStorage.getItem(`following_${currentUser.id}`)
-        if (cached) setFollowing(JSON.parse(cached))
+        if (cached) { setFollowing(JSON.parse(cached)); hasCached = true }
       } catch { /* ignore */ }
+      if (!hasCached) setFollowingLoading(true)
       // Puis charger les données fraîches
       try {
         const { data } = await supabaseRef.current
@@ -301,6 +389,7 @@ export default function FriendsModal({
         setFollowing(profiles)
         localStorage.setItem(`following_${currentUser.id}`, JSON.stringify(profiles))
       } catch { /* ignore */ }
+      setFollowingLoading(false)
     },
     [currentUser] // followingIds retiré — on utilise followingIdsRef pour éviter les re-renders en boucle
   )
@@ -308,16 +397,8 @@ export default function FriendsModal({
   const loadSentRequests = useCallback(async () => {
     if (!currentUser) return
     try {
-      const { data } = await supabaseRef.current
-        .from("friend_requests").select("to_id, profiles!friend_requests_to_id_fkey(username, avatar_url)")
-        .eq("from_id", currentUser.id).eq("status", "pending")
-      if (data) {
-        // FK join may fail if to_id references auth.users — fetch profiles separately
-        const ids = data.map((r: { to_id: string }) => r.to_id)
-        const { data: profiles } = await supabaseRef.current.from("profiles").select("id, username, avatar_url").in("id", ids)
-        const profileMap = Object.fromEntries((profiles ?? []).map((p: { id: string; username: string | null; avatar_url: string | null }) => [p.id, p]))
-        setPendingSent(ids.map((id: string) => ({ id, username: profileMap[id]?.username ?? null, avatar_url: profileMap[id]?.avatar_url ?? null })))
-      }
+      const { data } = await supabaseRef.current.rpc("get_sent_requests", { p_user_id: currentUser.id })
+      if (data) setPendingSent(data as { id: string; username: string | null; avatar_url: string | null }[])
     } catch {}
   }, [currentUser])
 
@@ -533,6 +614,50 @@ export default function FriendsModal({
     }
   }, [currentUser])
 
+  const loadActivities = useCallback(async () => {
+    if (!currentUser) return
+    setActivitiesLoading(true)
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from("activities")
+        .select(`
+          id, type, actor_id, target_user_id, spot_id, outing_id, read_at, created_at,
+          actor:profiles!activities_actor_id_fkey(username, avatar_url),
+          spot:spots!activities_spot_id_fkey(title, image_url)
+        `)
+        .eq("target_user_id", currentUser.id)
+        .order("created_at", { ascending: false })
+        .limit(30)
+
+      if (error) { console.error("loadActivities:", error); return }
+
+      const mapped: Activity[] = (data ?? []).map((row: Record<string, unknown>) => {
+        const actor = row.actor as { username: string | null; avatar_url: string | null } | null
+        const spot = row.spot as { title: string | null; image_url: string | null } | null
+        return {
+          id: row.id as string,
+          type: row.type as Activity["type"],
+          actor_id: row.actor_id as string,
+          target_user_id: row.target_user_id as string,
+          spot_id: row.spot_id as string | null,
+          outing_id: row.outing_id as string | null,
+          read_at: row.read_at as string | null,
+          created_at: row.created_at as string,
+          actor_username: actor?.username ?? null,
+          actor_avatar_url: actor?.avatar_url ?? null,
+          spot_title: spot?.title ?? null,
+          spot_image_url: spot?.image_url ?? null,
+        }
+      })
+
+      setActivities(mapped)
+      setUnreadCount(mapped.filter(a => !a.read_at).length)
+    } finally {
+      setActivitiesLoading(false)
+    }
+  }, [currentUser])
+
   const acceptGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
     if (!currentUser || respondingGroupInviteId) return
     setRespondingGroupInviteId(inv.id)
@@ -567,6 +692,74 @@ export default function FriendsModal({
       setRespondingGroupInviteId(null)
     }
   }, [respondingGroupInviteId])
+
+  const handleCreateGroupLocal = useCallback(async () => {
+    if (!newGroupFormName.trim() || !onCreateGroup) return
+    setCreatingGroupLocal(true)
+    try {
+      await onCreateGroup(newGroupFormName.trim(), newGroupFormEmoji)
+      setNewGroupFormName("")
+      setNewGroupFormEmoji("🍻")
+      setShowCreateGroupForm(false)
+    } catch {}
+    setCreatingGroupLocal(false)
+  }, [newGroupFormName, newGroupFormEmoji, onCreateGroup])
+
+  // ─── Realtime patch helpers — fetch minimal d'un seul item ──
+  // Évite le full refetch sur chaque événement realtime
+
+  const patchOutingInvitation = useCallback(async (invId: string) => {
+    if (!currentUser) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("outing_invitations").select("*, outings(*)").eq("id", invId).single()
+      if (!data || data.status !== "pending" || (data.outings as any)?.status === "cancelled") return
+      const outing = data.outings as any
+      const creatorId = outing?.creator_id
+      let profile = null
+      if (creatorId) {
+        const { data: p } = await supabaseRef.current.from("profiles").select("id, username, avatar_url").eq("id", creatorId).single()
+        profile = p
+      }
+      const { data: allInvs } = await supabaseRef.current
+        .from("outing_invitations").select("id, outing_id, invitee_id, status").eq("outing_id", data.outing_id)
+      const enriched = {
+        ...data,
+        outings: outing ? { ...outing, profiles: profile, allInvitations: allInvs ?? [] } : null,
+      }
+      setOutingInvitations(prev => prev.some(i => i.id === invId) ? prev : [enriched as unknown as OutingInvitationFull, ...prev])
+    } catch { /* ignore */ }
+  }, [currentUser])
+
+  const patchGroupInvitation = useCallback(async (invId: string) => {
+    if (!currentUser) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("spot_group_invitations").select("*").eq("id", invId).single()
+      if (!data || data.status !== "pending") return
+      const [groupRes, profileRes] = await Promise.all([
+        supabaseRef.current.from("spot_groups").select("id, name, emoji, creator_id").eq("id", data.group_id).single(),
+        supabaseRef.current.from("profiles").select("id, username, avatar_url").eq("id", data.inviter_id).single(),
+      ])
+      const enriched: GroupInvitationEnriched = {
+        ...data,
+        spot_groups: groupRes.data ?? null,
+        inviterProfile: profileRes.data ?? null,
+      } as unknown as GroupInvitationEnriched
+      setGroupInvitations(prev => prev.some(i => i.id === invId) ? prev : [enriched, ...prev])
+    } catch { /* ignore */ }
+  }, [currentUser])
+
+  const patchIncomingRequest = useCallback(async (reqId: string, fromId: string) => {
+    if (!currentUser) return
+    try {
+      const { data: profile } = await supabaseRef.current
+        .from("profiles").select("id, username, avatar_url, last_active_at, last_lat, last_lng, is_ghost_mode").eq("id", fromId).single()
+      if (!profile) return
+      const req = { id: reqId, from_id: fromId, to_id: currentUser.id, status: "pending", profiles: profile }
+      setIncomingRequests(prev => prev.some(r => r.id === reqId) ? prev : [req as any, ...prev])
+    } catch { /* ignore */ }
+  }, [currentUser])
 
   // ─── Location search ────────────────────────────────────────
 
@@ -617,7 +810,21 @@ export default function FriendsModal({
   // ─── Effect: fetch classement data when tab opens ────────────
 
   useEffect(() => {
-    if (activeTab !== "classement" || !isOpen) return
+    if (activeTab !== "activite" || !isOpen) return
+
+    // ── Activity feed ────────────────────────────────────────────
+    loadActivities()
+
+    // Marquer tout comme lu
+    if (currentUser) {
+      createClient()
+        .from("activities")
+        .update({ read_at: new Date().toISOString() })
+        .eq("target_user_id", currentUser.id)
+        .is("read_at", null)
+        .then(() => setUnreadCount(0))
+    }
+
     const ids = followingIdsRef.current
     const me = currentUserRef.current
     const allIds = me ? [...ids, me.id] : ids
@@ -734,7 +941,25 @@ export default function FriendsModal({
         }
       })
       .then(undefined, () => { setTopSpots([]); setUserTopSpot(null); setTopSpotsLoading(false) })
-  }, [activeTab, isOpen])
+  }, [activeTab, isOpen, loadActivities, currentUser])
+
+  // ─── Effect: auto-open create outing with pre-selected spot ──
+  useEffect(() => {
+    if (!isOpen || !proposeOutingSpot) return
+    setActiveTab("sorties")
+    setShowCreateOuting(true)
+    if (proposeOutingSpot.lat && proposeOutingSpot.lng) {
+      setSelectedLocation({
+        id: proposeOutingSpot.id,
+        label: proposeOutingSpot.title,
+        lat: proposeOutingSpot.lat,
+        lng: proposeOutingSpot.lng,
+        isAppSpot: true,
+        spotId: proposeOutingSpot.id,
+      })
+    }
+    onProposeConsumed?.()
+  }, [isOpen, proposeOutingSpot])
 
   // ─── Effect: load on open ────────────────────────────────────
 
@@ -751,34 +976,66 @@ export default function FriendsModal({
 
     const channel = supabaseRef.current
       .channel(`friends-modal-${currentUser.id}`)
+      // ── friend_requests reçues ───────────────────────────────
       .on("postgres_changes", {
-        event: "*", schema: "public", table: "friend_requests",
+        event: "INSERT", schema: "public", table: "friend_requests",
         filter: `to_id=eq.${currentUser.id}`,
-      }, () => loadIncomingRequests())
+      }, (payload) => {
+        const row = payload.new as { id: string; from_id: string }
+        patchIncomingRequest(row.id, row.from_id)
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "friend_requests",
+        filter: `to_id=eq.${currentUser.id}`,
+      }, (payload) => {
+        const row = payload.new as { id: string; status: string }
+        if (row.status !== "pending") setIncomingRequests(prev => prev.filter(r => r.id !== row.id))
+      })
+      .on("postgres_changes", {
+        event: "DELETE", schema: "public", table: "friend_requests",
+        filter: `to_id=eq.${currentUser.id}`,
+      }, (payload) => {
+        const row = payload.old as { id: string }
+        setIncomingRequests(prev => prev.filter(r => r.id !== row.id))
+      })
+      // ── friend_requests envoyées ─────────────────────────────
       .on("postgres_changes", {
         event: "*", schema: "public", table: "friend_requests",
         filter: `from_id=eq.${currentUser.id}`,
       }, () => loadSentRequests())
-      // 🔔 Notification en temps réel pour les invitations de sortie
+      // ── outing_invitations ───────────────────────────────────
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "outing_invitations",
         filter: `invitee_id=eq.${currentUser.id}`,
-      }, () => {
-        loadOutingInvitations()
-        loadOutings()
+      }, (payload) => {
+        const row = payload.new as { id: string }
+        patchOutingInvitation(row.id)
       })
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "outing_invitations",
         filter: `invitee_id=eq.${currentUser.id}`,
-      }, () => {
-        loadOutingInvitations()
-        loadOutings()
+      }, (payload) => {
+        const row = payload.new as { id: string; status: string }
+        if (row.status !== "pending") {
+          setOutingInvitations(prev => prev.filter(i => i.id !== row.id))
+        }
       })
+      // ── spot_group_invitations ───────────────────────────────
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "spot_group_invitations",
         filter: `invitee_id=eq.${currentUser.id}`,
-      }, () => loadGroupInvitations())
-      // Sortie annulée ou modifiée par l'organisateur
+      }, (payload) => {
+        const row = payload.new as { id: string }
+        patchGroupInvitation(row.id)
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "spot_group_invitations",
+        filter: `invitee_id=eq.${currentUser.id}`,
+      }, (payload) => {
+        const row = payload.new as { id: string; status: string }
+        if (row.status !== "pending") setGroupInvitations(prev => prev.filter(i => i.id !== row.id))
+      })
+      // ── outings (annulation / modif par l'organisateur) ──────
       .on("postgres_changes", {
         event: "UPDATE", schema: "public", table: "outings",
       }, (payload) => {
@@ -787,7 +1044,8 @@ export default function FriendsModal({
           setOutings(prev => prev.filter(o => o.id !== updated.id))
           setOutingInvitations(prev => prev.filter(i => i.outings?.id !== updated.id))
         } else {
-          loadOutings()
+          // mise à jour légère du champ status dans les sorties existantes
+          setOutings(prev => prev.map(o => o.id === updated.id ? { ...o, status: updated.status as any } : o))
         }
       })
       .subscribe()
@@ -797,7 +1055,30 @@ export default function FriendsModal({
     isOpen, currentUser,
     loadFollowing, loadSentRequests, loadIncomingRequests,
     loadSuggestions, loadOutings, loadOutingInvitations, loadGroupInvitations, onRefreshFollowing,
+    patchOutingInvitation, patchGroupInvitation, patchIncomingRequest,
   ])
+
+  // ─── Realtime: activities ────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || !currentUser) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`activities-${currentUser.id}`)
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "activities",
+        filter: `target_user_id=eq.${currentUser.id}`,
+      }, () => {
+        if (activeTab !== "activite") {
+          setUnreadCount(prev => prev + 1)
+        }
+        if (activeTab === "activite") loadActivities()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [isOpen, currentUser, activeTab, loadActivities])
 
   // ─── Search ──────────────────────────────────────────────────
 
@@ -1044,19 +1325,25 @@ export default function FriendsModal({
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     )
 
-  // Total badge for Invitations tab
-  const totalInvitations = incomingRequests.length + outingInvitations.length
-
-  // Reset seen state when new invitations arrive
-  const prevTotalRef = useRef(0)
-  useEffect(() => {
-    if (totalInvitations > prevTotalRef.current) setInvitationsSeen(false)
-    prevTotalRef.current = totalInvitations
-  }, [totalInvitations])
+  // Per-tab badge counts
+  const amisBadge = groupInvitations.length
+  const sortiesBadge = outingInvitations.length
+  const activiteBadge = incomingRequests.length
 
   // Upcoming + past outings split
   const upcomingOutings = outings.filter(o => !isOutingPast(o.scheduled_at) || !o.scheduled_at)
   const pastOutings = outings.filter(o => isOutingPast(o.scheduled_at))
+
+  // Activity feed: spots added by friends in the last 7 days (derived from existing spots prop)
+  const activityFeed = useMemo(() => {
+    if (!spots || followingIds.length === 0) return []
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const followingSet = new Set(followingIds)
+    return spots
+      .filter(s => followingSet.has(s.user_id) && new Date(s.created_at).getTime() > cutoff)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 15)
+  }, [spots, followingIds])
 
   const minDateTime = new Date(Date.now() + 5 * 60000).toISOString().slice(0, 16)
 
@@ -1064,8 +1351,8 @@ export default function FriendsModal({
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "amis", label: "Amis", icon: <UserCheck size={12} /> },
-    { id: "classement", label: "Classement", icon: <Trophy size={12} /> },
-    { id: "invitations", label: "Invitations", icon: <Bell size={12} /> },
+    { id: "sorties", label: "Sorties", icon: <CalendarCheck size={12} /> },
+    { id: "activite", label: "Activité", icon: <Bell size={12} /> },
   ]
 
   return (
@@ -1140,7 +1427,7 @@ export default function FriendsModal({
                   {tabs.map(tab => (
                     <button
                       key={tab.id}
-                      onClick={() => { setActiveTab(tab.id as Tab); setQuery(""); if (tab.id === "invitations") setInvitationsSeen(true) }}
+                      onClick={() => { setActiveTab(tab.id as Tab); setQuery("") }}
                       className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-semibold transition-all duration-200 ${
                         activeTab === tab.id
                           ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
@@ -1149,9 +1436,19 @@ export default function FriendsModal({
                     >
                       {tab.icon}
                       {tab.label}
-                      {tab.id === "invitations" && totalInvitations > 0 && !invitationsSeen && (
+                      {tab.id === "amis" && amisBadge > 0 && (
                         <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
-                          {totalInvitations}
+                          {amisBadge}
+                        </span>
+                      )}
+                      {tab.id === "sorties" && sortiesBadge > 0 && (
+                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
+                          {sortiesBadge}
+                        </span>
+                      )}
+                      {tab.id === "activite" && (activiteBadge + unreadCount) > 0 && (
+                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
+                          {(activiteBadge + unreadCount) > 9 ? "9+" : activiteBadge + unreadCount}
                         </span>
                       )}
                     </button>
@@ -1185,61 +1482,6 @@ export default function FriendsModal({
                 {activeTab === "amis" && (
                   <div className="space-y-5">
 
-                    {/* CTA Proposer une sortie */}
-                    <button
-                      onClick={() => setShowCreateOuting(true)}
-                      className="group w-full flex items-center gap-3 rounded-xl border-2 border-dashed border-indigo-300/60 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/[0.04] px-4 py-3 text-left transition-all hover:border-indigo-400/80 dark:hover:border-indigo-500/50 hover:bg-indigo-50 dark:hover:bg-indigo-500/[0.08] active:scale-[0.99]"
-                    >
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 transition-colors group-hover:bg-indigo-500/20">
-                        <CalendarPlus size={16} className="text-indigo-600 dark:text-indigo-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
-                          Proposer une sortie
-                        </p>
-                        <p className="text-[11px] text-indigo-500/70 dark:text-indigo-400/60">
-                          Invite tes amis à un spot ou un endroit
-                        </p>
-                      </div>
-                      <ChevronRight size={14} className="text-indigo-400 dark:text-indigo-600 flex-shrink-0" />
-                    </button>
-
-                    {/* Sortie à venir — uniquement la plus proche */}
-                    {upcomingOutings.length > 0 && query.length < 2 && (
-                      <Section
-                        title="Sortie à venir"
-                        icon={<CalendarCheck size={10} />}
-                        badge={upcomingOutings.length > 1 ? (
-                          <span className="rounded-full bg-green-500/10 dark:bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400">
-                            +{upcomingOutings.length - 1} autres
-                          </span>
-                        ) : undefined}
-                      >
-                        <FeaturedOutingCard
-                          outing={upcomingOutings[0]}
-                          currentUserId={currentUser?.id ?? ""}
-                          spots={spots}
-                          onCancel={cancelOuting}
-                          onLocate={onLocateOuting}
-                        />
-                      </Section>
-                    )}
-
-                    {/* Sorties passées (collapsed by default) */}
-                    {pastOutings.length > 0 && query.length < 2 && (
-                      <Section title="Sorties passées" icon={<Clock size={10} />}>
-                        {pastOutings.map(outing => (
-                          <OutingCard
-                            key={outing.id}
-                            outing={outing}
-                            currentUserId={currentUser?.id ?? ""}
-                            onCancel={cancelOuting}
-                            past
-                          />
-                        ))}
-                      </Section>
-                    )}
-
                     {/* Search results */}
                     {query.length >= 2 ? (
                       <Section title="Résultats" icon={<Search size={10} />}>
@@ -1265,11 +1507,23 @@ export default function FriendsModal({
                           ))
                         )}
                       </Section>
+                    ) : followingLoading ? (
+                      <div className="px-4 py-2 space-y-1">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div key={i} className="flex items-center gap-3 px-0 py-2 animate-pulse">
+                            <div className="w-10 h-10 rounded-full bg-zinc-800 shrink-0" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 w-28 rounded bg-zinc-800" />
+                              <div className="h-2.5 w-20 rounded bg-zinc-700" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : sortedFollowing.length === 0 ? (
                       <EmptyState
                         icon={<Users size={24} />}
                         text="Aucun ami pour l'instant"
-                        sub="Trouve des gens à suivre dans l'onglet Classement !"
+                        sub="Trouve des gens à suivre en cherchant par nom !"
                       />
                     ) : (
                       <>
@@ -1318,16 +1572,270 @@ export default function FriendsModal({
                         </Section>
                       </>
                     )}
+
+                    {/* ── Suggestions ────────────────────────────── */}
+                    {query.length < 2 && suggestions.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Suggestions
+                        </p>
+                        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+                          {suggestions.map(s => (
+                            <div key={s.id} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[72px]">
+                              <div className="h-12 w-12 rounded-full overflow-hidden bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-base font-bold text-white flex-shrink-0">
+                                {s.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={s.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : (s.username?.[0] ?? "?").toUpperCase()}
+                              </div>
+                              <p className="text-[11px] text-gray-600 dark:text-zinc-400 max-w-[68px] truncate text-center">
+                                @{s.username ?? "?"}
+                              </p>
+                              {(s.mutualCount ?? 0) > 0 && (
+                                <p className="text-[10px] text-indigo-500 dark:text-indigo-400">
+                                  {s.mutualCount} ami{(s.mutualCount ?? 0) > 1 ? "s" : ""}
+                                </p>
+                              )}
+                              <button
+                                onClick={() => sendRequest(s.id)}
+                                disabled={loadingId === s.id || isPending(s.id) || isFollowingUser(s.id)}
+                                className="rounded-full bg-indigo-500 px-3 py-0.5 text-[11px] font-semibold text-white disabled:opacity-40 hover:bg-indigo-400 transition-colors"
+                              >
+                                {loadingId === s.id ? "…" : isPending(s.id) ? "Envoyé" : isFollowingUser(s.id) ? "Suivi" : "+ Suivre"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Groupes ────────────────────────────────── */}
+                    {query.length < 2 && (
+                      <Section title="Groupes" icon={<Users size={10} />}>
+                        {/* Invitations de groupe en attente */}
+                        {groupInvitations.map(inv => (
+                          <div key={inv.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 px-3 py-2.5">
+                            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-xl">
+                              {inv.spot_groups?.emoji ?? "🏠"}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13px] font-semibold text-gray-800 dark:text-zinc-100">
+                                {inv.spot_groups?.name ?? "Groupe"}
+                              </p>
+                              <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">
+                                Invité par @{inv.inviterProfile?.username ?? "quelqu'un"}
+                              </p>
+                            </div>
+                            <div className="flex gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={() => acceptGroupInvitation(inv)}
+                                disabled={respondingGroupInviteId === inv.id}
+                                className="rounded-xl bg-indigo-500 px-3 py-1.5 text-[12px] font-semibold text-white transition active:scale-95 hover:bg-indigo-400 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                {respondingGroupInviteId === inv.id ? "…" : "Rejoindre"}
+                              </button>
+                              <button
+                                onClick={() => declineGroupInvitation(inv)}
+                                disabled={respondingGroupInviteId === inv.id}
+                                className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-[12px] font-medium text-gray-500 dark:text-zinc-400 transition hover:bg-gray-50 dark:hover:bg-white/5 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                Décliner
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Groupes existants */}
+                        {groups.map(group => (
+                          <button
+                            key={group.id}
+                            onClick={() => onOpenGroupSettings?.(group)}
+                            className="w-full flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 px-3 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800 active:scale-[0.99]"
+                          >
+                            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-xl">
+                              {group.emoji}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13px] font-semibold text-gray-800 dark:text-zinc-100">
+                                {group.name}
+                              </p>
+                            </div>
+                            <ChevronRight size={14} className="flex-shrink-0 text-gray-400 dark:text-zinc-600" />
+                          </button>
+                        ))}
+
+                        {/* Créer un groupe */}
+                        {!showCreateGroupForm ? (
+                          <button
+                            onClick={() => setShowCreateGroupForm(true)}
+                            className="flex w-full items-center gap-3 rounded-2xl border-2 border-dashed border-indigo-300/60 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/[0.04] px-4 py-3 text-left transition-all hover:border-indigo-400/80 dark:hover:border-indigo-500/50 active:scale-[0.99]"
+                          >
+                            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-lg font-bold">
+                              +
+                            </div>
+                            <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">
+                              Créer un groupe
+                            </p>
+                          </button>
+                        ) : (
+                          <div className="rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 px-3 py-3 space-y-2">
+                            <div className="flex gap-2">
+                              <input
+                                value={newGroupFormEmoji}
+                                onChange={e => setNewGroupFormEmoji(e.target.value)}
+                                className="w-10 text-center rounded-xl bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-white/10 text-sm py-2 focus:outline-none focus:border-indigo-500"
+                                maxLength={2}
+                              />
+                              <input
+                                autoFocus
+                                value={newGroupFormName}
+                                onChange={e => setNewGroupFormName(e.target.value)}
+                                placeholder="Nom du groupe..."
+                                className="flex-1 rounded-xl bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-white/10 text-gray-800 dark:text-zinc-100 text-[13px] px-3 py-2 placeholder:text-gray-400 dark:placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500"
+                                onKeyDown={e => e.key === "Enter" && handleCreateGroupLocal()}
+                              />
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => { setShowCreateGroupForm(false); setNewGroupFormName(""); setNewGroupFormEmoji("🍻") }}
+                                className="flex-1 rounded-xl bg-gray-100 dark:bg-zinc-800 py-2 text-[12px] font-semibold text-gray-500 dark:text-zinc-400"
+                              >
+                                Annuler
+                              </button>
+                              <button
+                                onClick={handleCreateGroupLocal}
+                                disabled={!newGroupFormName.trim() || creatingGroupLocal}
+                                className="flex-1 rounded-xl bg-indigo-500 py-2 text-[12px] font-bold text-white disabled:opacity-50"
+                              >
+                                {creatingGroupLocal ? "…" : "Créer"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </Section>
+                    )}
                   </div>
                 )}
 
-                {/* ════ CLASSEMENT ══════════════════════════════ */}
-                {activeTab === "classement" && (
+                {/* ════ SORTIES ══════════════════════════════════ */}
+                {activeTab === "sorties" && (
+                  <div className="space-y-5 pb-2">
+
+                    {/* CTA Proposer une sortie */}
+                    <button
+                      onClick={() => setShowCreateOuting(true)}
+                      className="group w-full flex items-center gap-3 rounded-xl border-2 border-dashed border-indigo-300/60 dark:border-indigo-500/25 bg-indigo-50/50 dark:bg-indigo-500/[0.04] px-4 py-3 text-left transition-all hover:border-indigo-400/80 dark:hover:border-indigo-500/50 hover:bg-indigo-50 dark:hover:bg-indigo-500/[0.08] active:scale-[0.99]"
+                    >
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 dark:bg-indigo-500/15 transition-colors group-hover:bg-indigo-500/20">
+                        <CalendarPlus size={16} className="text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">Proposer une sortie</p>
+                        <p className="text-[11px] text-indigo-500/70 dark:text-indigo-400/60">Invite tes amis à un spot ou un endroit</p>
+                      </div>
+                      <ChevronRight size={14} className="text-indigo-400 dark:text-indigo-600 flex-shrink-0" />
+                    </button>
+
+                    {/* Invitations reçues */}
+                    {outingInvitations.length > 0 && (
+                      <Section title={`Invitations reçues · ${outingInvitations.length}`} icon={<CalendarPlus size={10} />}>
+                        <div className="space-y-3">
+                          {outingInvitations.map(inv => (
+                            <OutingInvitationCard
+                              key={inv.id}
+                              invitation={inv}
+                              spots={spots}
+                              onAccept={() => respondToOuting(inv.id, "accepted")}
+                              onDecline={() => respondToOuting(inv.id, "declined")}
+                              onSelectSpot={onSelectSpot}
+                            />
+                          ))}
+                        </div>
+                      </Section>
+                    )}
+
+                    {/* Mes sorties à venir */}
+                    {upcomingOutings.length > 0 && (
+                      <Section title="Mes sorties" icon={<CalendarCheck size={10} />}>
+                        {upcomingOutings.map(outing => (
+                          <FeaturedOutingCard
+                            key={outing.id}
+                            outing={outing}
+                            currentUserId={currentUser?.id ?? ""}
+                            spots={spots}
+                            onCancel={cancelOuting}
+                            onLocate={onLocateOuting}
+                          />
+                        ))}
+                      </Section>
+                    )}
+
+                    {/* Sorties passées */}
+                    {pastOutings.length > 0 && (
+                      <Section title="Sorties passées" icon={<Clock size={10} />}>
+                        {pastOutings.map(outing => (
+                          <OutingCard
+                            key={outing.id}
+                            outing={outing}
+                            currentUserId={currentUser?.id ?? ""}
+                            onCancel={cancelOuting}
+                            past
+                          />
+                        ))}
+                      </Section>
+                    )}
+
+                    {/* Empty state */}
+                    {outingInvitations.length === 0 && outings.length === 0 && (
+                      <EmptyState
+                        icon={<CalendarCheck size={24} />}
+                        text="Aucune sortie pour l'instant"
+                        sub="Propose une sortie à tes amis depuis n'importe quel spot !"
+                      />
+                    )}
+
+
+                  </div>
+                )}
+
+                {/* ════ ACTIVITÉ ══════════════════════════════════ */}
+                {activeTab === "activite" && (
                   <div className="space-y-8 pb-2">
+
+                    {/* ── Feed notifications ────────────────────────────────── */}
+                    <div>
+                      <p className="text-[16px] font-bold text-gray-900 dark:text-white mb-3">Notifications</p>
+                      {activitiesLoading ? (
+                        <div className="space-y-3">
+                          {Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-3 animate-pulse">
+                              <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-zinc-700 flex-shrink-0" />
+                              <div className="flex-1 space-y-1.5">
+                                <div className="h-3 w-48 rounded bg-gray-200 dark:bg-zinc-700" />
+                                <div className="h-2.5 w-24 rounded bg-gray-100 dark:bg-zinc-800" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : activities.length === 0 ? (
+                        <div className="py-6 text-center text-sm text-gray-400 dark:text-zinc-500">
+                          Aucune activité récente
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {activities.map((activity) => (
+                            <ActivityRow
+                              key={activity.id}
+                              activity={activity}
+                              onSelectSpot={onSelectSpot}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
                     {/* ── Classement mensuel ─────────────────────── */}
                     <div>
-                      {/* Header */}
                       <div className="flex items-center justify-between mb-5">
                         <div>
                           <p className="text-[16px] font-bold text-gray-900 dark:text-white">Classement du mois</p>
@@ -1355,7 +1863,6 @@ export default function FriendsModal({
                         <>
                           {/* Podium — top 3 */}
                           <div className="flex items-end justify-center gap-2 mb-5">
-
                             {/* #2 */}
                             <div
                               onClick={() => monthlyRankingData[1] && onSelectUser?.(monthlyRankingData[1].userId)}
@@ -1441,209 +1948,79 @@ export default function FriendsModal({
                               ) : <div style={{ height: 46 }} className="w-full" />}
                             </div>
                           </div>
+
+                          {/* Positions 4-5-6 */}
+                          {monthlyRankingData.slice(3, 6).length > 0 && (
+                            <div className="space-y-1.5">
+                              {monthlyRankingData.slice(3, 6).map((entry, i) => {
+                                const isMe = entry.userId === currentUser?.id
+                                return (
+                                  <button
+                                    key={entry.userId}
+                                    onClick={() => onSelectUser?.(entry.userId)}
+                                    className={`w-full flex items-center gap-3 rounded-xl px-3 py-2 transition-colors active:scale-[0.99] ${isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20" : "bg-gray-50 dark:bg-zinc-800/60 hover:bg-gray-100 dark:hover:bg-zinc-800"}`}
+                                  >
+                                    <span className={`w-5 text-center text-[13px] font-bold flex-shrink-0 ${isMe ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500"}`}>
+                                      {i + 4}
+                                    </span>
+                                    <div className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ${isMe ? "ring-2 ring-indigo-400" : ""} bg-indigo-100 dark:bg-zinc-700`}>
+                                      {entry.avatar_url
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{entry.username?.[0]?.toUpperCase() ?? "?"}</div>
+                                      }
+                                    </div>
+                                    <p className={`min-w-0 flex-1 truncate text-[13px] font-semibold text-left ${isMe ? "text-indigo-600 dark:text-indigo-300" : "text-gray-700 dark:text-zinc-300"}`}>
+                                      @{entry.username ?? "?"}
+                                      {isMe && <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>}
+                                    </p>
+                                    <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{entry.count} spots</span>
+                                  </button>
+                                )
+                              })}
+                              {userMonthlyRank && (
+                                <>
+                                  <div className="flex items-center gap-2 py-1">
+                                    <div className="flex-1 h-px border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                                    <span className="text-[10px] text-gray-300 dark:text-zinc-600">···</span>
+                                    <div className="flex-1 h-px border-t border-dashed border-gray-200 dark:border-zinc-700" />
+                                  </div>
+                                  <button
+                                    onClick={() => onSelectUser?.(userMonthlyRank.entry.userId)}
+                                    className="w-full flex items-center gap-3 rounded-xl px-3 py-2 bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20 transition-colors active:scale-[0.99]"
+                                  >
+                                    <span className="w-5 text-center text-[13px] font-bold text-indigo-500 dark:text-indigo-400 flex-shrink-0">{userMonthlyRank.rank}</span>
+                                    <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ring-2 ring-indigo-400 bg-indigo-100 dark:bg-zinc-700">
+                                      {userMonthlyRank.entry.avatar_url
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        ? <img src={userMonthlyRank.entry.avatar_url} alt="" className="h-full w-full object-cover" />
+                                        : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{userMonthlyRank.entry.username?.[0]?.toUpperCase() ?? "?"}</div>
+                                      }
+                                    </div>
+                                    <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-indigo-600 dark:text-indigo-300 text-left">
+                                      @{userMonthlyRank.entry.username ?? "?"}
+                                      <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>
+                                    </p>
+                                    <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{userMonthlyRank.entry.count} spots</span>
+                                  </button>
+                                </>
+                              )}
+                              {!userMonthlyRank && monthlyRankingData.every(e => e.userId !== currentUser?.id) && (
+                                <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 pt-1 pb-0.5">Ajoute des spots ce mois-ci pour apparaître !</p>
+                              )}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
 
-                    {/* ── Positions 4-5-6 ──────────────────────────── */}
-                    {monthlyRankingData.slice(3, 6).length > 0 && (
-                      <div className="space-y-1.5">
-                        {monthlyRankingData.slice(3, 6).map((entry, i) => {
-                          const isMe = entry.userId === currentUser?.id
-                          return (
-                            <button
-                              key={entry.userId}
-                              onClick={() => onSelectUser?.(entry.userId)}
-                              className={`w-full flex items-center gap-3 rounded-xl px-3 py-2 transition-colors active:scale-[0.99] ${isMe ? "bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20" : "bg-gray-50 dark:bg-zinc-800/60 hover:bg-gray-100 dark:hover:bg-zinc-800"}`}
-                            >
-                              <span className={`w-5 text-center text-[13px] font-bold flex-shrink-0 ${isMe ? "text-indigo-500 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500"}`}>
-                                {i + 4}
-                              </span>
-                              <div className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ${isMe ? "ring-2 ring-indigo-400" : ""} bg-indigo-100 dark:bg-zinc-700`}>
-                                {entry.avatar_url
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  ? <img src={entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{entry.username?.[0]?.toUpperCase() ?? "?"}</div>
-                                }
-                              </div>
-                              <p className={`min-w-0 flex-1 truncate text-[13px] font-semibold text-left ${isMe ? "text-indigo-600 dark:text-indigo-300" : "text-gray-700 dark:text-zinc-300"}`}>
-                                @{entry.username ?? "?"}
-                                {isMe && <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>}
-                              </p>
-                              <span className={`flex-shrink-0 text-[12px] font-bold ${isMe ? "text-indigo-500 dark:text-indigo-400" : "text-indigo-500 dark:text-indigo-400"}`}>{entry.count} spots</span>
-                            </button>
-                          )
-                        })}
-                        {/* Utilisateur hors top 6 */}
-                        {userMonthlyRank && (
-                          <>
-                            <div className="flex items-center gap-2 py-1">
-                              <div className="flex-1 h-px bg-dashed border-t border-dashed border-gray-200 dark:border-zinc-700" />
-                              <span className="text-[10px] text-gray-300 dark:text-zinc-600">···</span>
-                              <div className="flex-1 h-px border-t border-dashed border-gray-200 dark:border-zinc-700" />
-                            </div>
-                            <button
-                              onClick={() => onSelectUser?.(userMonthlyRank.entry.userId)}
-                              className="w-full flex items-center gap-3 rounded-xl px-3 py-2 bg-indigo-50 dark:bg-indigo-500/[0.08] ring-1 ring-indigo-200 dark:ring-indigo-500/20 transition-colors active:scale-[0.99]"
-                            >
-                              <span className="w-5 text-center text-[13px] font-bold text-indigo-500 dark:text-indigo-400 flex-shrink-0">{userMonthlyRank.rank}</span>
-                              <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ring-2 ring-indigo-400 bg-indigo-100 dark:bg-zinc-700">
-                                {userMonthlyRank.entry.avatar_url
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  ? <img src={userMonthlyRank.entry.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : <div className="h-full w-full flex items-center justify-center text-xs font-bold text-indigo-400">{userMonthlyRank.entry.username?.[0]?.toUpperCase() ?? "?"}</div>
-                                }
-                              </div>
-                              <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-indigo-600 dark:text-indigo-300 text-left">
-                                @{userMonthlyRank.entry.username ?? "?"}
-                                <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>
-                              </p>
-                              <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{userMonthlyRank.entry.count} spots</span>
-                            </button>
-                          </>
-                        )}
-                        {/* Utilisateur pas encore dans le classement */}
-                        {!userMonthlyRank && monthlyRankingData.every(e => e.userId !== currentUser?.id) && (
-                          <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 pt-1 pb-0.5">Ajoute des spots ce mois-ci pour apparaître !</p>
-                        )}
-                      </div>
-                    )}
-
                     {/* Divider */}
                     <div className="h-px bg-gray-100 dark:bg-white/[0.05]" />
 
-                    {/* ── Top spots les plus aimés ────────────────── */}
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <p className="text-[16px] font-bold text-gray-900 dark:text-white">Spots les plus aimés</p>
-                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">Tous les temps · tes amis</p>
-                        </div>
-                        <Heart size={16} className="fill-red-400 text-red-400" />
-                      </div>
-
-                      {topSpotsLoading ? (
-                        <div className="flex justify-center py-6">
-                          <LoaderCircle size={20} className="animate-spin text-gray-300 dark:text-zinc-700" />
-                        </div>
-                      ) : topSpots.length === 0 ? (
-                        <EmptyState icon={<Heart size={22} />} text="Aucun like pour l'instant" sub="Les spots les plus aimés de tes amis apparaîtront ici" />
-                      ) : (
-                        <div className="space-y-2.5">
-                          {topSpots.map((spot, i) => {
-                            const medals = ["🥇", "🥈", "🥉"]
-                            const likeColors = [
-                              "text-amber-500 dark:text-amber-400",
-                              "text-slate-500 dark:text-zinc-400",
-                              "text-orange-500 dark:text-orange-400",
-                            ]
-                            return (
-                              <button
-                                key={spot.id}
-                                onClick={() => onSelectSpot?.(spot.id)}
-                                className="w-full flex items-center gap-3.5 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900/50 p-3 text-left transition-all hover:border-gray-200 dark:hover:border-white/[0.1] hover:shadow-sm active:scale-[0.99]"
-                              >
-                                <div className="relative flex-shrink-0">
-                                  <div className="h-12 w-12 overflow-hidden rounded-xl shadow-sm bg-indigo-100 dark:bg-zinc-700">
-                                    {spot.image_url
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={spot.image_url} alt="" className="h-full w-full object-cover" />
-                                      : <div className="h-full w-full flex items-center justify-center"><MapPin size={18} className="text-indigo-400" /></div>
-                                    }
-                                  </div>
-                                  <span className="absolute -top-1 -right-1 text-[14px] leading-none">{medals[i]}</span>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-[14px] font-bold text-gray-900 dark:text-white">{spot.title}</p>
-                                  <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">@{spot.username ?? "?"}</p>
-                                </div>
-                                <div className="flex-shrink-0 flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/15 px-2.5 py-1.5">
-                                  <Heart size={10} className="fill-red-400 text-red-400" />
-                                  <span className={`text-[13px] font-bold ${likeColors[i]}`}>{spot.likeCount}</span>
-                                </div>
-                              </button>
-                            )
-                          })}
-                          {/* Meilleur spot de l'utilisateur hors top 3 */}
-                          {userTopSpot && (
-                            <>
-                              <div className="flex items-center gap-2 py-0.5">
-                                <div className="flex-1 border-t border-dashed border-gray-200 dark:border-zinc-700" />
-                                <span className="text-[10px] text-gray-300 dark:text-zinc-600">···</span>
-                                <div className="flex-1 border-t border-dashed border-gray-200 dark:border-zinc-700" />
-                              </div>
-                              <button
-                                onClick={() => onSelectSpot?.(userTopSpot.spot.id)}
-                                className="w-full flex items-center gap-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/[0.06] p-3 text-left transition-all active:scale-[0.99]"
-                              >
-                                <div className="relative flex-shrink-0">
-                                  <div className="h-12 w-12 overflow-hidden rounded-xl shadow-sm bg-indigo-100 dark:bg-zinc-700 ring-2 ring-indigo-300 dark:ring-indigo-500/30">
-                                    {userTopSpot.spot.image_url
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={userTopSpot.spot.image_url} alt="" className="h-full w-full object-cover" />
-                                      : <div className="h-full w-full flex items-center justify-center"><MapPin size={18} className="text-indigo-400" /></div>
-                                    }
-                                  </div>
-                                  <span className="absolute -top-1 -right-1 text-[12px] font-black text-indigo-500 dark:text-indigo-400 leading-none bg-white dark:bg-zinc-900 rounded-full px-1">#{userTopSpot.rank}</span>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5 mb-0.5">
-                                    <p className="truncate text-[14px] font-bold text-indigo-700 dark:text-indigo-300">{userTopSpot.spot.title}</p>
-                                    <span className="rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 flex-shrink-0">vous</span>
-                                  </div>
-                                  <p className="text-[11px] text-indigo-400 dark:text-indigo-500">Ajoute-en d&apos;autres pour monter !</p>
-                                </div>
-                                <div className="flex-shrink-0 flex items-center gap-1.5 rounded-full bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/15 px-2.5 py-1.5">
-                                  <Heart size={10} className="fill-red-400 text-red-400" />
-                                  <span className="text-[13px] font-bold text-indigo-500 dark:text-indigo-400">{userTopSpot.spot.likeCount}</span>
-                                </div>
-                              </button>
-                            </>
-                          )}
-                          {/* Utilisateur sans spot liké */}
-                          {!userTopSpot && topSpots.every(s => s.username !== userProfile?.username) && (
-                            <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 pt-1">Partage des spots pour apparaître !</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-                )}
-
-                {/* ════ INVITATIONS ═════════════════════════════ */}
-                {activeTab === "invitations" && (
-                  <div className="pb-2 -mx-1">
-
-                    {/* Empty state */}
-                    {incomingRequests.length === 0 && outingInvitations.length === 0 && groupInvitations.length === 0 && upcomingOutings.length === 0 && pendingSent.length === 0 && (
-                      <div className="flex flex-col items-center gap-4 py-8 px-4">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10">
-                          <Bell size={24} className="text-indigo-400" />
-                        </div>
-                        <div className="text-center">
-                          <p className="text-sm font-semibold text-gray-700 dark:text-zinc-200">Tout est calme</p>
-                          <p className="mt-1 text-xs text-gray-400 dark:text-zinc-500">Aucune invitation en attente</p>
-                        </div>
-                        {followingIds.length > 0 && (
-                          <button
-                            onClick={() => setShowCreateOuting(true)}
-                            className="flex items-center gap-2 rounded-2xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all active:scale-95"
-                          >
-                            <CalendarPlus size={15} />
-                            Proposer une sortie
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 1. Demandes d'amis */}
+                    {/* ── Demandes d'amis ──────────────────────────── */}
                     {incomingRequests.length > 0 && (
-                      <div>
-                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Demandes d&apos;amis · {incomingRequests.length}
-                        </p>
-                        <div className="space-y-1 px-1">
+                      <Section title={`Demandes d'amis · ${incomingRequests.length}`} icon={<Bell size={10} />}>
+                        <div className="space-y-1">
                           {incomingRequests.map(req => (
                             <InvitationRow
                               key={req.id} req={req}
@@ -1653,418 +2030,25 @@ export default function FriendsModal({
                             />
                           ))}
                         </div>
-                      </div>
+                      </Section>
                     )}
 
-                    {/* 2. Invitations de groupe */}
-                    {groupInvitations.length > 0 && (
-                      <div>
-                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Invitations de groupe · {groupInvitations.length}
-                        </p>
-                        <div className="space-y-1.5 px-1">
-                          {groupInvitations.map(inv => (
-                            <div key={inv.id} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 px-3 py-2.5">
-                              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-xl">
-                                {inv.spot_groups?.emoji ?? "🏠"}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-gray-800 dark:text-zinc-100">
-                                  {inv.spot_groups?.name ?? "Groupe"}
-                                </p>
-                                <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">
-                                  Invité par @{inv.inviterProfile?.username ?? "quelqu'un"}
-                                </p>
-                              </div>
-                              <div className="flex gap-1.5 flex-shrink-0">
-                                <button
-                                  onClick={() => acceptGroupInvitation(inv)}
-                                  disabled={respondingGroupInviteId === inv.id}
-                                  className="rounded-xl bg-indigo-500 px-3 py-1.5 text-[12px] font-semibold text-white transition active:scale-95 hover:bg-indigo-400 disabled:opacity-50 disabled:pointer-events-none"
-                                >
-                                  {respondingGroupInviteId === inv.id ? "…" : "Rejoindre"}
-                                </button>
-                                <button
-                                  onClick={() => declineGroupInvitation(inv)}
-                                  disabled={respondingGroupInviteId === inv.id}
-                                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-[12px] font-medium text-gray-500 dark:text-zinc-400 transition hover:bg-gray-50 dark:hover:bg-white/5 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
-                                >
-                                  Décliner
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    {/* Empty state */}
+                    {incomingRequests.length === 0 && monthlyRankingData.length === 0 && !monthlyRankingLoading && (
+                      <EmptyState
+                        icon={<Bell size={24} />}
+                        text="Tout est calme"
+                        sub="Les demandes d'amis et l'activité récente apparaîtront ici"
+                      />
                     )}
 
-                    {/* 3. Sorties proposées (cartes visuelles) */}
-                    {outingInvitations.length > 0 && (
-                      <div>
-                        <p className="px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Sorties proposées · {outingInvitations.length}
-                        </p>
-                        <div className="space-y-3 px-1">
-                          {outingInvitations.map(inv => {
-                            const outing = inv.outings
-                            const creator = outing?.profiles
-                            const allInvitations = outing?.allInvitations ?? []
-                            const appSpot = outing?.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
-                            const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
-                              ?? (outing?.lat && outing?.lng
-                                ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/600x280?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
-                                : null)
-                            const countdown = getCountdown(outing?.scheduled_at)
-                            const accepted = allInvitations.filter(i => i.status === "accepted")
-                            const pending = allInvitations.filter(i => i.status === "pending")
-
-                            return (
-                              <div key={inv.id} className="rounded-3xl overflow-hidden bg-white dark:bg-zinc-900 shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-gray-100 dark:border-white/[0.06]">
-
-                                {/* Photo hero */}
-                                {photoUrl ? (
-                                  <div className="relative h-44 w-full overflow-hidden">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={photoUrl} alt={outing?.title} className="h-full w-full object-cover" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                                    {/* Countdown badge */}
-                                    {countdown && (
-                                      <span className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded-full backdrop-blur-sm ${countdown.urgent ? "bg-orange-500 text-white" : "bg-black/40 text-white"}`}>
-                                        {countdown.label}
-                                      </span>
-                                    )}
-                                    {/* Creator avatar */}
-                                    <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-sm px-2 py-1">
-                                      <div className="h-5 w-5 rounded-full overflow-hidden bg-gradient-to-br from-violet-400 to-indigo-500 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
-                                        {creator?.avatar_url
-                                          // eslint-disable-next-line @next/next/no-img-element
-                                          ? <img src={creator.avatar_url} alt="" className="h-full w-full object-cover" />
-                                          : (creator?.username?.[0]?.toUpperCase() ?? "?")}
-                                      </div>
-                                      <span className="text-[10px] font-semibold text-white">@{creator?.username ?? "?"}</span>
-                                    </div>
-                                    {/* Title + info overlay */}
-                                    <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
-                                      <p className="text-white font-bold text-[17px] leading-tight">{outing?.title}</p>
-                                      <div className="flex items-center gap-3 mt-1">
-                                        {outing?.scheduled_at && (
-                                          <p className="flex items-center gap-1 text-white/80 text-[12px]">
-                                            <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
-                                          </p>
-                                        )}
-                                        {outing?.location_name && (
-                                          <button
-                                            onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
-                                            disabled={!outing.lat || !outing.lng}
-                                            className="flex items-center gap-1 text-white/70 text-[11px] truncate hover:text-white transition-colors disabled:cursor-default"
-                                          >
-                                            <MapPin size={9} />{outing.location_name}
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  /* No photo fallback — gradient card */
-                                  <div className="relative h-28 w-full overflow-hidden bg-gradient-to-br from-violet-500 via-indigo-500 to-blue-500">
-                                    <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(circle at 30% 50%, white 1px, transparent 1px), radial-gradient(circle at 70% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-                                    {countdown && (
-                                      <span className={`absolute top-3 left-3 text-[11px] font-bold px-2.5 py-1 rounded-full ${countdown.urgent ? "bg-orange-500 text-white" : "bg-white/20 text-white"}`}>
-                                        {countdown.label}
-                                      </span>
-                                    )}
-                                    <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
-                                      <p className="text-white font-bold text-[17px] leading-tight">{outing?.title}</p>
-                                      {outing?.scheduled_at && (
-                                        <p className="flex items-center gap-1 text-white/80 text-[12px] mt-0.5">
-                                          <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Body */}
-                                <div className="px-4 pt-3 pb-4 space-y-3">
-
-                                  {/* Description */}
-                                  {outing?.description && (
-                                    <p className="text-[13px] text-gray-600 dark:text-zinc-400 leading-relaxed">
-                                      {outing.description}
-                                    </p>
-                                  )}
-
-                                  {/* Participants */}
-                                  {allInvitations.length > 0 && (
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex -space-x-2">
-                                        {allInvitations.slice(0, 5).map((p, i) => (
-                                          <div key={p.id + i} className={`h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 flex items-center justify-center text-[9px] font-bold text-white ${p.status === "accepted" ? "bg-gradient-to-br from-indigo-400 to-purple-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
-                                            {p.profiles?.avatar_url
-                                              // eslint-disable-next-line @next/next/no-img-element
-                                              ? <img src={p.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${p.status === "pending" ? "opacity-50" : ""}`} />
-                                              : (p.profiles?.username?.[0]?.toUpperCase() ?? "?")}
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <p className="text-[12px] text-gray-500 dark:text-zinc-400">
-                                        {accepted.length > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{accepted.length} {accepted.length > 1 ? "vont" : "va"}</span>}
-                                        {pending.length > 0 && <span className="text-gray-400"> · {pending.length} en attente</span>}
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  {/* RSVP Buttons */}
-                                  <div className="flex gap-2 pt-1">
-                                    <button
-                                      onClick={async () => {
-                                        setRespondingId(inv.id)
-                                        await respondToOuting(inv.id, "accepted")
-                                        setRespondingId(null)
-                                      }}
-                                      disabled={respondingId === inv.id}
-                                      className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-[13px] font-bold text-white shadow-md shadow-indigo-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-                                    >
-                                      {respondingId === inv.id ? <LoaderCircle size={13} className="animate-spin" /> : <><CalendarCheck size={13} /> Participer</>}
-                                    </button>
-                                    <button
-                                      onClick={() => openConfirm({
-                                        title: "Décliner cette sortie ?",
-                                        message: "Tu ne seras pas compté(e) parmi les participants.",
-                                        confirmLabel: "Décliner",
-                                        danger: true,
-                                        onConfirm: async () => {
-                                          setRespondingId(inv.id)
-                                          await respondToOuting(inv.id, "declined")
-                                          setRespondingId(null)
-                                        },
-                                      })}
-                                      disabled={respondingId === inv.id}
-                                      className="flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-800 px-4 py-3 text-[13px] font-semibold text-gray-500 dark:text-zinc-400 transition-all active:scale-[0.98] disabled:opacity-50"
-                                    >
-                                      <CalendarX size={13} />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 3. Mes sorties (expandables) */}
-                    {upcomingOutings.length > 0 && (
-                      <div>
-                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Mes sorties · {upcomingOutings.length}
-                        </p>
-                        <div className="space-y-2 px-1">
-                          {upcomingOutings.map(outing => {
-                            const notifKey = `outing-${outing.id}`
-                            const isExpanded = expandedNotifId === notifKey
-                            const isCreator = outing.creator_id === currentUser?.id
-                            const countdown = getCountdown(outing.scheduled_at)
-                            const invitations = outing.outing_invitations ?? []
-                            const accepted = invitations.filter(i => i.status === "accepted")
-                            const pending = invitations.filter(i => i.status === "pending")
-                            const creatorEntry = { invitee_id: outing.creator_id, status: "accepted" as const, id: "creator", profiles: outing.profiles }
-                            const allGoing = [creatorEntry, ...accepted]
-                            const allParticipants = [creatorEntry, ...invitations]
-                            const totalParticipants = allGoing.length + pending.length
-                            const appSpot = outing.spot_id ? spots?.find(s => s.id === outing.spot_id) : null
-                            const photoUrl = appSpot?.image_url?.split(",")[0]?.trim()
-                              ?? (outing.lat && outing.lng
-                                ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${outing.lng},${outing.lat},14,0/400x200?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
-                                : null)
-                            return (
-                              <div key={outing.id} className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/[0.06] bg-white dark:bg-zinc-900 shadow-sm">
-
-                                {/* ── Rangée compacte ── */}
-                                <button
-                                  onClick={() => setExpandedNotifId(isExpanded ? null : notifKey)}
-                                  className="flex w-full items-center gap-3 px-3 py-3 text-left active:scale-[0.99] transition-all"
-                                >
-                                  <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden bg-gray-100 dark:bg-zinc-800">
-                                    {photoUrl
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={photoUrl} alt="" className="h-full w-full object-cover" />
-                                      : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
-                                          <CalendarCheck size={18} className="text-white" />
-                                        </div>
-                                    }
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-[13px] font-bold text-gray-900 dark:text-white truncate">{outing.title}</p>
-                                    <p className={`text-[12px] font-semibold mt-0.5 ${countdown?.urgent ? "text-orange-500" : "text-indigo-500 dark:text-indigo-400"}`}>
-                                      {countdown ? countdown.label : formatOutingDate(outing.scheduled_at)}
-                                    </p>
-                                    {outing.location_name && (
-                                      <button
-                                        onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
-                                        disabled={!outing.lat || !outing.lng}
-                                        className="flex items-center gap-0.5 text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5 truncate hover:text-blue-500 dark:hover:text-indigo-400 transition-colors disabled:cursor-default text-left"
-                                      >
-                                        <MapPin size={9} className="flex-shrink-0" />{outing.location_name}
-                                      </button>
-                                    )}
-                                  </div>
-                                  {/* Avatar stack + count */}
-                                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                                    <div className="flex -space-x-1.5">
-                                      {allGoing.slice(0, 3).map((p, i) => (
-                                        <div key={p.invitee_id + i} className="h-6 w-6 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[8px] font-bold text-white">
-                                          {p.profiles?.avatar_url
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-                                            : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  <ChevronDown size={14} className={`flex-shrink-0 text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
-                                </button>
-
-                                {/* ── Carte dépliée ── */}
-                                {isExpanded && (
-                                  <div className="border-t border-gray-100 dark:border-white/[0.06]">
-
-                                    {/* Photo */}
-                                    {photoUrl && (
-                                      <button
-                                        onClick={() => outing.lat && outing.lng && (onLocateOuting?.(outing.lat, outing.lng), onClose())}
-                                        disabled={!outing.lat || !outing.lng}
-                                        className="relative block w-full h-40 overflow-hidden"
-                                      >
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={photoUrl} alt={outing.title} className="h-full w-full object-cover" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                                        {countdown && (
-                                          <span className={`absolute top-2 left-2 text-[11px] font-bold px-2.5 py-1 rounded-full ${countdown.urgent ? "bg-orange-500 text-white" : "bg-black/40 backdrop-blur-sm text-white"}`}>
-                                            {countdown.label}
-                                          </span>
-                                        )}
-                                        {outing.lat && outing.lng && (
-                                          <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-black/40 backdrop-blur-sm px-2.5 py-1">
-                                            <MapPin size={10} className="text-white" />
-                                            <span className="text-[10px] font-semibold text-white">Voir sur la carte</span>
-                                          </div>
-                                        )}
-                                      </button>
-                                    )}
-
-                                    {/* Infos */}
-                                    <div className="px-3 pt-3 pb-2">
-                                      <p className="text-[14px] font-bold text-gray-900 dark:text-white">{outing.title}</p>
-                                      {outing.scheduled_at && (
-                                        <p className="flex items-center gap-1 text-[12px] text-gray-500 dark:text-zinc-400 mt-0.5">
-                                          <Calendar size={10} />{formatOutingDate(outing.scheduled_at)}
-                                        </p>
-                                      )}
-                                      {outing.location_name && (
-                                        <p className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5">
-                                          <MapPin size={9} />{outing.location_name}
-                                        </p>
-                                      )}
-                                    </div>
-
-                                    {/* Participants — avatars + menu */}
-                                    <div className="px-3 pb-2">
-                                      <button
-                                        onClick={() => setExpandedNotifId(isExpanded ? `${notifKey}-att` : notifKey)}
-                                        className="flex items-center gap-2 w-full text-left"
-                                      >
-                                        <div className="flex -space-x-2">
-                                          {allGoing.slice(0, 4).map((p, i) => (
-                                            <div key={p.invitee_id + i} className="h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[9px] font-bold text-white">
-                                              {p.profiles?.avatar_url
-                                                // eslint-disable-next-line @next/next/no-img-element
-                                                ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-                                                : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
-                                            </div>
-                                          ))}
-                                          {pending.slice(0, 2).map((p, i) => (
-                                            <div key={"pend-" + p.invitee_id + i} className="h-7 w-7 rounded-full overflow-hidden border-2 border-white dark:border-zinc-900 bg-gray-300 dark:bg-zinc-600 flex items-center justify-center text-[9px] font-bold text-gray-500 opacity-60">
-                                              {p.profiles?.avatar_url
-                                                // eslint-disable-next-line @next/next/no-img-element
-                                                ? <img src={p.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-                                                : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
-                                            </div>
-                                          ))}
-                                        </div>
-                                        <div className="flex items-center gap-1.5 text-[12px]">
-                                          <span className="font-semibold text-green-600 dark:text-green-400">{allGoing.length} {allGoing.length > 1 ? "vont" : "va"}</span>
-                                          {pending.length > 0 && <span className="text-gray-400 dark:text-zinc-500">· {pending.length} en attente</span>}
-                                          <ChevronDown size={10} className="text-gray-400" />
-                                        </div>
-                                      </button>
-
-                                      {/* Liste participants */}
-                                      <div className="mt-2 rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-50 dark:bg-zinc-800/60 px-3 py-2 space-y-2">
-                                        {allParticipants.map((p, i) => {
-                                          const isOrg = p.invitee_id === outing.creator_id
-                                          return (
-                                            <div key={p.invitee_id + i} className="flex items-center gap-2.5">
-                                              <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-[10px] font-bold text-white">
-                                                {p.profiles?.avatar_url
-                                                  // eslint-disable-next-line @next/next/no-img-element
-                                                  ? <img src={p.profiles.avatar_url} alt="" className={`h-full w-full object-cover ${p.status === "pending" ? "opacity-50" : ""}`} />
-                                                  : (p.profiles?.username ?? "?").charAt(0).toUpperCase()}
-                                              </div>
-                                              <span className="flex-1 text-[13px] font-medium text-gray-800 dark:text-zinc-100 truncate">
-                                                {p.profiles?.username ?? "Utilisateur"}
-                                              </span>
-                                              {isOrg && <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-400">organisateur</span>}
-                                              {!isOrg && p.status === "pending" && <span className="text-[10px] text-gray-400 dark:text-zinc-500">en attente</span>}
-                                              {!isOrg && p.status === "declined" && <span className="text-[10px] text-red-400">a décliné</span>}
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-
-                                    {/* Action principale */}
-                                    <div className="px-3 pb-3 flex gap-2">
-                                      {isCreator ? (
-                                        <>
-                                          <button
-                                            onClick={() => { setEditingOuting(outing); setEditForm({ title: outing.title, description: outing.description ?? "", scheduled_at: outing.scheduled_at ? outing.scheduled_at.slice(0, 16) : "" }); setEditError(null) }}
-                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 px-3 py-2.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400"
-                                          >
-                                            <CalendarPlus size={12} /> Modifier
-                                          </button>
-                                          <button
-                                            onClick={() => cancelOuting(outing.id)}
-                                            className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 dark:bg-red-500/10 px-3 py-2.5 text-[12px] font-semibold text-red-500"
-                                          >
-                                            <CalendarX size={12} /> Annuler
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <button
-                                          onClick={() => withdrawOuting(outing.id)}
-                                          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 dark:bg-red-500/10 px-3 py-3 text-[13px] font-semibold text-red-500"
-                                        >
-                                          <CalendarX size={13} /> Se désister
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 4. Demandes envoyées (minimal) */}
+                    {/* ── Demandes envoyées ────────────────────────── */}
                     {pendingSent.length > 0 && (
                       <div>
-                        <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                        <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
                           Envoyées · {pendingSent.length}
                         </p>
-                        <div className="space-y-0.5 px-1">
+                        <div className="space-y-0.5">
                           {pendingSent.map(p => (
                             <div key={p.id} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
                               <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[11px] font-bold text-white">
@@ -2094,6 +2078,8 @@ export default function FriendsModal({
 
                   </div>
                 )}
+
+
                 {/* Spacer universel — empêche le dernier élément d'être sous la barre */}
                 <div style={{ height: "max(5rem, calc(env(safe-area-inset-bottom) + 4rem))" }} />
               </div>
