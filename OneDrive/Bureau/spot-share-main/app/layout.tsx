@@ -11,6 +11,14 @@ export const metadata: Metadata = {
   title: "FriendSpot",
   description: "Partagez vos meilleurs spots",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "FriendSpot",
+  },
+  icons: {
+    apple: "/favicon.ico",
+  },
 }
 
 export const viewport: Viewport = {
