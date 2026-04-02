@@ -811,6 +811,9 @@ export default function MapView() {
   // Garde le ref à jour pour les closures realtime
   useEffect(() => { visibleFriendIdsRef.current = new Set(visibleFriendIds) }, [visibleFriendIds])
 
+  const checkIncomingRequestsRef = useRef(checkIncomingRequests)
+  useEffect(() => { checkIncomingRequestsRef.current = checkIncomingRequests }, [checkIncomingRequests])
+
   // Bouton retour navigateur → ferme le modal du dessus
   const closeTopModalRef = useRef<() => void>(() => {})
   useEffect(() => {
@@ -906,7 +909,7 @@ export default function MapView() {
 
   useEffect(() => {
     if (!user) return
-    checkIncomingRequests()
+    checkIncomingRequestsRef.current()
 
     const channel = supabaseRef.current
       .channel(`global-${user.id}`)
@@ -915,7 +918,7 @@ export default function MapView() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
         () => {
-          checkIncomingRequests()
+          checkIncomingRequestsRef.current()
           toast("🔔 Nouvelle demande !", {
             description: "Quelqu'un veut s'abonner à toi.",
             action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
@@ -925,19 +928,19 @@ export default function MapView() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
-        () => checkIncomingRequests()
+        () => checkIncomingRequestsRef.current()
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "friend_requests", filter: `to_id=eq.${user.id}` },
-        () => checkIncomingRequests()
+        () => checkIncomingRequestsRef.current()
       )
       // ── outing_invitations ─────────────────────────────────────────────
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
         () => {
-          checkIncomingRequests()
+          checkIncomingRequestsRef.current()
           toast("🗓️ Nouvelle sortie !", {
             description: "On t'a invité à une sortie.",
             action: { label: "Voir", onClick: () => setShowFriendsModal(true) },
@@ -947,12 +950,12 @@ export default function MapView() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
-        () => checkIncomingRequests()
+        () => checkIncomingRequestsRef.current()
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
-        () => checkIncomingRequests()
+        () => checkIncomingRequestsRef.current()
       )
       // ── followers (ami accepté) ───────────────────────────────────────────
       .on(
@@ -1000,7 +1003,7 @@ export default function MapView() {
       .subscribe()
 
     return () => { supabaseRef.current.removeChannel(channel) }
-  }, [user, checkIncomingRequests])
+  }, [user])
 
   const visibleFriendSet = useMemo(() => new Set(visibleFriendIds), [visibleFriendIds])
 
