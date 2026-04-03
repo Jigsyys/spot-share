@@ -51,10 +51,10 @@ import { CATEGORY_EMOJIS as CAT_EMOJIS, CATEGORIES } from "@/lib/categories"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ""
-const SPOTS_CACHE_KEY = "friendspot_spots_v2"
-const SPOTS_CACHE_TTL = 10 * 60 * 1000 // 10 min
-const PROFILE_CACHE_TTL = 30 * 60 * 1000 // 30 min
-const FOLLOWING_CACHE_TTL = 15 * 60 * 1000 // 15 min
+const SPOTS_CACHE_KEY = "friendspot_spots_v3"
+const SPOTS_CACHE_TTL = 2 * 60 * 60 * 1000 // 2h — Realtime maintient la fraîcheur
+const PROFILE_CACHE_TTL = 2 * 60 * 60 * 1000 // 2h
+const FOLLOWING_CACHE_TTL = 60 * 60 * 1000 // 1h
 const LIKES_CACHE_TTL = 5 * 60 * 1000 // 5 min
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
@@ -393,6 +393,10 @@ export default function MapView() {
     visits: { user_id: string; username: string | null; avatar_url: string | null }[]
   }>
   const spotDataCacheRef = useRef<SpotDataCache>(new globalThis.Map())
+  // Map id→Spot pour fusion sans doublons lors des viewport fetches
+  const spotsMapRef = useRef<globalThis.Map<string, Spot>>(new globalThis.Map())
+  // Cache profils auteurs des spots (user_id → profile fields)
+  const spotProfilesCacheRef = useRef<globalThis.Map<string, { username: string | null; avatar_url: string | null; created_at: string }>>(new globalThis.Map())
   const [incomingCount, setIncomingCount] = useState(0)
   const [newLikesCount, setNewLikesCount] = useState(0)
   const [mapError, setMapError] = useState<string | null>(null)
@@ -519,80 +523,92 @@ export default function MapView() {
     }
   }, [user])
 
-  const fetchSpots = useCallback(async () => {
-    const PAGE_SIZE = 100
+  const fetchSpotsByBounds = useCallback(async (bbox: [number, number, number, number]) => {
+    const [west, south, east, north] = bbox
+    const safeWest = Math.max(west, -180)
+    const safeEast = Math.min(east, 180)
     const filterExpired = (list: Spot[]) =>
       list.filter(s => !s.expires_at || new Date(s.expires_at).getTime() > Date.now())
 
-    // Load cached spots instantly — user sees the map before the network responds
+    // 1. Afficher le cache localStorage instantanément au premier appel
     try {
       const raw = localStorage.getItem(SPOTS_CACHE_KEY)
       if (raw) {
         const { data: cached, ts } = JSON.parse(raw)
         if (Date.now() - ts < SPOTS_CACHE_TTL && Array.isArray(cached)) {
-          setSpots(filterExpired(cached as Spot[]))
+          const valid = filterExpired(cached as Spot[])
+          valid.forEach(s => spotsMapRef.current.set(s.id, s))
+          setSpots(Array.from(spotsMapRef.current.values()))
         }
       }
     } catch { /* localStorage unavailable */ }
 
+    // 2. Fetch spots dans le viewport uniquement (sans JOIN profiles)
     try {
       const { data, error } = await supabaseRef.current
         .from("spots")
-        .select("*, profiles(id, username, avatar_url, created_at)")
+        .select("id, user_id, title, description, lat, lng, category, image_url, address, opening_hours, weekday_descriptions, maps_url, price_range, instagram_url, created_at, expires_at, visibility, group_id")
+        .gte("lat", south).lte("lat", north)
+        .gte("lng", safeWest).lte("lng", safeEast)
         .order("created_at", { ascending: false })
-        .range(0, PAGE_SIZE - 1)
+        .limit(200)
 
-      if (error) {
-        if (error.message?.includes("avatar_url") || error.code === "PGRST204") {
-          const { data: fallbackData } = await supabaseRef.current
-            .from("spots").select("*, profiles(id, username, created_at)")
-            .order("created_at", { ascending: false }).range(0, PAGE_SIZE - 1)
-          setSpots(fallbackData && fallbackData.length > 0 ? (fallbackData as Spot[]) : DEMO_SPOTS)
-          return
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        const fresh = filterExpired(data as Spot[])
+        // Fusionner avec les profiles déjà en cache
+        const withProfiles = fresh.map(s => ({
+          ...s,
+          profiles: spotProfilesCacheRef.current.has(s.user_id)
+            ? { id: s.user_id, ...spotProfilesCacheRef.current.get(s.user_id)! }
+            : s.profiles,
+        }))
+        withProfiles.forEach(s => spotsMapRef.current.set(s.id, s))
+        setSpots(Array.from(spotsMapRef.current.values()))
+
+        // 3. Enrichir en arrière-plan avec les profils manquants
+        const missingUserIds = [...new Set(fresh.map(s => s.user_id))]
+          .filter(id => !spotProfilesCacheRef.current.has(id))
+        if (missingUserIds.length > 0) {
+          supabaseRef.current
+            .from("profiles")
+            .select("id, username, avatar_url, created_at")
+            .in("id", missingUserIds)
+            .then(({ data: profiles }) => {
+              if (!profiles) return
+              profiles.forEach((p: { id: string; username: string | null; avatar_url: string | null; created_at: string }) => {
+                spotProfilesCacheRef.current.set(p.id, { username: p.username, avatar_url: p.avatar_url, created_at: p.created_at })
+              })
+              setSpots(prev => prev.map(s => {
+                const prof = spotProfilesCacheRef.current.get(s.user_id)
+                if (!prof) return s
+                const updated = { ...s, profiles: { id: s.user_id, ...prof } }
+                spotsMapRef.current.set(s.id, updated)
+                return updated
+              }))
+            })
         }
-        throw error
+
+        // 4. Persister le cache (tous les spots fusionnés)
+        try {
+          const allSpots = Array.from(spotsMapRef.current.values())
+          localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: allSpots, ts: Date.now() }))
+        } catch { /* quota exceeded */ }
+      } else if (spotsMapRef.current.size === 0) {
+        setSpots(DEMO_SPOTS)
       }
-
-      const firstPage = data && data.length > 0 ? filterExpired(data as Spot[]) : DEMO_SPOTS
-      setSpots(firstPage)
-
-      // Accumulate all pages for cache
-      let allSpots: Spot[] = [...(data ?? [])]
-
-      if (data && data.length === PAGE_SIZE) {
-        let offset = PAGE_SIZE
-        let hasMore = true
-        while (hasMore) {
-          const { data: more } = await supabaseRef.current
-            .from("spots").select("*, profiles(id, username, avatar_url, created_at)")
-            .order("created_at", { ascending: false }).range(offset, offset + PAGE_SIZE - 1)
-          if (!more || more.length === 0) { hasMore = false; break }
-          allSpots = [...allSpots, ...more]
-          setSpots(prev => {
-            const existingIds = new Set(prev.map(s => s.id))
-            const fresh = filterExpired(more as Spot[]).filter(s => !existingIds.has(s.id))
-            return fresh.length > 0 ? [...prev, ...fresh] : prev
-          })
-          offset += PAGE_SIZE
-          if (more.length < PAGE_SIZE) hasMore = false
-        }
-      }
-
-      // Persist to localStorage for next load
-      try {
-        localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: allSpots, ts: Date.now() }))
-      } catch { /* storage quota exceeded */ }
     } catch (_e) {
-      console.error("fetchSpots error:", _e)
-      setSpots(DEMO_SPOTS)
+      console.error("fetchSpotsByBounds error:", _e)
+      if (spotsMapRef.current.size === 0) setSpots(DEMO_SPOTS)
       toast.error("Impossible de charger les spots", {
-        action: { label: "Réessayer", onClick: () => fetchSpots() },
+        action: { label: "Réessayer", onClick: () => fetchSpotsByBounds(bbox) },
         duration: 8000,
       })
     } finally {
       setSpotsLoaded(true)
     }
-  }, []) // no user dependency — profile fetch is now separate
+  }, [])
 
   const fetchLikeCounts = useCallback(async () => {
     const cacheKey = "friendspot_likes_v1"
@@ -893,9 +909,27 @@ export default function MapView() {
     prevAnyOpenRef.current = anyOpen
   }, [showFriendsModal, showExploreModal, showAddModal, showProfileModal, publicProfileUserId, selectedSpot])
 
+  // Ref pour debounce du fetch viewport
+  const fetchBoundsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMapMoveEnd = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    const b = map.getBounds()
+    if (!b) return
+    const newBounds: [number, number, number, number] = [
+      b.getWest(), b.getSouth(), b.getEast(), b.getNorth()
+    ]
+    setBounds(newBounds)
+    if (fetchBoundsTimerRef.current) clearTimeout(fetchBoundsTimerRef.current)
+    fetchBoundsTimerRef.current = setTimeout(() => {
+      fetchSpotsByBounds(newBounds)
+    }, 400)
+  }, [fetchSpotsByBounds])
+
   // On mount: fetch spots + like counts in parallel (no auth needed)
   useEffect(() => {
-    Promise.all([fetchSpots(), fetchLikeCounts()])
+    Promise.all([fetchSpotsByBounds(bounds), fetchLikeCounts()])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1057,12 +1091,23 @@ export default function MapView() {
           const raw = payload.new as Spot
           if (raw.user_id === user.id) return
           if (!visibleFriendIdsRef.current.has(raw.user_id)) return
-          const { data } = await supabaseRef.current
-            .from("spots")
-            .select("*, profiles(id, username, avatar_url, created_at)")
-            .eq("id", raw.id)
-            .single()
-          if (data) setSpots((prev) => prev.some((s) => s.id === data.id) ? prev : [data, ...prev])
+          const cachedProfile = spotProfilesCacheRef.current.get(raw.user_id)
+          if (cachedProfile) {
+            const spot = { ...raw, profiles: { id: raw.user_id, ...cachedProfile } }
+            spotsMapRef.current.set(spot.id, spot)
+            setSpots(prev => prev.some(s => s.id === spot.id) ? prev : [spot, ...prev])
+          } else {
+            const { data } = await supabaseRef.current
+              .from("spots")
+              .select("id, user_id, title, description, lat, lng, category, image_url, address, opening_hours, weekday_descriptions, maps_url, price_range, instagram_url, created_at, expires_at, visibility, group_id, profiles(id, username, avatar_url, created_at)")
+              .eq("id", raw.id)
+              .single()
+            if (data) {
+              const spotData = data as unknown as Spot
+              spotsMapRef.current.set(spotData.id, spotData)
+              setSpots(prev => prev.some(s => s.id === spotData.id) ? prev : [spotData, ...prev])
+            }
+          }
         }
       )
       .on(
@@ -1070,6 +1115,7 @@ export default function MapView() {
         { event: "UPDATE", schema: "public", table: "spots" },
         (payload) => {
           const updated = payload.new as Spot
+          spotsMapRef.current.set(updated.id, { ...spotsMapRef.current.get(updated.id), ...updated } as Spot)
           setSpots((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)))
         }
       )
@@ -1330,7 +1376,7 @@ export default function MapView() {
             setSelectedSpot(realSpot)
             mapRef.current?.flyTo({ center: [spotDbData.lng, spotDbData.lat], zoom: 15, duration: 1200 })
           } else {
-            await fetchSpots()
+            await fetchSpotsByBounds(bounds)
           }
           return
         }
@@ -1737,6 +1783,7 @@ export default function MapView() {
               setZoom(z)
             })
           }}
+          onMoveEnd={handleMapMoveEnd}
           style={{ width: "100%", height: "100%" }}
         >
           {markerElements}
