@@ -117,7 +117,6 @@ export default function ProfileModal({
   const [followersCount, setFollowersCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
   const [totalLikes, setTotalLikes] = useState(0)
-  const [isGhostMode, setIsGhostMode] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const skeletonTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [subView, setSubView] = useState<SubView>(null)
@@ -151,14 +150,13 @@ export default function ProfileModal({
   const STATS_CACHE_TTL = 5 * 60 * 1000
 
   const applyStats = useCallback((d: {
-    username: string | null; avatar_url: string | null; is_ghost_mode: boolean
+    username: string | null; avatar_url: string | null
     followers_count: number; following_count: number; total_likes: number
   }, fromEmail?: string) => {
     const name = d.username || fromEmail || ""
     setUsername(name)
     setNameInput(name)
     if (d.avatar_url) setAvatarUrl(d.avatar_url)
-    setIsGhostMode(!!d.is_ghost_mode)
     setFollowersCount(d.followers_count ?? 0)
     setFollowingCount(d.following_count ?? 0)
     setTotalLikes(d.total_likes ?? 0)
@@ -345,26 +343,6 @@ export default function ProfileModal({
       setSaveError("Erreur lors de l'upload de la photo.")
     } finally {
       setUploadingAvatar(false)
-    }
-  }
-
-  // ---------------------------------------------------------------
-  // Ghost mode toggle
-  // ---------------------------------------------------------------
-  const toggleGhostMode = async () => {
-    if (!user) return
-    const newValue = !isGhostMode
-    setIsGhostMode(newValue)
-    try {
-      const { error } = await supabaseRef.current
-        .from("profiles")
-        .update({ is_ghost_mode: newValue })
-        .eq("id", user.id)
-      if (error) throw error
-      toast.success(newValue ? "Mode fantôme activé" : "Mode fantôme désactivé")
-    } catch {
-      setIsGhostMode(!newValue)
-      toast.error("Erreur lors de la mise à jour. La colonne is_ghost_mode existe-t-elle ?")
     }
   }
 
@@ -1062,25 +1040,6 @@ export default function ProfileModal({
                     </div>
 
                     {/* Ghost Mode */}
-                    <div className="border-t border-gray-200 dark:border-white/10 pt-5">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="flex items-center gap-2 text-sm font-semibold">
-                            <Ghost size={14} className="text-gray-500 dark:text-zinc-400" /> Mode Fantôme
-                          </h3>
-                          <p className="mt-1 max-w-[250px] text-[11px] text-gray-400 dark:text-zinc-500">
-                            Cache ta position sur la carte pour les autres.
-                          </p>
-                        </div>
-                        <button
-                          onClick={toggleGhostMode}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isGhostMode ? "bg-blue-600 dark:bg-indigo-500" : "bg-gray-300 dark:bg-zinc-700"}`}
-                        >
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isGhostMode ? "translate-x-6" : "translate-x-1"}`} />
-                        </button>
-                      </div>
-                    </div>
-
                     {/* Notifications Toggle */}
                     {"Notification" in window && (
                       <div className="border-t border-gray-200 dark:border-white/10 pt-5">

@@ -48,8 +48,8 @@ function timeAgo(dateString?: string) {
   return `il y a ${Math.floor(hours / 24)}j`
 }
 
-function isOnline(dateString?: string, ghost?: boolean) {
-  if (ghost || !dateString) return false
+function isOnline(dateString?: string) {
+  if (!dateString) return false
   return Date.now() - new Date(dateString).getTime() < 15 * 60000
 }
 
@@ -102,7 +102,6 @@ interface Profile {
   last_lat?: number
   last_lng?: number
   last_active_at?: string
-  is_ghost_mode?: boolean
   avatar_url?: string | null
 }
 
@@ -383,7 +382,7 @@ export default function FriendsModal({
       try {
         const { data } = await supabaseRef.current
           .from("profiles")
-          .select("id, username, avatar_url, last_lat, last_lng, last_active_at, is_ghost_mode")
+          .select("id, username, avatar_url, last_lat, last_lng, last_active_at")
           .in("id", ids)
         const profiles = (data as Profile[]) ?? []
         setFollowing(profiles)
@@ -438,7 +437,7 @@ export default function FriendsModal({
           .sort(([, a], [, b]) => b - a).slice(0, 10).map(([id]) => id)
         const { data: profiles } = await supabaseRef.current
           .from("profiles")
-          .select("id, username, avatar_url, last_active_at, is_ghost_mode")
+          .select("id, username, avatar_url, last_active_at")
           .in("id", sortedIds)
         if (profiles && profiles.length > 0) {
           const enriched: SuggestionProfile[] = (profiles as Profile[]).map(p => ({
@@ -754,7 +753,7 @@ export default function FriendsModal({
     if (!currentUser) return
     try {
       const { data: profile } = await supabaseRef.current
-        .from("profiles").select("id, username, avatar_url, last_active_at, last_lat, last_lng, is_ghost_mode").eq("id", fromId).single()
+        .from("profiles").select("id, username, avatar_url, last_active_at, last_lat, last_lng").eq("id", fromId).single()
       if (!profile) return
       const req = { id: reqId, from_id: fromId, to_id: currentUser.id, status: "pending", profiles: profile }
       setIncomingRequests(prev => prev.some(r => r.id === reqId) ? prev : [req as any, ...prev])
@@ -1088,7 +1087,7 @@ export default function FriendsModal({
     try {
       const { data } = await supabaseRef.current
         .from("profiles")
-        .select("id, username, avatar_url, last_active_at, is_ghost_mode")
+        .select("id, username, avatar_url, last_active_at")
         .ilike("username", `%${q}%`).neq("id", currentUser?.id ?? "").limit(8)
       setSearchResults((data as Profile[]) ?? [])
     } catch { setSearchResults([]) }
@@ -1310,13 +1309,13 @@ export default function FriendsModal({
   const isPending = (id: string) => pendingSent.some(p => p.id === id)
 
   const sortedFollowing = useMemo(() => [...following].sort((a, b) => {
-    const aOn = isOnline(a.last_active_at, a.is_ghost_mode) ? 1 : 0
-    const bOn = isOnline(b.last_active_at, b.is_ghost_mode) ? 1 : 0
+    const aOn = isOnline(a.last_active_at) ? 1 : 0
+    const bOn = isOnline(b.last_active_at) ? 1 : 0
     return bOn - aOn
   }), [following])
 
   const onlineCount = useMemo(
-    () => following.filter(f => isOnline(f.last_active_at, f.is_ghost_mode)).length,
+    () => following.filter(f => isOnline(f.last_active_at)).length,
     [following]
   )
 
@@ -1326,9 +1325,8 @@ export default function FriendsModal({
     )
 
   // Per-tab badge counts
-  const amisBadge = groupInvitations.length
+  const amisBadge = groupInvitations.length + incomingRequests.length
   const sortiesBadge = outingInvitations.length
-  const activiteBadge = incomingRequests.length
 
   // Upcoming + past outings split
   const upcomingOutings = outings.filter(o => !isOutingPast(o.scheduled_at) || !o.scheduled_at)
@@ -1446,15 +1444,37 @@ export default function FriendsModal({
                           {sortiesBadge}
                         </span>
                       )}
-                      {tab.id === "activite" && (activiteBadge + unreadCount) > 0 && (
+                      {tab.id === "activite" && unreadCount > 0 && (
                         <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
-                          {(activiteBadge + unreadCount) > 9 ? "9+" : activiteBadge + unreadCount}
+                          {unreadCount > 9 ? "9+" : unreadCount}
                         </span>
                       )}
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* ── Demandes d'amis reçues (banner fixe) ────────── */}
+              {activeTab === "amis" && incomingRequests.length > 0 && (
+                <div className="flex-shrink-0 px-4 pb-2">
+                  <div className="rounded-2xl border border-indigo-200/60 dark:border-indigo-500/20 bg-indigo-50/80 dark:bg-indigo-500/[0.08] p-3 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400 flex items-center gap-1.5">
+                      <Bell size={10} />
+                      {incomingRequests.length} demande{incomingRequests.length > 1 ? "s" : ""} d'ami
+                    </p>
+                    <div className="space-y-2">
+                      {incomingRequests.map(req => (
+                        <InvitationRow
+                          key={req.id} req={req}
+                          loading={loadingId === req.from_id}
+                          onAccept={() => acceptRequest(req)}
+                          onDecline={() => declineRequest(req)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ── Search bar ──────────────────────────────────── */}
               {activeTab === "amis" && (
@@ -1530,7 +1550,7 @@ export default function FriendsModal({
                         {onlineCount > 0 && (
                           <Section title="En ligne" icon={<span className="h-1.5 w-1.5 rounded-full bg-green-500" />}>
                             {sortedFollowing
-                              .filter(f => isOnline(f.last_active_at, f.is_ghost_mode))
+                              .filter(f => isOnline(f.last_active_at))
                               .map(profile => (
                                 <UserRow
                                   key={profile.id} profile={profile}
@@ -1553,7 +1573,7 @@ export default function FriendsModal({
                           icon={<Clock size={10} />}
                         >
                           {sortedFollowing
-                            .filter(f => !isOnline(f.last_active_at, f.is_ghost_mode))
+                            .filter(f => !isOnline(f.last_active_at))
                             .map(profile => (
                               <UserRow
                                 key={profile.id} profile={profile}
@@ -1802,38 +1822,6 @@ export default function FriendsModal({
                 {activeTab === "activite" && (
                   <div className="space-y-8 pb-2">
 
-                    {/* ── Feed notifications ────────────────────────────────── */}
-                    <div>
-                      <p className="text-[16px] font-bold text-gray-900 dark:text-white mb-3">Notifications</p>
-                      {activitiesLoading ? (
-                        <div className="space-y-3">
-                          {Array.from({ length: 4 }).map((_, i) => (
-                            <div key={i} className="flex items-center gap-3 animate-pulse">
-                              <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-zinc-700 flex-shrink-0" />
-                              <div className="flex-1 space-y-1.5">
-                                <div className="h-3 w-48 rounded bg-gray-200 dark:bg-zinc-700" />
-                                <div className="h-2.5 w-24 rounded bg-gray-100 dark:bg-zinc-800" />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : activities.length === 0 ? (
-                        <div className="py-6 text-center text-sm text-gray-400 dark:text-zinc-500">
-                          Aucune activité récente
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          {activities.map((activity) => (
-                            <ActivityRow
-                              key={activity.id}
-                              activity={activity}
-                              onSelectSpot={onSelectSpot}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
                     {/* ── Classement mensuel ─────────────────────── */}
                     <div>
                       <div className="flex items-center justify-between mb-5">
@@ -2014,31 +2002,12 @@ export default function FriendsModal({
                       )}
                     </div>
 
-                    {/* Divider */}
-                    <div className="h-px bg-gray-100 dark:bg-white/[0.05]" />
-
-                    {/* ── Demandes d'amis ──────────────────────────── */}
-                    {incomingRequests.length > 0 && (
-                      <Section title={`Demandes d'amis · ${incomingRequests.length}`} icon={<Bell size={10} />}>
-                        <div className="space-y-1">
-                          {incomingRequests.map(req => (
-                            <InvitationRow
-                              key={req.id} req={req}
-                              loading={loadingId === req.from_id}
-                              onAccept={() => acceptRequest(req)}
-                              onDecline={() => declineRequest(req)}
-                            />
-                          ))}
-                        </div>
-                      </Section>
-                    )}
-
                     {/* Empty state */}
-                    {incomingRequests.length === 0 && monthlyRankingData.length === 0 && !monthlyRankingLoading && (
+                    {monthlyRankingData.length === 0 && !monthlyRankingLoading && (
                       <EmptyState
-                        icon={<Bell size={24} />}
-                        text="Tout est calme"
-                        sub="Les demandes d'amis et l'activité récente apparaîtront ici"
+                        icon={<Trophy size={24} />}
+                        text="Pas encore de classement"
+                        sub="Le classement apparaît quand tes amis ajoutent des spots !"
                       />
                     )}
 
@@ -2332,7 +2301,7 @@ export default function FriendsModal({
                                         <Check size={9} className="text-white" />
                                       </div>
                                     )}
-                                    {isOnline(friend.last_active_at, friend.is_ghost_mode) && !selected && (
+                                    {isOnline(friend.last_active_at) && !selected && (
                                       <div className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-white dark:border-[#0e0e12] bg-green-500" />
                                     )}
                                   </div>
@@ -2564,7 +2533,7 @@ function UserRow({
   onSendRequest: () => void; onCancelRequest: () => void; onUnfollow: () => void
   onSelectUser?: () => void; onLocate?: () => void
 }) {
-  const online = isOnline(profile.last_active_at, profile.is_ghost_mode)
+  const online = isOnline(profile.last_active_at)
   return (
     <div
       className="group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-gray-50 dark:hover:bg-white/[0.04]"

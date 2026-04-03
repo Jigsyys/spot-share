@@ -409,23 +409,12 @@ export default function MapView() {
   const [userProfile, setUserProfile] = useState<{
     username: string
     avatar_url: string | null
-    is_ghost_mode?: boolean
     is_admin?: boolean
   } | null>(null)
   const [initialAddUrl, setInitialAddUrl] = useState<string>("")
   const [visits, setVisits] = useState<{ user_id: string; username: string | null; avatar_url: string | null }[]>([])
   const [reactions, setReactions] = useState<{ user_id: string; type: "love" | "save"; username: string | null; avatar_url: string | null }[]>([])
   const [is3D, setIs3D] = useState(true)
-  const [friendLocations, setFriendLocations] = useState<
-    {
-      id: string
-      username: string | null
-      avatar_url: string | null
-      lat: number
-      lng: number
-      last_active_at: string
-    }[]
-  >([])
 
   const [bounds, setBounds] = useState<[number, number, number, number]>([
     -180, -85, 180, 85,
@@ -497,7 +486,7 @@ export default function MapView() {
     try {
       const { data, error } = await supabaseRef.current
         .from("profiles")
-        .select("username, avatar_url, is_ghost_mode, is_admin")
+        .select("username, avatar_url, is_admin")
         .eq("id", user.id)
         .single()
       if (error) {
@@ -673,74 +662,6 @@ export default function MapView() {
       /* table might not exist */
     }
   }, [user])
-
-  // Fetch friend locations (non-ghost, with a recorded position)
-  const fetchFriendLocations = useCallback(async () => {
-    if (!user || followingIds.length === 0) {
-      setFriendLocations([])
-      return
-    }
-    try {
-      const { data } = await supabaseRef.current
-        .from("profiles")
-        .select(
-          "id, username, avatar_url, last_lat, last_lng, last_active_at, is_ghost_mode"
-        )
-        .in("id", followingIds)
-        .not("last_lat", "is", null)
-        .not("last_lng", "is", null)
-        .eq("is_ghost_mode", false)
-      if (data) {
-        const TEN_MIN = 10 * 60 * 1000
-        const now = Date.now()
-        setFriendLocations(
-          data
-            .filter((p: { last_active_at: string | null }) =>
-              p.last_active_at && now - new Date(p.last_active_at).getTime() < TEN_MIN
-            )
-            .map(
-              (p: {
-                id: string
-                username: string | null
-                avatar_url: string | null
-                last_lat: number
-                last_lng: number
-                last_active_at: string
-              }) => ({
-                id: p.id,
-                username: p.username,
-                avatar_url: p.avatar_url,
-                lat: p.last_lat,
-                lng: p.last_lng,
-                last_active_at: p.last_active_at,
-              })
-            )
-        )
-      }
-    } catch {
-      /* columns might not exist yet */
-    }
-  }, [user, followingIds])
-
-  // Publish user location to DB (respects ghost mode)
-  const publishLocation = useCallback(
-    async (lat: number, lng: number) => {
-      if (!user || userProfile?.is_ghost_mode) return
-      try {
-        await supabaseRef.current
-          .from("profiles")
-          .update({
-            last_lat: lat,
-            last_lng: lng,
-            last_active_at: new Date().toISOString(),
-          })
-          .eq("id", user.id)
-      } catch {
-        /* columns might not exist yet */
-      }
-    },
-    [user, userProfile?.is_ghost_mode]
-  )
 
   const checkNewLikes = useCallback(async () => {
     if (!user) return
@@ -939,10 +860,6 @@ export default function MapView() {
     Promise.all([fetchFollowing(), fetchUserProfile(), checkNewLikes(), checkIncomingRequests(), loadGroups()])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
-
-  useEffect(() => {
-    fetchFriendLocations()
-  }, [fetchFriendLocations])
 
   // Charger les IDs des spots du groupe actif
   useEffect(() => {
@@ -1184,28 +1101,6 @@ export default function MapView() {
       { enableHighAccuracy: true }
     )
   }, [])
-
-  // Détection discrète de la position au lancement + publication dans la DB + refresh toutes les 5 min
-  useEffect(() => {
-    if (!navigator.geolocation) return
-    const publish = (pos: GeolocationPosition) => {
-      const { latitude: lat, longitude: lng } = pos.coords
-      setUserLocation({ lat, lng })
-      publishLocation(lat, lng)
-    }
-    navigator.geolocation.getCurrentPosition(publish, () => {}, {
-      enableHighAccuracy: true,
-    })
-    const interval = setInterval(
-      () => {
-        navigator.geolocation.getCurrentPosition(publish, () => {}, {
-          enableHighAccuracy: true,
-        })
-      },
-      5 * 60 * 1000
-    )
-    return () => clearInterval(interval)
-  }, [publishLocation])
 
   // Interception du Web Share Target (PWA) + deep link ?spot=<id>
   useEffect(() => {
@@ -1819,47 +1714,6 @@ export default function MapView() {
               </div>
             </MapMarker>
           )}
-
-          {/* Friend Location Markers */}
-          {friendLocations.map((friend) => {
-            const friendOnline =
-              Date.now() - new Date(friend.last_active_at).getTime() <
-              15 * 60000
-            const initials = (friend.username ?? "?").charAt(0).toUpperCase()
-            return (
-              <MapMarker
-                key={`friend-${friend.id}`}
-                longitude={friend.lng}
-                latitude={friend.lat}
-                anchor="bottom"
-              >
-                <div
-                  className="group relative flex cursor-pointer flex-col items-center transition-transform hover:scale-110"
-                  onClick={() => setPublicProfileUserId(friend.id)}
-                >
-                  <div className="relative z-10">
-                    <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-[3px] border-purple-400 bg-gradient-to-br from-purple-500 to-pink-500 text-sm font-bold text-white shadow-[0_0_14px_rgba(168,85,247,0.5)]">
-                      {friend.avatar_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={friend.avatar_url}
-                          alt={friend.username ?? ""}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        initials
-                      )}
-                    </div>
-                    <div className={`absolute -right-0.5 -bottom-0.5 z-20 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-zinc-950 ${friendOnline ? "bg-green-500" : "bg-red-500"}`} />
-                  </div>
-                  <div className="z-0 -mt-1.5 h-2.5 w-2.5 rotate-45 bg-purple-400" />
-                  <span className="absolute -bottom-6 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
-                    @{friend.username ?? "ami"}
-                  </span>
-                </div>
-              </MapMarker>
-            )
-          })}
 
           {/* 3D Buildings Layer */}
           {is3D && <Layer {...(resolvedTheme === "light" ? BUILDINGS_LAYER_LIGHT : BUILDINGS_LAYER)} />}
@@ -3111,7 +2965,6 @@ export default function MapView() {
         onUnfollow={(id) => {
           setFollowingIds((prev) => prev.filter((x) => x !== id))
           setVisibleFriendIds((prev) => prev.filter((x) => x !== id))
-          setFriendLocations((prev) => prev.filter((x) => x.id !== id))
         }}
         onLocateSpot={(spotId, lat, lng) => {
           setShowProfileModal(false)
