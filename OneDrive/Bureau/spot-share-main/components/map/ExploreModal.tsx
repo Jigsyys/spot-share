@@ -570,29 +570,42 @@ export default function ExploreModal({
                   </button>
                 </div>
 
-                {/* ── Tabs Moi / Amis ── */}
-                <div className="flex gap-2 mb-4">
+                {/* ── Tabs ── */}
+                <div className="flex flex-col gap-1.5 mb-4">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleTab("mine")}
+                      className={cn(
+                        "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
+                        mode === "mine"
+                          ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
+                          : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
+                      )}
+                    >
+                      Mes spots
+                    </button>
+                    <button
+                      onClick={() => handleTab("friends")}
+                      className={cn(
+                        "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
+                        mode === "friends"
+                          ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
+                          : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
+                      )}
+                    >
+                      Amis
+                    </button>
+                  </div>
                   <button
-                    onClick={() => handleTab("mine")}
+                    onClick={() => handleTab("general")}
                     className={cn(
-                      "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
-                      mode === "mine"
+                      "w-full rounded-xl py-2.5 text-sm font-semibold transition-all",
+                      mode === "general"
                         ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
                         : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
                     )}
                   >
-                    Mes spots
-                  </button>
-                  <button
-                    onClick={() => handleTab("friends")}
-                    className={cn(
-                      "flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all",
-                      mode === "friends"
-                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm"
-                        : "bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 text-gray-500 dark:text-zinc-400 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                    )}
-                  >
-                    Amis
+                    Général
                   </button>
                 </div>
 
