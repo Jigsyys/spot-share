@@ -638,9 +638,12 @@ export default function ExploreModal({
               {/* ── Contenu scrollable ── */}
               <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
 
-                {/* ════ MODE EXPLORER ════ */}
+                {/* ════ MODE GÉNÉRAL ════ */}
                 {mode === "general" && (
-                  <div className="space-y-6">
+                  <div className="space-y-5">
+
+                    {/* Grille catégories */}
+                    <CategoryGrid value={categoryFilter} onChange={setCategoryFilter} />
 
                     {/* Surprise CTA */}
                     {!hasFilters && (
@@ -664,7 +667,6 @@ export default function ExploreModal({
                             </motion.div>
                           </div>
                         </button>
-                        {/* Sélecteur de rayon */}
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
                           <div className="flex gap-1 flex-wrap">
@@ -704,7 +706,7 @@ export default function ExploreModal({
                       </div>
                     )}
 
-                    {/* Spots triés par distance ou récence */}
+                    {/* Liste spots */}
                     <div>
                       {!hasFilters && (
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">
@@ -742,7 +744,8 @@ export default function ExploreModal({
 
                 {/* ════ MODE MES SPOTS ════ */}
                 {mode === "mine" && (
-                  <div>
+                  <div className="space-y-4">
+                    <CategoryGrid value={categoryFilter} onChange={setCategoryFilter} />
                     {!spotsLoaded ? (
                       <div className="py-2">
                         {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
@@ -751,7 +754,7 @@ export default function ExploreModal({
                       <EmptyState mode="mine" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                     ) : (
                       <>
-                        <p className="mb-3 text-xs text-gray-400 dark:text-zinc-600">
+                        <p className="text-xs text-gray-400 dark:text-zinc-600">
                           {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
@@ -770,7 +773,7 @@ export default function ExploreModal({
 
                 {/* ════ MODE AMIS ════ */}
                 {mode === "friends" && (
-                  <div className="space-y-6">
+                  <div className="space-y-4">
 
                     {/* Surprise pin active banner */}
                     {surprisePin && (
@@ -787,50 +790,45 @@ export default function ExploreModal({
                       </button>
                     )}
 
-
-                    {/* Avatars amis — clic pour filtrer inline */}
+                    {/* Avatars amis */}
                     {friendProfiles.length > 0 && (
-                      <div>
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tes amis</p>
-                        <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
-                          {friendProfiles.map((f: FriendProfile) => {
-                            const isSelected = friendFilter === f.id
-                            return (
-                              <button
-                                key={f.id}
-                                onClick={() => setFriendFilter(isSelected ? null : f.id)}
-                                className="flex flex-shrink-0 flex-col items-center gap-1.5"
-                              >
-                                <div className={cn(
-                                  "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
-                                  isSelected
-                                    ? "border-[3px] border-blue-500 scale-105"
-                                    : "border-2 border-white dark:border-zinc-800"
-                                )}>
-                                  {f.avatar_url
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    ? <img src={f.avatar_url} alt="" className="h-full w-full object-cover" />
-                                    : <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white">
-                                        {(f.username ?? "?")[0]?.toUpperCase()}
-                                      </div>
-                                  }
-                                </div>
-                                <span className={cn(
-                                  "max-w-[3.5rem] truncate text-[10px]",
-                                  isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
-                                )}>
-                                  @{f.username ?? "ami"}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
+                      <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
+                        {friendProfiles.map((f: FriendProfile) => {
+                          const isSelected = friendFilter === f.id
+                          return (
+                            <button
+                              key={f.id}
+                              onClick={() => setFriendFilter(isSelected ? null : f.id)}
+                              className="flex flex-shrink-0 flex-col items-center gap-1.5"
+                            >
+                              <div className={cn(
+                                "h-14 w-14 overflow-hidden rounded-full shadow-md bg-gradient-to-br from-indigo-400 to-purple-500 transition-all",
+                                isSelected
+                                  ? "border-[3px] border-blue-500 scale-105"
+                                  : "border-2 border-white dark:border-zinc-800"
+                              )}>
+                                {f.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={f.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : <div className="flex h-full w-full items-center justify-center text-lg font-bold text-white">
+                                      {(f.username ?? "?")[0]?.toUpperCase()}
+                                    </div>
+                                }
+                              </div>
+                              <span className={cn(
+                                "max-w-[3.5rem] truncate text-[10px]",
+                                isSelected ? "font-bold text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-zinc-500"
+                              )}>
+                                {f.username ?? "ami"}
+                              </span>
+                            </button>
+                          )
+                        })}
                       </div>
                     )}
 
-
-                    {/* Cette semaine */}
-                    {friendsThisWeek.length > 0 && !hasFilters && (
+                    {/* Cette semaine — masquée si aucun spot cette semaine */}
+                    {friendsThisWeek.length > 0 && (
                       <div>
                         <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">🆕 Cette semaine</p>
                         <div className="no-scrollbar -mx-5 flex gap-3 overflow-x-auto px-5 pb-1">
@@ -846,36 +844,35 @@ export default function ExploreModal({
                       </div>
                     )}
 
-                    {/* Tous leurs spots */}
-                    <div>
-                      {!hasFilters && (
-                        <p className="mb-3 text-sm font-bold text-gray-900 dark:text-white">Tous leurs spots</p>
-                      )}
-                      {!spotsLoaded ? (
-                        <div className="py-2">
-                          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
-                        </div>
-                      ) : filteredPool.length === 0 ? (
-                        <EmptyState mode="friends" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
-                      ) : (
-                        <div className="space-y-2">
-                          {hasFilters && (
-                            <p className="mb-2 text-xs text-gray-400">
-                              {filteredPool.length} résultat{filteredPool.length > 1 ? "s" : ""}
-                            </p>
-                          )}
-                          {recentSpots.map(({ spot }: DistSpot) => (
-                            <SpotListRow
-                              key={spot.id}
-                              spot={spot}
-                              showAuthor
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    {/* Séparateur */}
+                    <div className="h-px bg-gray-200 dark:bg-white/10" />
+
+                    {/* Grille catégories */}
+                    <CategoryGrid value={categoryFilter} onChange={setCategoryFilter} />
+
+                    {/* Spots filtrés */}
+                    {!spotsLoaded ? (
+                      <div className="py-2">
+                        {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+                      </div>
+                    ) : filteredPool.length === 0 ? (
+                      <EmptyState mode="friends" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-400 dark:text-zinc-600">
+                          {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
+                        </p>
+                        {recentSpots.map(({ spot }: DistSpot) => (
+                          <SpotListRow
+                            key={spot.id}
+                            spot={spot}
+                            showAuthor
+                            onSelect={() => onSelectSpot(spot)}
+                            onSelectUser={onSelectUser}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
