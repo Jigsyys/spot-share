@@ -74,15 +74,16 @@ function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
 
 // ─── CategoryGrid ────────────────────────────────────────────────────────────
 
-const CATEGORY_COLORS: Record<string, string> = {
-  "café":       "linear-gradient(135deg, #3d1a00, #fb8c00)",
-  "restaurant": "linear-gradient(135deg, #4a0000, #ff3d3d)",
-  "extérieur":  "linear-gradient(135deg, #0a2e14, #00e676)",
-  "bar":        "linear-gradient(135deg, #1a0030, #d500f9)",
-  "vue":        "linear-gradient(135deg, #001a3d, #0091ff)",
-  "culture":    "linear-gradient(135deg, #3d0021, #ff1493)",
-  "sport":      "linear-gradient(135deg, #3d0e00, #ff6d00)",
-  "événement":  "linear-gradient(135deg, #12004d, #7c4dff)",
+// light: from-X-400 to-Y-500 · dark: dark:from-X-700 dark:to-Y-600
+const CATEGORY_CLASSES: Record<string, string> = {
+  "café":       "from-amber-400   to-orange-500  dark:from-amber-700   dark:to-orange-600",
+  "restaurant": "from-red-400     to-rose-500    dark:from-red-800     dark:to-rose-700",
+  "extérieur":  "from-emerald-400 to-green-500   dark:from-emerald-800 dark:to-green-700",
+  "bar":        "from-violet-500  to-purple-600  dark:from-violet-800  dark:to-purple-700",
+  "vue":        "from-sky-400     to-blue-500    dark:from-sky-800     dark:to-blue-700",
+  "culture":    "from-fuchsia-400 to-pink-500    dark:from-fuchsia-800 dark:to-pink-700",
+  "sport":      "from-orange-400  to-red-500     dark:from-orange-800  dark:to-red-700",
+  "événement":  "from-indigo-400  to-violet-500  dark:from-indigo-800  dark:to-violet-700",
 }
 
 function CategoryGrid({
@@ -101,16 +102,16 @@ function CategoryGrid({
           <button
             key={c.key}
             onClick={() => onChange(isSelected ? null : c.key)}
-            style={{ background: CATEGORY_COLORS[c.key] ?? "#1e1e1e" }}
             className={cn(
-              "flex flex-col items-center gap-1 rounded-[14px] py-2.5 px-1 border-[2.5px] transition-all active:scale-95",
+              "bg-gradient-to-br flex flex-col items-center gap-1 rounded-[14px] py-2.5 px-1 border-[2px] transition-all active:scale-95",
+              CATEGORY_CLASSES[c.key] ?? "from-gray-400 to-gray-500",
               isSelected
-                ? "border-white opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
-                : cn("border-transparent", hasSelection ? "opacity-35" : "opacity-80")
+                ? "border-white/80 opacity-100 shadow-lg"
+                : cn("border-transparent", hasSelection ? "opacity-40" : "opacity-90")
             )}
           >
             <span className="text-[20px] leading-none">{c.emoji}</span>
-            <span className="text-[8px] font-bold text-white text-center leading-tight">{c.label}</span>
+            <span className="text-[8px] font-bold text-white text-center leading-tight drop-shadow-sm">{c.label}</span>
           </button>
         )
       })}
