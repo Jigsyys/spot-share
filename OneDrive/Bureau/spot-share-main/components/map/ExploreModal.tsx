@@ -494,20 +494,22 @@ export default function ExploreModal({
       .slice(0, 3)
   }, [allSpots, spots, followingIds, likeCountsBySpotId])
 
-  // Surprise — picks from friends' spots only, switches to Amis tab
+  // Surprise — picks from all spots, respects radius + category filter
   const handleSurprise = useCallback(() => {
     if (surpriseLoading) return
-    const friendSet = new Set(followingIds)
-    const friendSpots = (allSpots ?? spots).filter((s: Spot) =>
-      friendSet.has(s.user_id) && (!s.expires_at || new Date(s.expires_at).getTime() > Date.now())
+    // Base pool: all non-expired spots, filtered by active category
+    let pool = (allSpots ?? spots).filter((s: Spot) =>
+      (!s.expires_at || new Date(s.expires_at).getTime() > Date.now()) &&
+      (categoryFilter === null || s.category === categoryFilter)
     )
-    if (!friendSpots.length) return
+    if (!pool.length) return
     setSurpriseLoading(true)
     setTimeout(() => {
-      // Rayon configurable — fallback à tous les spots amis si rien dans le rayon
-      let pool = friendSpots
+      // Filter by radius when location is available — no fallback, respect the radius
       if (userLocation) {
-        const nearby = friendSpots.filter((s: Spot) => distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= surpriseRadius)
+        const nearby = pool.filter((s: Spot) =>
+          distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= surpriseRadius
+        )
         if (nearby.length > 0) pool = nearby
       }
       // Avoid picking the same spot twice in a row
@@ -520,7 +522,7 @@ export default function ExploreModal({
       setSurpriseLoading(false)
       onSurprise?.(picked)
     }, 600)
-  }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots, surpriseRadius])
+  }, [surpriseLoading, userLocation, onSurprise, allSpots, spots, surpriseRadius, categoryFilter])
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
