@@ -2,14 +2,14 @@
 // Importer depuis ce fichier partout ; ne pas redéfinir localement.
 
 export const CATEGORIES = [
-  { key: "café",       label: "Café",      emoji: "☕"  },
-  { key: "restaurant", label: "Restaurant", emoji: "🍽️" },
-  { key: "bar",        label: "Bar",        emoji: "🍸" },
-  { key: "outdoor",    label: "Outdoor",    emoji: "🌿" },
-  { key: "vue",        label: "Vue",        emoji: "🌅" },
-  { key: "culture",    label: "Culture",    emoji: "🎭" },
-  { key: "shopping",   label: "Shopping",   emoji: "🛍️" },
-  { key: "other",      label: "Autre",      emoji: "📍" },
+  { key: "café",        label: "Café",        emoji: "☕"  },
+  { key: "restaurant",  label: "Restaurant",  emoji: "🍽️" },
+  { key: "extérieur",   label: "Extérieur",   emoji: "🌿" },
+  { key: "bar",         label: "Bar",         emoji: "🍸" },
+  { key: "vue",         label: "Vue",         emoji: "🌅" },
+  { key: "culture",     label: "Culture",     emoji: "🎭" },
+  { key: "sport",       label: "Sport",       emoji: "🏃" },
+  { key: "événement",   label: "Événement",   emoji: "🎉" },
 ] as const
 
 export type CategoryKey = typeof CATEGORIES[number]["key"]
