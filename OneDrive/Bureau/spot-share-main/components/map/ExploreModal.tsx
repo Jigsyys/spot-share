@@ -75,14 +75,14 @@ function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
 // ─── CategoryGrid ────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "café":       "linear-gradient(135deg, #3d1a00, #d97706)",
-  "restaurant": "linear-gradient(135deg, #7f1d1d, #ef4444)",
-  "extérieur":  "linear-gradient(135deg, #14532d, #16a34a)",
-  "bar":        "linear-gradient(135deg, #2e1065, #9333ea)",
-  "vue":        "linear-gradient(135deg, #0c2d5e, #2563eb)",
-  "culture":    "linear-gradient(135deg, #4a0e2e, #db2777)",
-  "sport":      "linear-gradient(135deg, #431407, #ea580c)",
-  "événement":  "linear-gradient(135deg, #1e1b4b, #4f46e5)",
+  "café":       "linear-gradient(135deg, #3d1a00, #fb8c00)",
+  "restaurant": "linear-gradient(135deg, #4a0000, #ff3d3d)",
+  "extérieur":  "linear-gradient(135deg, #0a2e14, #00e676)",
+  "bar":        "linear-gradient(135deg, #1a0030, #d500f9)",
+  "vue":        "linear-gradient(135deg, #001a3d, #0091ff)",
+  "culture":    "linear-gradient(135deg, #3d0021, #ff1493)",
+  "sport":      "linear-gradient(135deg, #3d0e00, #ff6d00)",
+  "événement":  "linear-gradient(135deg, #12004d, #7c4dff)",
 }
 
 function CategoryGrid({
