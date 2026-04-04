@@ -43,8 +43,8 @@ interface AddSpotModalProps {
     maps_url: string | null
     price_range: string | null
     expires_at: string | null
-    visibility: 'friends' | 'group' | 'private'
-    group_id: string | null
+    visibility: 'friends' | 'private'
+    groupIds: string[]
   }) => Promise<void>
   initialUrl?: string
   userLat?: number
@@ -78,9 +78,9 @@ export default function AddSpotModal({
   userLng,
   groups = [],
 }: AddSpotModalProps) {
-  const [tab, setTab] = useState<Tab>("instagram")
-  const [visibility, setVisibility] = useState<'friends' | 'group' | 'private'>('friends')
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>("manual")
+  const [visibility, setVisibility] = useState<'friends' | 'private'>('friends')
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
   const [showVisibilityPicker, setShowVisibilityPicker] = useState(false)
   const [tabSwitchPending, setTabSwitchPending] = useState<Tab | null>(null)
 
@@ -121,6 +121,15 @@ export default function AddSpotModal({
   // ── Ephemeral spot ─────────────────────────────────────────────────────────
   const [isEphemeral, setIsEphemeral] = useState(false)
   const [ephemeralDate, setEphemeralDate] = useState("")
+
+  // Reset éphémère si catégorie change (hors événement)
+  useEffect(() => {
+    const cat = tab === "instagram" ? igCategory : manCategory
+    if (cat !== "événement") {
+      setIsEphemeral(false)
+      setEphemeralDate("")
+    }
+  }, [igCategory, manCategory, tab])
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const igDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -325,7 +334,7 @@ export default function AddSpotModal({
         // Shared reset
         setPlaceQuery(""); setPlaceResults([]); setSelectedPlace(null); setError(null)
         // Visibility reset
-        setVisibility('friends'); setSelectedGroupId(null); setShowVisibilityPicker(false)
+        setVisibility('friends'); setSelectedGroupIds(new Set()); setShowVisibilityPicker(false)
       }, 300)
     } else if (initialUrl && !instagramUrl) {
       setTab("instagram")
@@ -356,7 +365,7 @@ export default function AddSpotModal({
         price_range: tab === "instagram" ? igPriceRange : manPriceRange,
         expires_at: isEphemeral && ephemeralDate ? new Date(ephemeralDate).toISOString() : null,
         visibility,
-        group_id: visibility === 'group' ? selectedGroupId : null,
+        groupIds: [...selectedGroupIds],
       })
       onClose()
     } catch (err) {
@@ -408,8 +417,8 @@ export default function AddSpotModal({
               <div className="px-5 pb-3">
                 <div className="flex rounded-xl bg-gray-100 dark:bg-zinc-800/80 p-1">
                   {([
+                    { key: "manual" as Tab, label: "Ajout intelligent", icon: <PenLine size={14} /> },
                     { key: "instagram" as Tab, label: "Lien Insta / TikTok", icon: <Link2 size={14} /> },
-                    { key: "manual" as Tab, label: "Ajout manuel", icon: <PenLine size={14} /> },
                   ]).map(({ key, label, icon }) => (
                     <button
                       key={key}
@@ -686,110 +695,89 @@ export default function AddSpotModal({
                   )}
                 </div>
 
-                {/* ── Spot éphémère ──────────────────────────────────── */}
-                <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsEphemeral(v => !v)}
-                    className="flex w-full items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">⏳</span>
-                      <div className="text-left">
-                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Spot éphémère</p>
-                        <p className="text-xs text-amber-600 dark:text-amber-500">Ce lieu disparaîtra à la date choisie</p>
+                {/* ── Spot éphémère — visible uniquement si catégorie = Événement ── */}
+                {(tab === "instagram" ? igCategory : manCategory) === "événement" && (
+                  <div className="rounded-2xl border border-amber-200 dark:border-amber-500/20 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsEphemeral(v => !v)}
+                      className="flex w-full items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">⏳</span>
+                        <div className="text-left">
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Spot éphémère</p>
+                          <p className="text-xs text-amber-600 dark:text-amber-500">Ce lieu disparaîtra à la date choisie</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className={cn(
-                      "relative h-6 w-11 rounded-full transition-colors",
-                      isEphemeral ? "bg-amber-500" : "bg-gray-200 dark:bg-zinc-700"
-                    )}>
                       <div className={cn(
-                        "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                        isEphemeral ? "translate-x-5" : "translate-x-0.5"
-                      )} />
-                    </div>
-                  </button>
-                  {isEphemeral && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
-                      <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Date de fin</label>
-                      <input
-                        type="date"
-                        value={ephemeralDate}
-                        min={new Date().toISOString().split("T")[0]}
-                        onChange={e => setEphemeralDate(e.target.value)}
-                        className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
-                      />
-                    </motion.div>
-                  )}
-                </div>
+                        "relative h-6 w-11 rounded-full transition-colors",
+                        isEphemeral ? "bg-amber-500" : "bg-gray-200 dark:bg-zinc-700"
+                      )}>
+                        <div className={cn(
+                          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                          isEphemeral ? "translate-x-5" : "translate-x-0.5"
+                        )} />
+                      </div>
+                    </button>
+                    {isEphemeral && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
+                        <label className="mb-1 block text-xs font-medium text-amber-700 dark:text-amber-400">Date de fin</label>
+                        <input
+                          type="date"
+                          value={ephemeralDate}
+                          min={new Date().toISOString().split("T")[0]}
+                          onChange={e => setEphemeralDate(e.target.value)}
+                          className="w-full rounded-xl border border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-800 px-4 py-2.5 text-sm text-gray-900 dark:text-white outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20"
+                        />
+                      </motion.div>
+                    )}
+                  </div>
+                )}
 
-                {/* Sélecteur de visibilité */}
+                {/* Partager avec — liste unifiée */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">Partager avec</label>
+                  <label className="text-[11px] font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wide">Partager avec</label>
+                  {/* Amis */}
                   <button
                     type="button"
-                    onClick={() => setShowVisibilityPicker(v => !v)}
-                    className="w-full flex items-center justify-between gap-2 rounded-xl bg-white/[0.06] border border-white/[0.08] px-3 py-2.5 text-left"
+                    onClick={() => setVisibility(v => v === 'friends' ? 'private' : 'friends')}
+                    className={`w-full flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors ${visibility === 'friends' ? 'border-indigo-500/50 bg-indigo-500/10' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.06]'}`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">
-                        {visibility === 'private' ? '🔒' : visibility === 'group' ? (groups.find(g => g.id === selectedGroupId)?.emoji ?? '🗂️') : '👥'}
-                      </span>
-                      <span className="text-[13px] font-semibold text-white">
-                        {visibility === 'private' ? 'Privé' : visibility === 'group' ? (groups.find(g => g.id === selectedGroupId)?.name ?? 'Groupe') : 'Tous mes amis'}
-                      </span>
+                    <div className={`w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0 ${visibility === 'friends' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-300 dark:border-zinc-600'}`}>
+                      {visibility === 'friends' && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
                     </div>
-                    <ChevronDown size={14} className={`text-zinc-500 transition-transform ${showVisibilityPicker ? 'rotate-180' : ''}`} />
+                    <span className="text-sm">👥</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-gray-900 dark:text-white">Tous mes amis</p>
+                      <p className="text-[10px] text-gray-500 dark:text-zinc-500">Visible par tous tes abonnés</p>
+                    </div>
                   </button>
-
-                  {showVisibilityPicker && (
-                    <div className="rounded-xl border border-white/[0.07] bg-zinc-900 overflow-hidden">
-                      {/* Amis */}
+                  {/* Groupes */}
+                  {groups.map(group => {
+                    const checked = selectedGroupIds.has(group.id)
+                    return (
                       <button
+                        key={group.id}
                         type="button"
-                        onClick={() => { setVisibility('friends'); setSelectedGroupId(null); setShowVisibilityPicker(false) }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-white/[0.05] transition-colors ${visibility === 'friends' ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
+                        onClick={() => setSelectedGroupIds(prev => {
+                          const next = new Set(prev)
+                          if (next.has(group.id)) next.delete(group.id)
+                          else next.add(group.id)
+                          return next
+                        })}
+                        className={`w-full flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors ${checked ? 'border-indigo-500/50 bg-indigo-500/10' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 dark:border-white/[0.06] dark:bg-white/[0.03] dark:hover:bg-white/[0.06]'}`}
                       >
-                        <span className="text-base">👥</span>
-                        <div className="flex-1 text-left">
-                          <p className="text-[12px] font-bold text-white">Tous mes amis</p>
-                          <p className="text-[10px] text-zinc-500">Visible par tous tes abonnés</p>
+                        <div className={`w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0 ${checked ? 'border-indigo-500 bg-indigo-500' : 'border-gray-300 dark:border-zinc-600'}`}>
+                          {checked && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
                         </div>
-                        {visibility === 'friends' && <span className="text-indigo-400 text-xs font-bold">✓</span>}
+                        <span className="text-sm">{group.emoji}</span>
+                        <span className="text-[12px] font-semibold text-gray-900 dark:text-white truncate">{group.name}</span>
                       </button>
-
-                      {/* Groupes */}
-                      {groups.map(group => (
-                        <button
-                          key={group.id}
-                          type="button"
-                          onClick={() => { setVisibility('group'); setSelectedGroupId(group.id); setShowVisibilityPicker(false) }}
-                          className={`w-full flex items-center gap-3 px-3 py-2.5 border-b border-white/[0.05] transition-colors ${visibility === 'group' && selectedGroupId === group.id ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
-                        >
-                          <span className="text-base">{group.emoji}</span>
-                          <div className="flex-1 text-left">
-                            <p className="text-[12px] font-bold text-white">{group.name}</p>
-                            <p className="text-[10px] text-zinc-500">Membres du groupe uniquement</p>
-                          </div>
-                          {visibility === 'group' && selectedGroupId === group.id && <span className="text-indigo-400 text-xs font-bold">✓</span>}
-                        </button>
-                      ))}
-
-                      {/* Privé */}
-                      <button
-                        type="button"
-                        onClick={() => { setVisibility('private'); setSelectedGroupId(null); setShowVisibilityPicker(false) }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors ${visibility === 'private' ? 'bg-indigo-500/10' : 'hover:bg-white/[0.03]'}`}
-                      >
-                        <span className="text-base">🔒</span>
-                        <div className="flex-1 text-left">
-                          <p className="text-[12px] font-bold text-white">Privé</p>
-                          <p className="text-[10px] text-zinc-500">Seulement moi</p>
-                        </div>
-                        {visibility === 'private' && <span className="text-indigo-400 text-xs font-bold">✓</span>}
-                      </button>
-                    </div>
+                    )
+                  })}
+                  {visibility === 'private' && selectedGroupIds.size === 0 && (
+                    <p className="text-[10px] text-gray-500 dark:text-zinc-500 px-1">🔒 Visible uniquement par toi</p>
                   )}
                 </div>
 
