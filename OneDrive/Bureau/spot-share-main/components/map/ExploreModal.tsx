@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Search, Shuffle, ChevronDown, Check, MapPin, LoaderCircle } from "lucide-react"
+import { X, Search, Shuffle, MapPin, LoaderCircle } from "lucide-react"
 import type { Spot } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { CATEGORY_EMOJIS, CATEGORIES } from "@/lib/categories"
@@ -72,100 +72,52 @@ function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
   return false
 }
 
-// ─── Dropdown filter ─────────────────────────────────────────────────────────
+// ─── CategoryGrid ────────────────────────────────────────────────────────────
 
-interface DropdownOption {
-  label: string
-  value: string | null
-  emoji?: string
-  avatar?: string | null
+const CATEGORY_COLORS: Record<string, string> = {
+  "café":       "linear-gradient(135deg, #78350f, #b45309)",
+  "restaurant": "linear-gradient(135deg, #7c2d12, #dc2626)",
+  "extérieur":  "linear-gradient(135deg, #14532d, #16a34a)",
+  "bar":        "linear-gradient(135deg, #4c1d95, #7c3aed)",
+  "vue":        "linear-gradient(135deg, #1e3a5f, #2563eb)",
+  "culture":    "linear-gradient(135deg, #831843, #db2777)",
+  "sport":      "linear-gradient(135deg, #064e3b, #059669)",
+  "événement":  "linear-gradient(135deg, #1a1a2a, #6366f1)",
 }
 
-function FilterDropdown({
-  label, options, value, onChange,
+function CategoryGrid({
+  value,
+  onChange,
 }: {
-  label: string
-  options: DropdownOption[]
   value: string | null
   onChange: (v: string | null) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [open])
-
-  const selected = options.find(o => o.value === value)
-  const isActive = value !== null
-
+  const hasSelection = value !== null
   return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((v: boolean) => !v)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all",
-          isActive
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-500/20 dark:border-blue-500/50 text-blue-700 dark:text-blue-300"
-            : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800"
-        )}
-      >
-        {selected?.emoji && <span className="text-sm">{selected.emoji}</span>}
-        {selected?.avatar !== undefined && selected.avatar && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={selected.avatar} alt="" className="h-4 w-4 rounded-full object-cover" />
-        )}
-        <span>{isActive ? selected?.label : label}</span>
-        <ChevronDown
-          size={12}
-          className={cn("flex-shrink-0 transition-transform duration-200", open && "rotate-180")}
-        />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.96 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute left-0 top-full z-50 mt-1.5 min-w-[180px] overflow-hidden rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 shadow-xl shadow-black/20"
+    <div className="grid grid-cols-4 gap-1.5">
+      {CATEGORIES.map(c => {
+        const isSelected = value === c.key
+        return (
+          <button
+            key={c.key}
+            onClick={() => onChange(isSelected ? null : c.key)}
+            style={{ background: CATEGORY_COLORS[c.key] ?? "#1e1e1e" }}
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-[14px] py-2.5 px-1 border-[2.5px] transition-all active:scale-95",
+              isSelected
+                ? "border-white opacity-100 shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
+                : cn("border-transparent", hasSelection ? "opacity-35" : "opacity-80")
+            )}
           >
-            {options.map(opt => (
-              <button
-                key={opt.value ?? "__all__"}
-                onClick={() => { onChange(opt.value); setOpen(false) }}
-                className={cn(
-                  "flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors",
-                  opt.value === value
-                    ? "bg-blue-50 dark:bg-blue-500/20 font-semibold text-blue-700 dark:text-blue-300"
-                    : "text-gray-700 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800"
-                )}
-              >
-                {opt.emoji && <span className="text-base">{opt.emoji}</span>}
-                {opt.avatar !== undefined && (
-                  opt.avatar
-                    ? // eslint-disable-next-line @next/next/no-img-element
-                      <img src={opt.avatar} alt="" className="h-5 w-5 rounded-full object-cover" />
-                    : <div className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-400 text-[9px] font-bold text-white">
-                        {opt.label[0]?.toUpperCase()}
-                      </div>
-                )}
-                <span className="flex-1 truncate">{opt.label}</span>
-                {opt.value === value && <Check size={14} className="flex-shrink-0 text-blue-600" />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <span className="text-[20px] leading-none">{c.emoji}</span>
+            <span className="text-[8px] font-bold text-white text-center leading-tight">{c.label}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
+
 
 // ─── Spot cards ──────────────────────────────────────────────────────────────
 
@@ -357,6 +309,7 @@ interface ExploreModalProps {
   onSelectSpot: (spot: Spot) => void
   currentUserId?: string | null
   followingIds?: string[]
+  followingProfiles?: { id: string; username: string | null; avatar_url: string | null }[]
   surprisePin?: { spot: Spot } | null
   savedSpotIds?: Set<string>
   likeCountsBySpotId?: Record<string, number>
@@ -371,18 +324,19 @@ type RankEntry = { userId: string; username: string | null; avatar_url: string |
 
 // ─── ExploreModal ─────────────────────────────────────────────────────────────
 
-type Mode = "explorer" | "mine" | "friends"
+type Mode = "general" | "mine" | "friends"
 
 export default function ExploreModal({
-  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], surprisePin, likeCountsBySpotId, onSelectUser, onSurprise,
+  isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], followingProfiles = [], surprisePin, likeCountsBySpotId, onSelectUser, onSurprise,
   spotsLoaded = true, onAddSpot, onOpenFriends,
 }: ExploreModalProps) {
-  const [mode, setMode]                   = useState<Mode>("explorer")
+  const [mode, setMode]                   = useState<Mode>("general")
   const [searchQuery, setSearchQuery]     = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [friendFilter, setFriendFilter] = useState<string | null>(null)
   const [surpriseLoading, setSurpriseLoading] = useState(false)
+  const [surpriseRadius, setSurpriseRadius] = useState<number>(10)
   const inputRef        = useRef<HTMLInputElement>(null)
   const lastPickedIdRef = useRef<string | null>(null)
   const swipe = useSwipeToClose(onClose)
@@ -397,23 +351,24 @@ export default function ExploreModal({
   useEffect(() => {
     if (!isOpen) {
       setSearchQuery(""); setDebouncedQuery("")
-      setMode("explorer"); setCategoryFilter(null); setFriendFilter(null)
+      setMode("general"); setCategoryFilter(null); setFriendFilter(null)
       setSurpriseLoading(false)
     } else {
       setTimeout(() => inputRef.current?.focus(), 200)
     }
   }, [isOpen])
 
-  // Toggle tab — click active tab → back to explorer
-  const handleTab = (tab: "mine" | "friends") => {
-    setMode((prev: Mode) => prev === tab ? "explorer" : tab)
+  const handleTab = (tab: Mode) => {
+    setMode(tab)
     setFriendFilter(null)
+    setCategoryFilter(tab === "friends" ? "café" : null)
   }
 
   // ─── Data derivations ──────────────────────────────────────────────────────
 
-  // Only actual friends (people the user follows)
+  // Use enriched profiles from MapView; fall back to spot data for friends not yet in the map
   const friendProfiles = useMemo(() => {
+    if (followingProfiles.length > 0) return followingProfiles
     const friendSet = new Set(followingIds)
     const seen = new Set<string>()
     const result: FriendProfile[] = []
@@ -428,7 +383,7 @@ export default function ExploreModal({
       }
     }
     return result
-  }, [spots, followingIds])
+  }, [followingProfiles, spots, followingIds])
 
 
   // Filter expired spots
@@ -480,7 +435,7 @@ export default function ExploreModal({
   const recentSpots = useMemo(() =>
     [...withDist].sort((a, b) => {
       // In explorer mode with location: sort by distance first
-      if (mode === "explorer" && userLocation) {
+      if (mode === "general" && userLocation) {
         if (a.distance !== undefined && b.distance !== undefined) return a.distance - b.distance
         if (a.distance !== undefined) return -1
         if (b.distance !== undefined) return 1
@@ -548,10 +503,10 @@ export default function ExploreModal({
     if (!friendSpots.length) return
     setSurpriseLoading(true)
     setTimeout(() => {
-      // Strict 30km radius — fallback to all friends' spots if none nearby
+      // Rayon configurable — fallback à tous les spots amis si rien dans le rayon
       let pool = friendSpots
       if (userLocation) {
-        const nearby = friendSpots.filter((s: Spot) => distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= 30)
+        const nearby = friendSpots.filter((s: Spot) => distanceKm(userLocation.lat, userLocation.lng, s.lat, s.lng) <= surpriseRadius)
         if (nearby.length > 0) pool = nearby
       }
       // Avoid picking the same spot twice in a row
@@ -564,14 +519,7 @@ export default function ExploreModal({
       setSurpriseLoading(false)
       onSurprise?.(picked)
     }, 600)
-  }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots])
-
-  // ─── Dropdown options ──────────────────────────────────────────────────────
-
-  const categoryOptions: DropdownOption[] = [
-    { label: "Toutes catégories", value: null },
-    ...CATEGORIES.map(c => ({ label: c.label, value: c.key, emoji: c.emoji })),
-  ]
+  }, [surpriseLoading, followingIds, userLocation, onSurprise, allSpots, spots, surpriseRadius])
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -672,45 +620,57 @@ export default function ExploreModal({
                   )}
                 </div>
 
-                {/* ── Dropdown catégorie uniquement ── */}
-                <div className="flex items-center gap-2">
-                  <FilterDropdown
-                    label="Catégorie"
-                    options={categoryOptions}
-                    value={categoryFilter}
-                    onChange={setCategoryFilter}
-                  />
-                </div>
               </div>
 
               {/* ── Contenu scrollable ── */}
               <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
 
                 {/* ════ MODE EXPLORER ════ */}
-                {mode === "explorer" && (
+                {mode === "general" && (
                   <div className="space-y-6">
 
                     {/* Surprise CTA */}
                     {!hasFilters && (
-                      <button
-                        onClick={handleSurprise}
-                        disabled={surpriseLoading}
-                        className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-left transition-all active:scale-[0.98] disabled:opacity-60"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
-                            <p className="mt-0.5 text-sm text-white/70">Un spot inattendu t&apos;attend</p>
+                      <div className="space-y-2">
+                        <button
+                          onClick={handleSurprise}
+                          disabled={surpriseLoading}
+                          className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-left transition-all active:scale-[0.98] disabled:opacity-60"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
+                              <p className="mt-0.5 text-sm text-white/70">Dans un rayon de {surpriseRadius} km</p>
+                            </div>
+                            <motion.div
+                              animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
+                              transition={surpriseLoading ? { duration: 0.6, ease: "linear", repeat: Infinity } : {}}
+                              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+                            >
+                              <Shuffle size={22} className="text-white" />
+                            </motion.div>
                           </div>
-                          <motion.div
-                            animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
-                            transition={surpriseLoading ? { duration: 0.6, ease: "linear", repeat: Infinity } : {}}
-                            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
-                          >
-                            <Shuffle size={22} className="text-white" />
-                          </motion.div>
+                        </button>
+                        {/* Sélecteur de rayon */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
+                          <div className="flex gap-1 flex-wrap">
+                            {[2, 5, 10, 20, 50].map(km => (
+                              <button
+                                key={km}
+                                onClick={() => setSurpriseRadius(km)}
+                                className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                                  surpriseRadius === km
+                                    ? "bg-violet-500 text-white"
+                                    : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                                }`}
+                              >
+                                {km} km
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </button>
+                      </div>
                     )}
 
                     {/* Près de toi */}
@@ -743,7 +703,7 @@ export default function ExploreModal({
                           {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
                         </div>
                       ) : recentSpots.length === 0 ? (
-                        <EmptyState mode="explorer" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
+                        <EmptyState mode="general" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                       ) : (
                         <div className="space-y-2">
                           {hasFilters && (
@@ -940,7 +900,7 @@ function EmptyState({
   onOpenFriends?: () => void
 }) {
   const messages: Record<Mode, { icon: string; title: string; sub: string; cta?: { label: string; action?: () => void } }> = {
-    explorer: {
+    general: {
       icon: "🌍",
       title: "Aucun spot trouvé",
       sub: hasQuery ? "Essaie un autre mot-clé" : "Sois le premier à ajouter un spot !",
