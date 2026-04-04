@@ -28,7 +28,6 @@ import {
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
-import type { Activity } from "@/lib/types"
 
 import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
@@ -153,7 +152,7 @@ interface OutingInvitationFull {
   }
 }
 
-type Tab = "amis" | "sorties" | "activite"
+type Tab = "amis" | "sorties" | "classement"
 type GroupInvitationEnriched = import("@/lib/types").SpotGroupInvitation & { inviterProfile: { username: string | null; avatar_url: string | null } | null }
 
 type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
@@ -178,7 +177,6 @@ interface FriendsModalProps {
   setVisibleFriendIds: (ids: string[] | ((prev: string[]) => string[])) => void
   onRefreshFollowing?: () => void
   onGroupJoined?: (groupId: string) => void
-  onLocateFriend?: (lat: number, lng: number) => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (spotId: string) => void
   spots?: Array<{ id: string; user_id: string; created_at: string; title?: string | null; image_url?: string | null; lat?: number; lng?: number; profiles?: { username: string | null; avatar_url: string | null } }>
@@ -189,72 +187,8 @@ interface FriendsModalProps {
   proposeOutingSpot?: { id: string; title: string; lat?: number; lng?: number } | null
   onProposeConsumed?: () => void
   onOpenGroupSettings?: (group: { id: string; name: string; emoji: string; creator_id: string }) => void
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ActivityRow
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ActivityRow({
-  activity,
-  onSelectSpot,
-}: {
-  activity: Activity
-  onSelectSpot?: (spotId: string) => void
-}) {
-  const timeAgoShort = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime()
-    const min = Math.floor(diff / 60000)
-    if (min < 60) return `${min}m`
-    const h = Math.floor(min / 60)
-    if (h < 24) return `${h}h`
-    return `${Math.floor(h / 24)}j`
-  }
-
-  const text = () => {
-    const name = activity.actor_username ?? "Quelqu'un"
-    switch (activity.type) {
-      case "spot_added": return `${name} a ajouté un nouveau spot`
-      case "reaction": return `${name} a aimé ton spot${activity.spot_title ? ` "${activity.spot_title}"` : ""}`
-      case "friend_request_accepted": return `${name} a accepté ta demande d'ami`
-      case "outing_invite": return `${name} t'invite à une sortie`
-    }
-  }
-
-  const handleClick = () => {
-    if (activity.spot_id && onSelectSpot) onSelectSpot(activity.spot_id)
-  }
-
-  return (
-    <button
-      onClick={handleClick}
-      className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800/60 active:scale-[0.98]"
-    >
-      {activity.actor_avatar_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={activity.actor_avatar_url}
-          alt=""
-          className="h-9 w-9 rounded-full object-cover flex-shrink-0"
-        />
-      ) : (
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-sm font-bold text-indigo-600 dark:text-indigo-400">
-          {(activity.actor_username ?? "?")[0].toUpperCase()}
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] text-gray-800 dark:text-zinc-200 leading-snug line-clamp-2">
-          {text()}
-        </p>
-        <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
-          {timeAgoShort(activity.created_at)}
-        </p>
-      </div>
-      {!activity.read_at && (
-        <div className="h-2 w-2 rounded-full bg-indigo-500 flex-shrink-0" />
-      )}
-    </button>
-  )
+  openToTab?: Tab
+  onOpenToTabConsumed?: () => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -271,7 +205,6 @@ export default function FriendsModal({
   setVisibleFriendIds,
   onRefreshFollowing,
   onGroupJoined,
-  onLocateFriend,
   onSelectUser,
   onSelectSpot,
   spots,
@@ -282,9 +215,19 @@ export default function FriendsModal({
   proposeOutingSpot,
   onProposeConsumed,
   onOpenGroupSettings,
+  openToTab,
+  onOpenToTabConsumed,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
+
+  // Consommer openToTab quand il change (navigation depuis notification)
+  useEffect(() => {
+    if (!openToTab) return
+    setActiveTab(openToTab)
+    onOpenToTabConsumed?.()
+  }, [openToTab, onOpenToTabConsumed])
+
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean; title: string; message: string
     confirmLabel?: string; danger?: boolean; onConfirm: () => void
@@ -350,11 +293,6 @@ export default function FriendsModal({
 
   const [userMonthlyRank, setUserMonthlyRank] = useState<{ entry: RankEntry; rank: number } | null>(null)
   const [userTopSpot, setUserTopSpot] = useState<{ spot: TopSpot; rank: number } | null>(null)
-
-  // ── Activity feed state ──────────────────────────────────────
-  const [activities, setActivities] = useState<Activity[]>([])
-  const [activitiesLoading, setActivitiesLoading] = useState(false)
-  const [unreadCount, setUnreadCount] = useState(0)
 
   const supabaseRef = useRef(createClient())
   const swipe = useSwipeToClose(onClose, showCreateOuting || !!editingOuting || showCreateGroupForm)
@@ -465,20 +403,20 @@ export default function FriendsModal({
       }
     } catch {}
     try {
-      // 1. Sorties créées par moi
-      const { data: created } = await supabaseRef.current
-        .from("outings")
-        .select("id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status)")
-        .eq("creator_id", currentUser.id)
-        .eq("status", "active")
-        .order("scheduled_at", { ascending: true })
-
-      // 2. Sorties où j'ai accepté (pas créées par moi)
-      const { data: accepted } = await supabaseRef.current
-        .from("outing_invitations")
-        .select("outing_id, outings(id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status))")
-        .eq("invitee_id", currentUser.id)
-        .eq("status", "accepted")
+      // 1 & 2 en parallèle
+      const [{ data: created }, { data: accepted }] = await Promise.all([
+        supabaseRef.current
+          .from("outings")
+          .select("id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status)")
+          .eq("creator_id", currentUser.id)
+          .eq("status", "active")
+          .order("scheduled_at", { ascending: true }),
+        supabaseRef.current
+          .from("outing_invitations")
+          .select("outing_id, outings(id, creator_id, title, description, location_name, spot_id, lat, lng, scheduled_at, status, created_at, outing_invitations(id, invitee_id, status))")
+          .eq("invitee_id", currentUser.id)
+          .eq("status", "accepted"),
+      ])
 
       const all: Outing[] = []
       if (created) all.push(...(created as unknown as Outing[]))
@@ -613,50 +551,6 @@ export default function FriendsModal({
     }
   }, [currentUser])
 
-  const loadActivities = useCallback(async () => {
-    if (!currentUser) return
-    setActivitiesLoading(true)
-    try {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from("activities")
-        .select(`
-          id, type, actor_id, target_user_id, spot_id, outing_id, read_at, created_at,
-          actor:profiles!activities_actor_id_fkey(username, avatar_url),
-          spot:spots!activities_spot_id_fkey(title, image_url)
-        `)
-        .eq("target_user_id", currentUser.id)
-        .order("created_at", { ascending: false })
-        .limit(30)
-
-      if (error) { console.error("loadActivities:", error); return }
-
-      const mapped: Activity[] = (data ?? []).map((row: Record<string, unknown>) => {
-        const actor = row.actor as { username: string | null; avatar_url: string | null } | null
-        const spot = row.spot as { title: string | null; image_url: string | null } | null
-        return {
-          id: row.id as string,
-          type: row.type as Activity["type"],
-          actor_id: row.actor_id as string,
-          target_user_id: row.target_user_id as string,
-          spot_id: row.spot_id as string | null,
-          outing_id: row.outing_id as string | null,
-          read_at: row.read_at as string | null,
-          created_at: row.created_at as string,
-          actor_username: actor?.username ?? null,
-          actor_avatar_url: actor?.avatar_url ?? null,
-          spot_title: spot?.title ?? null,
-          spot_image_url: spot?.image_url ?? null,
-        }
-      })
-
-      setActivities(mapped)
-      setUnreadCount(mapped.filter(a => !a.read_at).length)
-    } finally {
-      setActivitiesLoading(false)
-    }
-  }, [currentUser])
-
   const acceptGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
     if (!currentUser || respondingGroupInviteId) return
     setRespondingGroupInviteId(inv.id)
@@ -722,9 +616,16 @@ export default function FriendsModal({
       }
       const { data: allInvs } = await supabaseRef.current
         .from("outing_invitations").select("id, outing_id, invitee_id, status").eq("outing_id", data.outing_id)
+      let enrichedAllInvs: any[] = allInvs ?? []
+      if (enrichedAllInvs.length > 0) {
+        const inviteeIds = [...new Set(enrichedAllInvs.map((i: any) => i.invitee_id))]
+        const { data: iProfiles } = await supabaseRef.current.from("profiles").select("id, username, avatar_url").in("id", inviteeIds)
+        const iProfilesMap = Object.fromEntries((iProfiles ?? []).map((p: any) => [p.id, p]))
+        enrichedAllInvs = enrichedAllInvs.map((i: any) => ({ ...i, profiles: iProfilesMap[i.invitee_id] ?? null }))
+      }
       const enriched = {
         ...data,
-        outings: outing ? { ...outing, profiles: profile, allInvitations: allInvs ?? [] } : null,
+        outings: outing ? { ...outing, profiles: profile, allInvitations: enrichedAllInvs } : null,
       }
       setOutingInvitations(prev => prev.some(i => i.id === invId) ? prev : [enriched as unknown as OutingInvitationFull, ...prev])
     } catch { /* ignore */ }
@@ -809,20 +710,7 @@ export default function FriendsModal({
   // ─── Effect: fetch classement data when tab opens ────────────
 
   useEffect(() => {
-    if (activeTab !== "activite" || !isOpen) return
-
-    // ── Activity feed ────────────────────────────────────────────
-    loadActivities()
-
-    // Marquer tout comme lu
-    if (currentUser) {
-      createClient()
-        .from("activities")
-        .update({ read_at: new Date().toISOString() })
-        .eq("target_user_id", currentUser.id)
-        .is("read_at", null)
-        .then(() => setUnreadCount(0))
-    }
+    if (!isOpen) return
 
     const ids = followingIdsRef.current
     const me = currentUserRef.current
@@ -865,7 +753,6 @@ export default function FriendsModal({
     supabaseRef.current
       .from("spots")
       .select("user_id, profiles(id, username, avatar_url)")
-      .in("user_id", allIds)
       .gte("created_at", startOfMonth)
       .then(({ data: spotsData }) => {
         const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
@@ -880,10 +767,9 @@ export default function FriendsModal({
         const sorted = Object.entries(counts)
           .map(([userId, v]) => ({ userId, ...v }))
           .sort((a, b) => b.count - a.count)
-        setMonthlyRankingData(sorted.slice(0, 6))
-        const top6 = sorted.slice(0, 6)
-        const userRank = me ? (sorted.findIndex(e => e.userId === me.id) >= 6 ? { entry: sorted[sorted.findIndex(e => e.userId === me.id)], rank: sorted.findIndex(e => e.userId === me.id) + 1 } : null) : null
-        setMonthlyRankingData(top6)
+        const top5 = sorted.slice(0, 5)
+        const userRank = me ? (sorted.findIndex(e => e.userId === me.id) >= 5 ? { entry: sorted[sorted.findIndex(e => e.userId === me.id)], rank: sorted.findIndex(e => e.userId === me.id) + 1 } : null) : null
+        setMonthlyRankingData(top5)
         setUserMonthlyRank(userRank)
         setMonthlyRankingLoading(false)
         // Persist for next open
@@ -891,7 +777,7 @@ export default function FriendsModal({
           try {
             const existing = localStorage.getItem(cacheKey)
             const prev = existing ? JSON.parse(existing) : {}
-            localStorage.setItem(cacheKey, JSON.stringify({ ...prev, ranking: top6, userRank, ts: Date.now() }))
+            localStorage.setItem(cacheKey, JSON.stringify({ ...prev, ranking: top5, userRank, ts: Date.now() }))
           } catch {}
         }
       })
@@ -902,7 +788,6 @@ export default function FriendsModal({
     supabaseRef.current
       .from("spots")
       .select("id, title, image_url, user_id, profiles(username)")
-      .in("user_id", allIds)
       .then(async ({ data: allSpots }) => {
         if (!allSpots || allSpots.length === 0) { setTopSpots([]); setUserTopSpot(null); setTopSpotsLoading(false); return }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -940,7 +825,7 @@ export default function FriendsModal({
         }
       })
       .then(undefined, () => { setTopSpots([]); setUserTopSpot(null); setTopSpotsLoading(false) })
-  }, [activeTab, isOpen, loadActivities, currentUser])
+  }, [isOpen, currentUser])
 
   // ─── Effect: auto-open create outing with pre-selected spot ──
   useEffect(() => {
@@ -1056,28 +941,6 @@ export default function FriendsModal({
     loadSuggestions, loadOutings, loadOutingInvitations, loadGroupInvitations, onRefreshFollowing,
     patchOutingInvitation, patchGroupInvitation, patchIncomingRequest,
   ])
-
-  // ─── Realtime: activities ────────────────────────────────────
-  useEffect(() => {
-    if (!isOpen || !currentUser) return
-    const supabase = createClient()
-    const channel = supabase
-      .channel(`activities-${currentUser.id}`)
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "activities",
-        filter: `target_user_id=eq.${currentUser.id}`,
-      }, () => {
-        if (activeTab !== "activite") {
-          setUnreadCount(prev => prev + 1)
-        }
-        if (activeTab === "activite") loadActivities()
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [isOpen, currentUser, activeTab, loadActivities])
 
   // ─── Search ──────────────────────────────────────────────────
 
@@ -1350,7 +1213,7 @@ export default function FriendsModal({
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "amis", label: "Amis", icon: <UserCheck size={12} /> },
     { id: "sorties", label: "Sorties", icon: <CalendarCheck size={12} /> },
-    { id: "activite", label: "Activité", icon: <Bell size={12} /> },
+    { id: "classement", label: "Classement", icon: <Trophy size={12} /> },
   ]
 
   return (
@@ -1419,6 +1282,28 @@ export default function FriendsModal({
                 </button>
               </div>
 
+              {/* ── Demandes d'amis reçues (banner global) ──────── */}
+              {incomingRequests.length > 0 && (
+                <div className="flex-shrink-0 px-4 pb-2">
+                  <div className="rounded-2xl border border-indigo-200/60 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/[0.08] p-3 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                      <Bell size={10} />
+                      {incomingRequests.length} demande{incomingRequests.length > 1 ? "s" : ""} d'abonnement
+                    </p>
+                    <div className="space-y-2">
+                      {incomingRequests.map(req => (
+                        <InvitationRow
+                          key={req.id} req={req}
+                          loading={loadingId === req.from_id}
+                          onAccept={() => acceptRequest(req)}
+                          onDecline={() => declineRequest(req)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ── Tabs ────────────────────────────────────────── */}
               <div className="flex-shrink-0 px-4 pb-3">
                 <div className="flex gap-0.5 rounded-xl bg-gray-100/80 dark:bg-zinc-900/80 p-1">
@@ -1444,37 +1329,11 @@ export default function FriendsModal({
                           {sortiesBadge}
                         </span>
                       )}
-                      {tab.id === "activite" && unreadCount > 0 && (
-                        <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white leading-none">
-                          {unreadCount > 9 ? "9+" : unreadCount}
-                        </span>
-                      )}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* ── Demandes d'amis reçues (banner fixe) ────────── */}
-              {activeTab === "amis" && incomingRequests.length > 0 && (
-                <div className="flex-shrink-0 px-4 pb-2">
-                  <div className="rounded-2xl border border-indigo-200/60 dark:border-indigo-500/20 bg-indigo-50/80 dark:bg-indigo-500/[0.08] p-3 space-y-2">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-500 dark:text-indigo-400 flex items-center gap-1.5">
-                      <Bell size={10} />
-                      {incomingRequests.length} demande{incomingRequests.length > 1 ? "s" : ""} d'ami
-                    </p>
-                    <div className="space-y-2">
-                      {incomingRequests.map(req => (
-                        <InvitationRow
-                          key={req.id} req={req}
-                          loading={loadingId === req.from_id}
-                          onAccept={() => acceptRequest(req)}
-                          onDecline={() => declineRequest(req)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* ── Search bar ──────────────────────────────────── */}
               {activeTab === "amis" && (
@@ -1520,9 +1379,6 @@ export default function FriendsModal({
                               onCancelRequest={() => cancelRequest(profile.id)}
                               onUnfollow={() => unfollow(profile.id)}
                               onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
-                              onLocate={profile.last_lat && profile.last_lng
-                                ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
-                                : undefined}
                             />
                           ))
                         )}
@@ -1561,9 +1417,6 @@ export default function FriendsModal({
                                   onCancelRequest={() => cancelRequest(profile.id)}
                                   onUnfollow={() => unfollow(profile.id)}
                                   onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
-                                  onLocate={profile.last_lat && profile.last_lng
-                                    ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
-                                    : undefined}
                                 />
                               ))}
                           </Section>
@@ -1584,9 +1437,6 @@ export default function FriendsModal({
                                 onCancelRequest={() => cancelRequest(profile.id)}
                                 onUnfollow={() => unfollow(profile.id)}
                                 onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
-                                onLocate={profile.last_lat && profile.last_lng
-                                  ? () => { onLocateFriend?.(profile.last_lat!, profile.last_lng!); onClose() }
-                                  : undefined}
                               />
                             ))}
                         </Section>
@@ -1609,7 +1459,7 @@ export default function FriendsModal({
                                   : (s.username?.[0] ?? "?").toUpperCase()}
                               </div>
                               <p className="text-[11px] text-gray-600 dark:text-zinc-400 max-w-[68px] truncate text-center">
-                                @{s.username ?? "?"}
+                                {s.username ?? "?"}
                               </p>
                               {(s.mutualCount ?? 0) > 0 && (
                                 <p className="text-[10px] text-indigo-500 dark:text-indigo-400">
@@ -1643,7 +1493,7 @@ export default function FriendsModal({
                                 {inv.spot_groups?.name ?? "Groupe"}
                               </p>
                               <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">
-                                Invité par @{inv.inviterProfile?.username ?? "quelqu'un"}
+                                Invité par {inv.inviterProfile?.username ?? "quelqu'un"}
                               </p>
                             </div>
                             <div className="flex gap-1.5 flex-shrink-0">
@@ -1734,6 +1584,40 @@ export default function FriendsModal({
                         )}
                       </Section>
                     )}
+
+                    {/* ── Demandes envoyées ────────────────────────── */}
+                    {query.length < 2 && pendingSent.length > 0 && (
+                      <div>
+                        <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          En attente · {pendingSent.length}
+                        </p>
+                        <div className="space-y-0.5">
+                          {pendingSent.map(p => (
+                            <div key={p.id} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
+                              <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[11px] font-bold text-white">
+                                {p.avatar_url
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  ? <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
+                                  : (p.username?.[0] ?? "?").toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] text-gray-600 dark:text-zinc-400 truncate">
+                                  <span className="font-medium">{p.username ?? "?"}</span>
+                                  <span className="text-gray-400 dark:text-zinc-600"> · En attente de réponse</span>
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => cancelRequest(p.id)}
+                                disabled={loadingId === p.id}
+                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-400 dark:text-zinc-600 transition-colors hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50"
+                              >
+                                {loadingId === p.id ? <LoaderCircle size={10} className="animate-spin" /> : "Annuler"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1790,20 +1674,6 @@ export default function FriendsModal({
                       </Section>
                     )}
 
-                    {/* Sorties passées */}
-                    {pastOutings.length > 0 && (
-                      <Section title="Sorties passées" icon={<Clock size={10} />}>
-                        {pastOutings.map(outing => (
-                          <OutingCard
-                            key={outing.id}
-                            outing={outing}
-                            currentUserId={currentUser?.id ?? ""}
-                            onCancel={cancelOuting}
-                            past
-                          />
-                        ))}
-                      </Section>
-                    )}
 
                     {/* Empty state */}
                     {outingInvitations.length === 0 && outings.length === 0 && (
@@ -1819,7 +1689,7 @@ export default function FriendsModal({
                 )}
 
                 {/* ════ ACTIVITÉ ══════════════════════════════════ */}
-                {activeTab === "activite" && (
+                {activeTab === "classement" && (
                   <div className="space-y-8 pb-2">
 
                     {/* ── Classement mensuel ─────────────────────── */}
@@ -1869,7 +1739,7 @@ export default function FriendsModal({
                                     <span className="absolute -top-1 -right-1 text-[15px] leading-none">🥈</span>
                                   </div>
                                   <div className="flex items-center justify-center gap-1">
-                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">@{monthlyRankingData[1].username ?? "?"}</p>
+                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">{monthlyRankingData[1].username ?? "?"}</p>
                                     {monthlyRankingData[1].userId === currentUser?.id && <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>}
                                   </div>
                                   <div className={`w-full rounded-t-xl flex flex-col items-center justify-center ${monthlyRankingData[1].userId === currentUser?.id ? "bg-indigo-50 dark:bg-indigo-500/[0.08] border-t-2 border-indigo-300/40 dark:border-indigo-500/20" : "bg-gray-100 dark:bg-zinc-800"}`} style={{ height: 60 }}>
@@ -1896,7 +1766,7 @@ export default function FriendsModal({
                                 <span className="absolute -top-2 -right-0.5 text-[18px] leading-none drop-shadow-sm">🥇</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <p className="text-center text-[12px] font-bold text-gray-900 dark:text-white truncate max-w-[72px]">@{monthlyRankingData[0].username ?? "?"}</p>
+                                <p className="text-center text-[12px] font-bold text-gray-900 dark:text-white truncate max-w-[72px]">{monthlyRankingData[0].username ?? "?"}</p>
                                 {monthlyRankingData[0].userId === currentUser?.id && (
                                   <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>
                                 )}
@@ -1925,7 +1795,7 @@ export default function FriendsModal({
                                     <span className="absolute -top-1 -right-1 text-[13px] leading-none">🥉</span>
                                   </div>
                                   <div className="flex items-center justify-center gap-1">
-                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">@{monthlyRankingData[2].username ?? "?"}</p>
+                                    <p className="text-center text-[11px] font-semibold text-gray-600 dark:text-zinc-400 truncate max-w-[56px] px-1">{monthlyRankingData[2].username ?? "?"}</p>
                                     {monthlyRankingData[2].userId === currentUser?.id && <span className="rounded-full bg-indigo-500/15 px-1 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400 leading-tight">vous</span>}
                                   </div>
                                   <div className={`w-full rounded-t-xl flex flex-col items-center justify-center ${monthlyRankingData[2].userId === currentUser?.id ? "bg-indigo-50 dark:bg-indigo-500/[0.08] border-t-2 border-indigo-300/40 dark:border-indigo-500/20" : "bg-orange-50/80 dark:bg-orange-500/[0.07]"}`} style={{ height: 46 }}>
@@ -1938,9 +1808,9 @@ export default function FriendsModal({
                           </div>
 
                           {/* Positions 4-5-6 */}
-                          {monthlyRankingData.slice(3, 6).length > 0 && (
+                          {monthlyRankingData.slice(3, 5).length > 0 && (
                             <div className="space-y-1.5">
-                              {monthlyRankingData.slice(3, 6).map((entry, i) => {
+                              {monthlyRankingData.slice(3, 5).map((entry, i) => {
                                 const isMe = entry.userId === currentUser?.id
                                 return (
                                   <button
@@ -1959,7 +1829,7 @@ export default function FriendsModal({
                                       }
                                     </div>
                                     <p className={`min-w-0 flex-1 truncate text-[13px] font-semibold text-left ${isMe ? "text-indigo-600 dark:text-indigo-300" : "text-gray-700 dark:text-zinc-300"}`}>
-                                      @{entry.username ?? "?"}
+                                      {entry.username ?? "?"}
                                       {isMe && <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>}
                                     </p>
                                     <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{entry.count} spots</span>
@@ -1986,7 +1856,7 @@ export default function FriendsModal({
                                       }
                                     </div>
                                     <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-indigo-600 dark:text-indigo-300 text-left">
-                                      @{userMonthlyRank.entry.username ?? "?"}
+                                      {userMonthlyRank.entry.username ?? "?"}
                                       <span className="ml-1.5 rounded-full bg-indigo-500/15 px-1.5 py-px text-[8px] font-bold text-indigo-600 dark:text-indigo-400">vous</span>
                                     </p>
                                     <span className="flex-shrink-0 text-[12px] font-bold text-indigo-500 dark:text-indigo-400">{userMonthlyRank.entry.count} spots</span>
@@ -2011,39 +1881,107 @@ export default function FriendsModal({
                       />
                     )}
 
-                    {/* ── Demandes envoyées ────────────────────────── */}
-                    {pendingSent.length > 0 && (
-                      <div>
-                        <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
-                          Envoyées · {pendingSent.length}
-                        </p>
-                        <div className="space-y-0.5">
-                          {pendingSent.map(p => (
-                            <div key={p.id} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
-                              <div className="h-8 w-8 flex-shrink-0 rounded-full overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[11px] font-bold text-white">
-                                {p.avatar_url
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  ? <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
-                                  : (p.username?.[0] ?? "?").toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[12px] text-gray-600 dark:text-zinc-400 truncate">
-                                  <span className="font-medium">@{p.username ?? "?"}</span>
-                                  <span className="text-gray-400 dark:text-zinc-600"> · En attente</span>
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => cancelRequest(p.id)}
-                                disabled={loadingId === p.id}
-                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-gray-400 dark:text-zinc-600 transition-colors hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50"
-                              >
-                                {loadingId === p.id ? <LoaderCircle size={10} className="animate-spin" /> : "Annuler"}
-                              </button>
-                            </div>
-                          ))}
+                    {/* ── Top spots les plus aimés (global) ──────── */}
+                    <div>
+                      <div className="flex items-center justify-between mb-5">
+                        <div>
+                          <p className="text-[16px] font-bold text-gray-900 dark:text-white">Spots les plus aimés</p>
+                          <p className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">Toute la plateforme</p>
                         </div>
+                        <span className="flex items-center gap-1.5 rounded-full bg-rose-50 dark:bg-rose-500/10 border border-rose-200/50 dark:border-rose-500/20 px-2.5 py-1 text-[10px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-wide">
+                          ❤️ Likes
+                        </span>
                       </div>
-                    )}
+
+                      {topSpotsLoading ? (
+                        <div className="flex justify-center py-6">
+                          <LoaderCircle size={20} className="animate-spin text-gray-300 dark:text-zinc-700" />
+                        </div>
+                      ) : topSpots.length === 0 ? (
+                        <EmptyState
+                          icon={<span className="text-2xl">❤️</span>}
+                          text="Aucun spot aimé pour l'instant"
+                          sub="Aime des spots pour les voir apparaître ici !"
+                        />
+                      ) : (
+                        <div className="flex items-end justify-center gap-2">
+                          {/* #2 */}
+                          <div
+                            onClick={() => topSpots[1] && onSelectSpot?.(topSpots[1].id)}
+                            className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                          >
+                            {topSpots[1] ? (
+                              <>
+                                <div className="relative w-full aspect-square overflow-hidden rounded-xl ring-2 ring-gray-300 dark:ring-zinc-600 shadow-sm">
+                                  {topSpots[1].image_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={topSpots[1].image_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-zinc-700 dark:to-zinc-600 text-2xl">📍</div>
+                                  }
+                                  <span className="absolute top-1 right-1 text-[15px] leading-none drop-shadow">🥈</span>
+                                </div>
+                                <div className="w-full text-center">
+                                  <p className="text-[11px] font-semibold text-gray-700 dark:text-zinc-300 truncate">{topSpots[1].title}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-zinc-500 truncate">{topSpots[1].username ?? "?"}</p>
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-400 mt-0.5">❤️ {topSpots[1].likeCount}</span>
+                                </div>
+                                <div className="w-full rounded-t-xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center" style={{ height: 40 }} />
+                              </>
+                            ) : <div style={{ height: 40 }} className="w-full" />}
+                          </div>
+
+                          {/* #1 — tallest, center */}
+                          <div
+                            onClick={() => topSpots[0] && onSelectSpot?.(topSpots[0].id)}
+                            className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                          >
+                            {topSpots[0] && (
+                              <>
+                                <div className="relative w-full aspect-square overflow-hidden rounded-xl ring-[3px] ring-amber-400 shadow-lg shadow-amber-500/20">
+                                  {topSpots[0].image_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={topSpots[0].image_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-amber-200 to-orange-200 dark:from-amber-900/40 dark:to-orange-900/40 text-3xl">📍</div>
+                                  }
+                                  <span className="absolute top-1 right-1 text-[18px] leading-none drop-shadow">🥇</span>
+                                </div>
+                                <div className="w-full text-center">
+                                  <p className="text-[12px] font-bold text-gray-900 dark:text-white truncate">{topSpots[0].title}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-zinc-500 truncate">{topSpots[0].username ?? "?"}</p>
+                                  <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-rose-500 dark:text-rose-400 mt-0.5">❤️ {topSpots[0].likeCount}</span>
+                                </div>
+                                <div className="w-full rounded-t-xl bg-gradient-to-b from-amber-50 to-amber-100/60 dark:from-amber-500/15 dark:to-amber-500/5 border-t-2 border-amber-300/50 dark:border-amber-500/25 flex items-center justify-center" style={{ height: 56 }} />
+                              </>
+                            )}
+                          </div>
+
+                          {/* #3 */}
+                          <div
+                            onClick={() => topSpots[2] && onSelectSpot?.(topSpots[2].id)}
+                            className="flex flex-1 flex-col items-center gap-2 min-w-0 cursor-pointer hover:opacity-75 transition-opacity active:scale-95"
+                          >
+                            {topSpots[2] ? (
+                              <>
+                                <div className="relative w-full aspect-square overflow-hidden rounded-xl ring-2 ring-orange-300 dark:ring-orange-700/50 shadow-sm">
+                                  {topSpots[2].image_url
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={topSpots[2].image_url} alt="" className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30 text-2xl">📍</div>
+                                  }
+                                  <span className="absolute top-1 right-1 text-[13px] leading-none drop-shadow">🥉</span>
+                                </div>
+                                <div className="w-full text-center">
+                                  <p className="text-[11px] font-semibold text-gray-700 dark:text-zinc-300 truncate">{topSpots[2].title}</p>
+                                  <p className="text-[10px] text-gray-400 dark:text-zinc-500 truncate">{topSpots[2].username ?? "?"}</p>
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-400 mt-0.5">❤️ {topSpots[2].likeCount}</span>
+                                </div>
+                                <div className={`w-full rounded-t-xl bg-orange-50/80 dark:bg-orange-500/[0.07] flex items-center justify-center`} style={{ height: 28 }} />
+                              </>
+                            ) : <div style={{ height: 28 }} className="w-full" />}
+                          </div>
+                        </div>
+                      )}
+                    </div>
 
                   </div>
                 )}
@@ -2527,11 +2465,11 @@ function EmptyState({ icon, text, sub }: { icon: React.ReactNode; text: string; 
 
 function UserRow({
   profile, initials, isFollowing, isPending, loading,
-  onSendRequest, onCancelRequest, onUnfollow, onSelectUser, onLocate,
+  onSendRequest, onCancelRequest, onUnfollow, onSelectUser,
 }: {
   profile: Profile; initials: string; isFollowing: boolean; isPending: boolean; loading: boolean
   onSendRequest: () => void; onCancelRequest: () => void; onUnfollow: () => void
-  onSelectUser?: () => void; onLocate?: () => void
+  onSelectUser?: () => void
 }) {
   const online = isOnline(profile.last_active_at)
   return (
@@ -2550,7 +2488,7 @@ function UserRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold leading-tight text-gray-900 dark:text-white">
-          @{profile.username ?? "utilisateur"}
+          {profile.username ?? "utilisateur"}
         </p>
         <p className="mt-0.5 flex items-center gap-1 text-[10px] text-gray-400 dark:text-zinc-600">
           {online ? (
@@ -2561,14 +2499,6 @@ function UserRow({
         </p>
       </div>
       <div className="flex flex-shrink-0 items-center gap-1">
-        {onLocate && (
-          <button
-            onClick={e => { e.stopPropagation(); onLocate() }}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-300 dark:text-zinc-700 opacity-0 transition-all group-hover:opacity-100 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-500 dark:hover:text-indigo-400"
-          >
-            <MapPin size={13} />
-          </button>
-        )}
         {isFollowing ? (
           <button onClick={e => { e.stopPropagation(); onUnfollow() }} disabled={loading}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 dark:text-zinc-600 transition-all hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50">
@@ -2606,7 +2536,7 @@ function SuggestionRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold leading-tight text-gray-900 dark:text-white">
-          @{profile.username ?? "utilisateur"}
+          {profile.username ?? "utilisateur"}
         </p>
         {(mutualCount ?? 0) > 0 ? (
           <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
@@ -2649,7 +2579,7 @@ function InvitationRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold text-gray-900 dark:text-white">
-          @{req.profiles?.username ?? "utilisateur"}
+          {req.profiles?.username ?? "utilisateur"}
         </p>
         <p className="text-[10px] text-gray-400 dark:text-zinc-600">veut être ton ami</p>
       </div>
@@ -2973,7 +2903,7 @@ function OutingCard({
       {/* "Créé par" for outings you were invited to */}
       {!isCreator && outing.profiles?.username && (
         <p className="mt-1.5 text-[10px] text-gray-400 dark:text-zinc-600">
-          Proposé par @{outing.profiles.username}
+          Proposé par {outing.profiles.username}
         </p>
       )}
     </div>
@@ -3184,22 +3114,34 @@ function OutingInvitationCard({
           )
         })()}
 
-        {/* Participer / Décliner */}
+        {/* Participer / Décliner / Se désister */}
         <div className="flex gap-2 pt-1 border-t border-gray-100 dark:border-white/[0.06]">
-          <button
-            onClick={() => handle(onAccept)}
-            disabled={loading}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-[12px] font-bold text-white shadow-sm shadow-green-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
-          >
-            {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarCheck size={12} /> Participer</>}
-          </button>
-          <button
-            onClick={() => handle(onDecline)}
-            disabled={loading}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 py-2 text-[12px] font-semibold text-gray-600 dark:text-zinc-400 transition-all active:scale-[0.98] disabled:opacity-50"
-          >
-            {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Décliner</>}
-          </button>
+          {invitation.status === "accepted" ? (
+            <button
+              onClick={() => handle(onDecline)}
+              disabled={loading}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/10 py-2 text-[12px] font-semibold text-red-500 dark:text-red-400 transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Se désister</>}
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => handle(onAccept)}
+                disabled={loading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-green-500 py-2 text-[12px] font-bold text-white shadow-sm shadow-green-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarCheck size={12} /> Participer</>}
+              </button>
+              <button
+                onClick={() => handle(onDecline)}
+                disabled={loading}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 py-2 text-[12px] font-semibold text-gray-600 dark:text-zinc-400 transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                {loading ? <LoaderCircle size={12} className="animate-spin" /> : <><CalendarX size={12} /> Décliner</>}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -157,7 +157,7 @@ export default function PublicProfileModal({
                         </div>
                         <div className={`absolute right-1 bottom-1 z-20 h-4 w-4 rounded-full border-[2.5px] border-white dark:border-zinc-950 ${profile?.last_active_at && Date.now() - new Date(profile.last_active_at).getTime() < 15 * 60000 ? "bg-green-500" : "bg-red-500"}`} />
                       </div>
-                      <p className="text-lg font-bold">@{profile?.username || "utilisateur"}</p>
+                      <p className="text-lg font-bold">{profile?.username || "utilisateur"}</p>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/50 py-4">

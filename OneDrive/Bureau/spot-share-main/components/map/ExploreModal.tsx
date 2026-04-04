@@ -215,7 +215,7 @@ function SpotHCard({
               ? <img src={avatar} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
               : <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-400 text-[7px] font-bold text-white">{username[0]?.toUpperCase()}</div>
             }
-            <span className="truncate text-[10px] text-gray-400">@{username}</span>
+            <span className="truncate text-[10px] text-gray-400">{username}</span>
           </button>
         )}
       </div>
@@ -286,7 +286,7 @@ function SpotListRow({
                 ? <img src={avatar} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
                 : <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-400 text-[7px] font-bold text-white">{username[0]?.toUpperCase()}</div>
               }
-              <span className="text-[11px] text-gray-400">@{username} · {timeSince(spot.created_at)}</span>
+              <span className="text-[11px] text-gray-400">{username} · {timeSince(spot.created_at)}</span>
             </button>
           )}
         </div>

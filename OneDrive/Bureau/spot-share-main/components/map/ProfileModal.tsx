@@ -138,6 +138,7 @@ export default function ProfileModal({
   // Notifications
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default")
   const [notifLoading, setNotifLoading] = useState(false)
+  const [monthlyRank, setMonthlyRank] = useState<1 | 2 | 3 | null>(null)
 
   const supabaseRef = useRef(createClient())
   const swipe = useSwipeToClose(onClose)
@@ -205,6 +206,28 @@ export default function ProfileModal({
       if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current)
     }
   }, [isOpen, user, applyStats]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Monthly ranking medal
+  useEffect(() => {
+    if (!isOpen || !user) return
+    setMonthlyRank(null)
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    supabaseRef.current
+      .from("spots")
+      .select("user_id")
+      .gte("created_at", startOfMonth)
+      .then(({ data }) => {
+        if (!data) return
+        const counts: Record<string, number> = {}
+        data.forEach((s: { user_id: string }) => { counts[s.user_id] = (counts[s.user_id] ?? 0) + 1 })
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+        const rank = sorted.findIndex(([id]) => id === user.id)
+        if (rank === 0) setMonthlyRank(1)
+        else if (rank === 1) setMonthlyRank(2)
+        else if (rank === 2) setMonthlyRank(3)
+      })
+  }, [isOpen, user])
 
   // ---------------------------------------------------------------
   // Save username
@@ -746,7 +769,7 @@ export default function ProfileModal({
                                 (p.username || "?").charAt(0).toUpperCase()
                               )}
                             </div>
-                            <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
+                            <p className="truncate text-sm font-medium flex-1">{p.username || "utilisateur"}</p>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleRemoveFollowerUser(p.id) }}
                               className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
@@ -798,7 +821,7 @@ export default function ProfileModal({
                                 (p.username || "?").charAt(0).toUpperCase()
                               )}
                             </div>
-                            <p className="truncate text-sm font-medium flex-1">@{p.username || "utilisateur"}</p>
+                            <p className="truncate text-sm font-medium flex-1">{p.username || "utilisateur"}</p>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleUnfollowUser(p.id) }}
                               className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
@@ -850,7 +873,7 @@ export default function ProfileModal({
                               {/* Info */}
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium">
-                                  <span className="font-bold">@{item.likerUsername || "utilisateur"}</span>
+                                  <span className="font-bold">{item.likerUsername || "utilisateur"}</span>
                                   {" a aimé "}
                                   <span className="font-semibold">{item.spotTitle}</span>
                                 </p>
@@ -929,8 +952,11 @@ export default function ProfileModal({
                           </div>
                         ) : (
                           <button onClick={() => { setNameInput(username); setEditingName(true) }} className="group/name">
-                            <p className="text-base font-semibold transition-colors group-hover/name:text-blue-600 dark:group-hover/name:text-indigo-400">
-                              @{username || "…"}
+                            <p className="flex items-center justify-center gap-1.5 text-base font-semibold transition-colors group-hover/name:text-blue-600 dark:group-hover/name:text-indigo-400">
+                              {username || "…"}
+                              {monthlyRank === 1 && <span className="text-[18px] leading-none">🥇</span>}
+                              {monthlyRank === 2 && <span className="text-[18px] leading-none">🥈</span>}
+                              {monthlyRank === 3 && <span className="text-[18px] leading-none">🥉</span>}
                             </p>
                             <p className="text-[10px] text-gray-400 dark:text-zinc-600 opacity-0 transition-opacity group-hover/name:opacity-100">
                               Cliquer pour modifier
@@ -976,68 +1002,6 @@ export default function ProfileModal({
 
                     {saveError && <p className="text-center text-xs text-red-400">{saveError}</p>}
 
-                    {/* Suggestions vignette */}
-                    <div className="rounded-2xl border border-gray-100 dark:border-white/[0.07] bg-gray-50 dark:bg-zinc-900/60 overflow-hidden">
-                      <button
-                        onClick={async () => {
-                          if (!showSuggestionsSheet) {
-                            if (suggestions.length === 0) await loadSuggestions()
-                          }
-                          setShowSuggestionsSheet(v => !v)
-                        }}
-                        className="flex w-full items-center justify-between px-4 py-3"
-                      >
-                        <span className="flex items-center gap-2 text-[13px] font-semibold text-gray-700 dark:text-zinc-200">
-                          <Sparkles size={13} className="text-indigo-400" /> Suggestions d&apos;amis
-                        </span>
-                        <span className="text-[11px] text-gray-400 dark:text-zinc-500">
-                          {showSuggestionsSheet ? "Masquer" : "Afficher"}
-                        </span>
-                      </button>
-                      {showSuggestionsSheet && (
-                        <div className="border-t border-gray-100 dark:border-white/[0.06] px-3 py-3">
-                          {suggestions.length === 0 ? (
-                            <p className="text-center text-[11px] text-gray-400 dark:text-zinc-500 py-2">Aucune suggestion pour le moment</p>
-                          ) : (
-                            <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
-                              {suggestions.map(profile => (
-                                <div key={profile.id} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[60px]">
-                                  <button
-                                    onClick={() => onSelectUser?.(profile.id)}
-                                    className="h-12 w-12 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white active:scale-95 transition-transform"
-                                  >
-                                    {profile.avatar_url
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      ? <img src={profile.avatar_url} alt="avatar" className="h-full w-full object-cover" />
-                                      : (profile.username?.[0]?.toUpperCase() ?? "?")}
-                                  </button>
-                                  <span className="w-full truncate text-center text-[10px] text-gray-500 dark:text-zinc-500">
-                                    {profile.username ?? "?"}
-                                  </span>
-                                  <button
-                                    onClick={async () => {
-                                      if (pendingSuggestions.has(profile.id)) return
-                                      setPendingSuggestions(prev => new Set([...prev, profile.id]))
-                                      try {
-                                        await supabaseRef.current.from("followers").insert({ follower_id: user!.id, following_id: profile.id })
-                                      } catch {}
-                                    }}
-                                    disabled={pendingSuggestions.has(profile.id)}
-                                    className={`w-full rounded-lg px-1 py-1 text-[9px] font-bold transition-all active:scale-95 disabled:opacity-60 ${
-                                      pendingSuggestions.has(profile.id)
-                                        ? "bg-gray-100 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500"
-                                        : "bg-indigo-500 text-white"
-                                    }`}
-                                  >
-                                    {pendingSuggestions.has(profile.id) ? "✓ Suivi" : "+ Suivre"}
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
 
                     {/* Ghost Mode */}
                     {/* Notifications Toggle */}
