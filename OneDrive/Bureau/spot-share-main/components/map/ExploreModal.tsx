@@ -75,14 +75,14 @@ function isOpenNow(weekdayDescriptions: string[] | null): boolean | null {
 // ─── CategoryGrid ────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "café":       "linear-gradient(135deg, #78350f, #b45309)",
-  "restaurant": "linear-gradient(135deg, #7c2d12, #dc2626)",
-  "extérieur":  "linear-gradient(135deg, #14532d, #16a34a)",
-  "bar":        "linear-gradient(135deg, #4c1d95, #7c3aed)",
-  "vue":        "linear-gradient(135deg, #1e3a5f, #2563eb)",
-  "culture":    "linear-gradient(135deg, #831843, #db2777)",
-  "sport":      "linear-gradient(135deg, #064e3b, #059669)",
-  "événement":  "linear-gradient(135deg, #1a1a2a, #6366f1)",
+  "café":       "linear-gradient(135deg, #78350f, #f59e0b)",
+  "restaurant": "linear-gradient(135deg, #be123c, #fb7185)",
+  "extérieur":  "linear-gradient(135deg, #15803d, #4ade80)",
+  "bar":        "linear-gradient(135deg, #6d28d9, #f472b6)",
+  "vue":        "linear-gradient(135deg, #0369a1, #38bdf8)",
+  "culture":    "linear-gradient(135deg, #9d174d, #e879f9)",
+  "sport":      "linear-gradient(135deg, #c2410c, #fbbf24)",
+  "événement":  "linear-gradient(135deg, #4338ca, #a78bfa)",
 }
 
 function CategoryGrid({
@@ -642,51 +642,49 @@ export default function ExploreModal({
                 {mode === "general" && (
                   <div className="space-y-5">
 
-                    {/* Grille catégories */}
-                    <CategoryGrid value={categoryFilter} onChange={setCategoryFilter} />
-
                     {/* Surprise CTA */}
-                    {!hasFilters && (
-                      <div className="space-y-2">
-                        <button
-                          onClick={handleSurprise}
-                          disabled={surpriseLoading}
-                          className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-left transition-all active:scale-[0.98] disabled:opacity-60"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
-                              <p className="mt-0.5 text-sm text-white/70">Dans un rayon de {surpriseRadius} km</p>
-                            </div>
-                            <motion.div
-                              animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
-                              transition={surpriseLoading ? { duration: 0.6, ease: "linear", repeat: Infinity } : {}}
-                              className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleSurprise}
+                        disabled={surpriseLoading}
+                        className="group relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 p-5 text-left transition-all active:scale-[0.98] disabled:opacity-60"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
+                            <p className="mt-0.5 text-sm text-white/70">Dans un rayon de {surpriseRadius} km</p>
+                          </div>
+                          <motion.div
+                            animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
+                            transition={surpriseLoading ? { duration: 0.6, ease: "linear", repeat: Infinity } : {}}
+                            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20"
+                          >
+                            <Shuffle size={22} className="text-white" />
+                          </motion.div>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
+                        <div className="flex gap-1 flex-wrap">
+                          {[2, 5, 10, 20, 50].map(km => (
+                            <button
+                              key={km}
+                              onClick={() => setSurpriseRadius(km)}
+                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                                surpriseRadius === km
+                                  ? "bg-violet-500 text-white"
+                                  : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                              }`}
                             >
-                              <Shuffle size={22} className="text-white" />
-                            </motion.div>
-                          </div>
-                        </button>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
-                          <div className="flex gap-1 flex-wrap">
-                            {[2, 5, 10, 20, 50].map(km => (
-                              <button
-                                key={km}
-                                onClick={() => setSurpriseRadius(km)}
-                                className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
-                                  surpriseRadius === km
-                                    ? "bg-violet-500 text-white"
-                                    : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
-                                }`}
-                              >
-                                {km} km
-                              </button>
-                            ))}
-                          </div>
+                              {km} km
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    )}
+                    </div>
+
+                    {/* Grille catégories */}
+                    <CategoryGrid value={categoryFilter} onChange={setCategoryFilter} />
 
                     {/* Près de toi */}
                     {nearbySpots.length > 0 && !debouncedQuery && (
