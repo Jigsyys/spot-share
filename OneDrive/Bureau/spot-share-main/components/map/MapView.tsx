@@ -2088,7 +2088,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute right-4 flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight > 0 ? navHeight + 80 : undefined }}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -2123,7 +2123,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight > 0 ? navHeight + 80 : undefined }}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2164,7 +2164,8 @@ export default function MapView() {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            style={{ bottom: navHeight > 0 ? navHeight + 4 : undefined }}
           >
             {/* Drag Handle Mobile — glisser ici pour fermer */}
             <div
@@ -2292,7 +2293,7 @@ export default function MapView() {
               <div className="h-10" />
             )}
 
-            <div className="px-5 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
+            <div className="px-5 pt-4 sm:pb-6" style={{ paddingBottom: navHeight > 0 ? navHeight + 16 : undefined }}>
               <div className="flex items-start gap-3">
                 <h3 className="flex-1 line-clamp-2 text-2xl leading-tight font-extrabold">
                   {selectedSpot.title}
@@ -2555,7 +2556,8 @@ export default function MapView() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 400, damping: 34 }}
-              className="relative z-10 rounded-t-3xl bg-white dark:bg-zinc-950 px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))]"
+              className="relative z-10 rounded-t-3xl bg-white dark:bg-zinc-950 px-4 pt-4"
+              style={{ paddingBottom: navHeight > 0 ? navHeight + 16 : 24 }}
             >
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-[15px] font-bold text-gray-900 dark:text-white">Ajouter à un groupe</p>
@@ -3070,7 +3072,8 @@ export default function MapView() {
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 80, opacity: 0 }}
-            className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm"
+            className="fixed left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm"
+            style={{ bottom: navHeight > 0 ? navHeight + 16 : 96 }}
           >
             <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 shadow-xl p-4">
               <p className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
