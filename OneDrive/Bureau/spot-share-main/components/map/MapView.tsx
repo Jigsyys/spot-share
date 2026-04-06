@@ -1776,7 +1776,7 @@ export default function MapView() {
         </div>
       </div>
 
-      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
+      <div className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-2">
           <div className="relative flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
@@ -2655,7 +2655,7 @@ export default function MapView() {
       <div
         ref={navRef}
         className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
-        style={{ paddingBottom: "min(env(safe-area-inset-bottom), 12px)" }}
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">
           <button
