@@ -2654,9 +2654,10 @@ export default function MapView() {
       {/* Bottom Navigation Bar — mobile only */}
       <div
         ref={navRef}
-        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
+        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="flex h-16 items-center justify-around px-2 border-t border-gray-200 dark:border-white/10 pb-[env(safe-area-inset-bottom)]">
+        <div className="flex h-16 items-center justify-around px-2">
           <button
             onClick={() => {
               setSelectedSpot(null)
