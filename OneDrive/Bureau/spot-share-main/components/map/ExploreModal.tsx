@@ -319,6 +319,7 @@ interface ExploreModalProps {
   spotsLoaded?: boolean
   onAddSpot?: () => void
   onOpenFriends?: () => void
+  navHeight?: number
 }
 
 type RankEntry = { userId: string; username: string | null; avatar_url: string | null; count: number }
@@ -329,7 +330,7 @@ type Mode = "general" | "mine" | "friends"
 
 export default function ExploreModal({
   isOpen, onClose, spots, allSpots, userLocation, onSelectSpot, currentUserId, followingIds = [], followingProfiles = [], surprisePin, likeCountsBySpotId, onSelectUser, onSurprise,
-  spotsLoaded = true, onAddSpot, onOpenFriends,
+  spotsLoaded = true, onAddSpot, onOpenFriends, navHeight = 0,
 }: ExploreModalProps) {
   const [mode, setMode]                   = useState<Mode>("general")
   const [searchQuery, setSearchQuery]     = useState("")
@@ -538,7 +539,8 @@ export default function ExploreModal({
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-x-0 top-0 bottom-16 z-[70] sm:inset-0 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-x-0 top-0 z-[70] sm:inset-0 bg-black/50 backdrop-blur-sm"
+            style={{ bottom: navHeight > 0 ? navHeight : 64 }}
           />
 
           {/* Panel */}
@@ -554,7 +556,8 @@ export default function ExploreModal({
             onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 bottom-16 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+            className="fixed inset-x-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+            style={{ bottom: navHeight > 0 ? navHeight : 64 }}
           >
             <div className="flex h-[calc(92vh-4rem)] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 

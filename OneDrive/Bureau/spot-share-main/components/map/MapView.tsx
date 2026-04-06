@@ -2898,6 +2898,7 @@ export default function MapView() {
           setSelectedSpot(spot)
           mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
         }}
+        navHeight={navHeight}
       />
 
       <AddSpotModal
@@ -2916,6 +2917,7 @@ export default function MapView() {
           })
           return promise
         }}
+        navHeight={navHeight}
       />
       <FriendsModal
         isOpen={showFriendsModal}
@@ -2968,6 +2970,7 @@ export default function MapView() {
           setShowFriendsModal(false)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 })
         }}
+        navHeight={navHeight}
       />
       <ProfileModal
         isOpen={showProfileModal}
@@ -3010,6 +3013,7 @@ export default function MapView() {
           if (spot) setSelectedSpot(spot)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.5, duration: 1000 })
         }}
+        navHeight={navHeight}
       />
 
       <PublicProfileModal
