@@ -129,6 +129,11 @@
     touch-action: manipulation;
     overscroll-behavior: none;
     -webkit-text-size-adjust: 100%;
+    /* La zone safe-area en bas est rendue par le système avec cette couleur */
+    background-color: rgb(255 255 255 / 0.9); /* light mode : même couleur que la nav bar */
+  }
+  html.dark {
+    background-color: rgb(9 9 11 / 0.9); /* dark mode : zinc-950/90 */
   }
   body {
     @apply bg-background text-foreground;
