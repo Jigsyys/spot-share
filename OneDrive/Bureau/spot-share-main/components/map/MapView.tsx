@@ -320,7 +320,7 @@ export const NavHeightContext = createContext(0)
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
   const navRef = useRef<HTMLDivElement>(null)
-  const [navHeight, setNavHeight] = useState(0)
+  const [navHeight, setNavHeight] = useState(80)
   const { user, loading: authLoading, signOut } = useAuth()
   const { resolvedTheme } = useTheme()
 
@@ -2088,7 +2088,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute right-4 flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight + 16 }}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -2123,7 +2123,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight + 16 }}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2655,9 +2655,9 @@ export default function MapView() {
       <div
         ref={navRef}
         className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
-        style={{ paddingBottom: "min(env(safe-area-inset-bottom), 8px)" }}
+        style={{ paddingBottom: "min(env(safe-area-inset-bottom), 12px)" }}
       >
-        <div className="flex h-14 items-center justify-around px-2">
+        <div className="flex h-16 items-center justify-around px-2">
           <button
             onClick={() => {
               setSelectedSpot(null)
