@@ -2654,10 +2654,9 @@ export default function MapView() {
       {/* Bottom Navigation Bar — mobile only */}
       <div
         ref={navRef}
-        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
       >
-        <div className="flex h-16 items-center justify-around px-2">
+        <div className="flex h-16 items-center justify-around px-2 border-t border-gray-200 dark:border-white/10">
           <button
             onClick={() => {
               setSelectedSpot(null)
@@ -2769,6 +2768,8 @@ export default function MapView() {
             <span className="text-[10px] font-medium">Profil</span>
           </button>
         </div>
+        {/* Safe area fill — même couleur que la nav bar, invisible mais couvre le home indicator */}
+        <div className="w-full bg-white/90 dark:bg-zinc-950/90" style={{ height: "env(safe-area-inset-bottom)" }} />
       </div>
 
       {/* ── Desktop Sidebar Navigation — hidden on mobile ─────────── */}
