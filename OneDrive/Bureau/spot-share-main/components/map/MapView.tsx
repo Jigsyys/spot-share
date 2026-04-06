@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback, useMemo, startTransition } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo, startTransition, createContext } from "react"
 import Map, { Marker as MapMarker, MapRef, Layer } from "react-map-gl/mapbox"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { toast } from "sonner"
@@ -315,8 +315,12 @@ function OpeningHoursBlock({
   )
 }
 
+export const NavHeightContext = createContext(0)
+
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
+  const navRef = useRef<HTMLDivElement>(null)
+  const [navHeight, setNavHeight] = useState(0)
   const { user, loading: authLoading, signOut } = useAuth()
   const { resolvedTheme } = useTheme()
 
@@ -1513,6 +1517,14 @@ export default function MapView() {
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [selectedSpot?.id, fetchVisits, fetchReactions])
 
+  // Mesure la hauteur réelle de la nav bar mobile
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setNavHeight(el.offsetHeight))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const points = useMemo(() => visibleSpots.map((spot) => ({
     type: "Feature" as const,
@@ -1654,6 +1666,7 @@ export default function MapView() {
   }
 
   return (
+    <NavHeightContext.Provider value={navHeight}>
     <div className="relative h-screen w-full overflow-hidden bg-gray-50 dark:bg-zinc-950">
       {/* Map Layer */}
       <div className="absolute inset-0 h-full w-full">
@@ -2638,8 +2651,9 @@ export default function MapView() {
 
       {/* Bottom Navigation Bar — mobile only */}
       <div
+        ref={navRef}
         className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingBottom: "min(env(safe-area-inset-bottom), 16px)" }}
       >
         <div className="flex h-16 items-center justify-around px-2">
           <button
@@ -3106,5 +3120,6 @@ export default function MapView() {
         />
       )}
     </div>
+    </NavHeightContext.Provider>
   )
 }
