@@ -1,0 +1,396 @@
+<h2>Structure des onglets — v2</h2>
+<p class="subtitle">Mes spots + Amis en haut, Général en barre pleine largeur en dessous. Clique sur l'onglet actif pour naviguer.</p>
+
+<style>
+  .phone-frame {
+    width: 300px;
+    border-radius: 32px;
+    background: #0f0f0f;
+    padding: 12px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    display: inline-block;
+    vertical-align: top;
+    margin: 0 10px;
+  }
+  .phone-screen {
+    background: #111;
+    border-radius: 22px;
+    overflow: hidden;
+    min-height: 540px;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone-header {
+    padding: 16px 14px 10px;
+    background: #111;
+  }
+  .phone-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 10px;
+  }
+  .tab-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 10px;
+  }
+  .tab-row-top {
+    display: flex;
+    gap: 5px;
+  }
+  .tab-pill {
+    flex: 1;
+    text-align: center;
+    padding: 9px 4px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: default;
+  }
+  .tab-active {
+    background: #fff;
+    color: #000;
+  }
+  .tab-inactive {
+    background: #1e1e1e;
+    color: #666;
+    border: 1px solid #2a2a2a;
+  }
+  .tab-general {
+    width: 100%;
+    text-align: center;
+    padding: 9px 4px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: default;
+  }
+  .tab-general-active {
+    background: #fff;
+    color: #000;
+  }
+  .tab-general-inactive {
+    background: #1e1e1e;
+    color: #666;
+    border: 1px solid #2a2a2a;
+  }
+  .search-bar {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 10px 14px;
+    color: #555;
+    font-size: 12px;
+  }
+  .phone-body {
+    padding: 12px 14px;
+    flex: 1;
+  }
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    margin: 10px 0 7px;
+  }
+  .chip-row {
+    display: flex;
+    gap: 6px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .chip {
+    flex-shrink: 0;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 20px;
+    padding: 5px 10px;
+    font-size: 10px;
+    color: #aaa;
+    white-space: nowrap;
+  }
+  .chip-active {
+    background: #2a2aff22;
+    border-color: #4a4aff88;
+    color: #8080ff;
+  }
+  .carousel-row {
+    display: flex;
+    gap: 7px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .spot-card-sm {
+    flex-shrink: 0;
+    width: 82px;
+    height: 82px;
+    border-radius: 14px;
+    background: #1e1e1e;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 6px;
+    font-size: 9px;
+    color: #ccc;
+    font-weight: 600;
+    position: relative;
+  }
+  .spot-emoji {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    font-size: 20px;
+  }
+  .spot-card-label {
+    background: rgba(0,0,0,0.6);
+    border-radius: 6px;
+    padding: 2px 4px;
+    position: relative;
+    z-index: 1;
+  }
+  .list-row {
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .list-thumb {
+    width: 40px;
+    height: 40px;
+    background: #2a2a2a;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .list-title { font-size: 11px; font-weight: 700; color: #fff; }
+  .list-sub { font-size: 9px; color: #555; margin-top: 2px; }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .grid-card {
+    aspect-ratio: 1;
+    background: #1e1e1e;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    position: relative;
+  }
+  .grid-card-label {
+    position: absolute;
+    bottom: 7px;
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: #ccc;
+  }
+  .avatar-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .avatar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .avatar-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+    border: 2px solid #2a2a2a;
+  }
+  .avatar-name { font-size: 8px; color: #666; }
+  .surprise-btn {
+    background: linear-gradient(90deg, #6d28d9, #4f46e5);
+    border-radius: 16px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .surprise-text { font-size: 13px; font-weight: 800; color: #fff; }
+  .surprise-sub { font-size: 9px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+  .phones-row {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .phone-label {
+    text-align: center;
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 8px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .week-badge {
+    display: inline-block;
+    background: #0a2a0a;
+    border: 1px solid #1a5a1a;
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-size: 9px;
+    color: #4ade80;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+</style>
+
+<div style="max-width: 1000px; margin: 0 auto;">
+  <div class="phones-row">
+
+    <!-- MES SPOTS actif -->
+    <div>
+      <div class="phone-label">Mes spots</div>
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="phone-header">
+            <div class="phone-title">Explorer</div>
+            <div class="tab-group">
+              <div class="tab-row-top">
+                <div class="tab-pill tab-active">Mes spots</div>
+                <div class="tab-pill tab-inactive">Amis</div>
+              </div>
+              <div class="tab-general tab-general-inactive">Général</div>
+            </div>
+            <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+          </div>
+          <div class="phone-body">
+            <div class="chip-row">
+              <div class="chip chip-active">Tout</div>
+              <div class="chip">☕ Café</div>
+              <div class="chip">🌿 Outdoor</div>
+              <div class="chip">🏙️ Vue</div>
+              <div class="chip">🍷 Bar</div>
+            </div>
+            <div style="font-size:10px; color:#555; margin-bottom:10px;">12 spots</div>
+            <div class="grid-2">
+              <div class="grid-card">☕<div class="grid-card-label">Café Marly</div></div>
+              <div class="grid-card">🏙️<div class="grid-card-label">Rooftop Sentier</div></div>
+              <div class="grid-card">🌿<div class="grid-card-label">Parc Buttes</div></div>
+              <div class="grid-card">🍽️<div class="grid-card-label">Bistrot Marais</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AMIS actif -->
+    <div>
+      <div class="phone-label">Amis</div>
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="phone-header">
+            <div class="phone-title">Explorer</div>
+            <div class="tab-group">
+              <div class="tab-row-top">
+                <div class="tab-pill tab-inactive">Mes spots</div>
+                <div class="tab-pill tab-active">Amis</div>
+              </div>
+              <div class="tab-general tab-general-inactive">Général</div>
+            </div>
+            <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+          </div>
+          <div class="phone-body">
+            <div class="avatar-row">
+              <div class="avatar-item"><div class="avatar-circle">R</div><div class="avatar-name">@romsko</div></div>
+              <div class="avatar-item"><div class="avatar-circle" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">A</div><div class="avatar-name">@aayron</div></div>
+              <div class="avatar-item"><div class="avatar-circle" style="background:linear-gradient(135deg,#10b981,#3b82f6)">M</div><div class="avatar-name">@mavence</div></div>
+              <div class="avatar-item"><div class="avatar-circle" style="background:linear-gradient(135deg,#ec4899,#8b5cf6)">C</div><div class="avatar-name">@céllan</div></div>
+            </div>
+            <div class="week-badge">🆕 Cette semaine</div>
+            <div class="carousel-row">
+              <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Flore</div></div>
+              <div class="spot-card-sm" style="background:#1a2a1a;"><div class="spot-emoji">🛹</div><div class="spot-card-label">Skatepark</div></div>
+              <div class="spot-card-sm" style="background:#1a1a2e;"><div class="spot-emoji">🏙️</div><div class="spot-card-label">Rooflops</div></div>
+            </div>
+            <div class="section-label">Par catégorie</div>
+            <div class="chip-row">
+              <div class="chip">☕ Café</div>
+              <div class="chip">🛹 Skate</div>
+              <div class="chip">🏙️ Vue</div>
+              <div class="chip">🌿 Outdoor</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GÉNÉRAL actif -->
+    <div>
+      <div class="phone-label">Général</div>
+      <div class="phone-frame">
+        <div class="phone-screen">
+          <div class="phone-header">
+            <div class="phone-title">Explorer</div>
+            <div class="tab-group">
+              <div class="tab-row-top">
+                <div class="tab-pill tab-inactive">Mes spots</div>
+                <div class="tab-pill tab-inactive">Amis</div>
+              </div>
+              <div class="tab-general tab-general-active">Général</div>
+            </div>
+            <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+          </div>
+          <div class="phone-body">
+            <div class="chip-row">
+              <div class="chip chip-active">Tout</div>
+              <div class="chip">☕ Café</div>
+              <div class="chip">🌿 Outdoor</div>
+              <div class="chip">🍽️ Resto</div>
+              <div class="chip">🍷 Bar</div>
+            </div>
+            <div class="surprise-btn">
+              <div><div class="surprise-text">🎲 Surprends-moi</div><div class="surprise-sub">Dans un rayon de 10 km</div></div>
+              <div style="font-size:22px;">🔀</div>
+            </div>
+            <div class="section-label">📍 Près de toi</div>
+            <div class="carousel-row">
+              <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Marly</div></div>
+              <div class="spot-card-sm" style="background:#1a2a1a;"><div class="spot-emoji">🌿</div><div class="spot-card-label">Parc secret</div></div>
+              <div class="spot-card-sm" style="background:#1a1a2e;"><div class="spot-emoji">🏙️</div><div class="spot-card-label">Rooftop</div></div>
+            </div>
+            <div class="section-label">☕ Cafés</div>
+            <div class="carousel-row">
+              <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café de Flore</div></div>
+              <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Procope</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<p class="subtitle" style="text-align:center; margin-top: 24px;">
+  Dis-moi si ce layout te convient ou si tu veux ajuster (taille des boutons, espacement, ordre…)
+</p>

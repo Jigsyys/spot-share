@@ -50,7 +50,6 @@ interface AddSpotModalProps {
   userLat?: number
   userLng?: number
   groups?: Array<{ id: string; name: string; emoji: string }>
-  navHeight?: number
 }
 
 type Tab = "instagram" | "manual"
@@ -78,7 +77,6 @@ export default function AddSpotModal({
   userLat,
   userLng,
   groups = [],
-  navHeight = 0,
 }: AddSpotModalProps) {
   const [tab, setTab] = useState<Tab>("manual")
   const [visibility, setVisibility] = useState<'friends' | 'private'>('friends')
@@ -399,8 +397,7 @@ export default function AddSpotModal({
             dragElastic={{ top: 0.05, bottom: 0.4 }}
             dragMomentum={false}
             onDragEnd={(_e, { offset, velocity }) => { if (offset.y > 120 || velocity.y > 400) onClose() }}
-            className="fixed inset-x-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
-            style={{ bottom: navHeight > 0 ? navHeight : undefined }}
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
             <div className="flex max-h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
               <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />

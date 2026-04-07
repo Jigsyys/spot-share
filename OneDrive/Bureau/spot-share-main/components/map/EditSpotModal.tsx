@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import { X, UploadCloud, LoaderCircle, ChevronLeft, ChevronRight, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -13,20 +13,39 @@ interface EditSpotModalProps {
   spot: Spot
   onClose: () => void
   onUpdate: (updatedSpot: Spot) => void
+  groups?: Array<{ id: string; name: string; emoji: string }>
+  currentUserId?: string
 }
 
-export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModalProps) {
+export default function EditSpotModal({ spot, onClose, onUpdate, groups = [], currentUserId }: EditSpotModalProps) {
   const [title, setTitle] = useState(spot.title)
   const [description, setDescription] = useState(spot.description || "")
   const [category, setCategory] = useState(spot.category)
   const [photos, setPhotos] = useState<string[]>(
     spot.image_url ? spot.image_url.split(",").map(s => s.trim()).filter(Boolean) : []
   )
+  const [isAmisChecked, setIsAmisChecked] = useState((spot as any).visibility !== 'private')
   const [submitting, setSubmitting] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [groupIds, setGroupIds] = useState<Set<string>>(new Set())
+  const [originalGroupIds, setOriginalGroupIds] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const supabase = useRef(createClient())
   const dragControls = useDragControls()
+
+  // Charger les groupes actuels du spot
+  useEffect(() => {
+    if (!currentUserId) return
+    supabase.current
+      .from("spot_group_spots")
+      .select("group_id")
+      .eq("spot_id", spot.id)
+      .then(({ data }) => {
+        const ids = new Set((data ?? []).map((r: { group_id: string }) => r.group_id))
+        setGroupIds(ids)
+        setOriginalGroupIds(ids)
+      })
+  }, [spot.id, currentUserId])
 
   const handlePhotoDelete = (idx: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== idx))
@@ -90,12 +109,40 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
         description: description.trim() || null,
         category,
         image_url: photos.length > 0 ? photos.join(",") : null,
+        visibility: (isAmisChecked ? 'friends' : 'private') as 'friends' | 'private',
       }
       const { error } = await supabase.current
         .from("spots")
         .update(updates)
         .eq("id", spot.id)
       if (error) throw error
+
+      // Diff groupes : ajouter les nouveaux, supprimer les retirés
+      if (currentUserId) {
+        const toAdd = [...groupIds].filter(id => !originalGroupIds.has(id))
+        const toRemove = [...originalGroupIds].filter(id => !groupIds.has(id))
+        const [addRes, removeRes] = await Promise.all([
+          toAdd.length > 0
+            ? supabase.current.from("spot_group_spots").insert(
+                toAdd.map(gid => ({ spot_id: spot.id, group_id: gid, added_by: currentUserId }))
+              )
+            : Promise.resolve({ error: null }),
+          toRemove.length > 0
+            ? supabase.current.from("spot_group_spots").delete()
+                .eq("spot_id", spot.id)
+                .in("group_id", toRemove)
+            : Promise.resolve({ error: null }),
+        ])
+        if ((addRes as { error: unknown })?.error) {
+          toast.error("Erreur lors de l'ajout aux groupes.")
+          return
+        }
+        if ((removeRes as { error: unknown })?.error) {
+          toast.error("Erreur lors du retrait des groupes.")
+          return
+        }
+      }
+
       onUpdate({ ...spot, ...updates })
       toast.success("Spot modifié !")
       onClose()
@@ -260,6 +307,70 @@ export default function EditSpotModal({ spot, onClose, onUpdate }: EditSpotModal
                     {c.emoji} {c.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Partager avec */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-500 dark:text-zinc-400">Partager avec</label>
+              <div className="space-y-1.5">
+                {/* Amis */}
+                <button
+                  type="button"
+                  onClick={() => setIsAmisChecked(v => !v)}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 rounded-2xl border px-3 py-2 text-left transition-colors",
+                    isAmisChecked
+                      ? "border-blue-600 bg-blue-50 dark:border-indigo-500 dark:bg-indigo-500/15"
+                      : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10"
+                  )}
+                >
+                  <div className={cn(
+                    "w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0",
+                    isAmisChecked ? "border-blue-600 bg-blue-600 dark:border-indigo-500 dark:bg-indigo-500" : "border-gray-300 dark:border-zinc-600"
+                  )}>
+                    {isAmisChecked && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
+                  </div>
+                  <span className="text-sm">👥</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">Tous mes amis</p>
+                    <p className="text-[11px] text-gray-400 dark:text-zinc-500">Visible par tous tes abonnés</p>
+                  </div>
+                </button>
+                {/* Groupes */}
+                {groups.map(group => {
+                  const checked = groupIds.has(group.id)
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => setGroupIds(prev => {
+                        const next = new Set(prev)
+                        if (next.has(group.id)) next.delete(group.id)
+                        else next.add(group.id)
+                        return next
+                      })}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 rounded-2xl border px-3 py-2 text-left transition-colors",
+                        checked
+                          ? "border-blue-600 bg-blue-50 dark:border-indigo-500 dark:bg-indigo-500/15"
+                          : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-md border flex items-center justify-center flex-shrink-0",
+                        checked ? "border-blue-600 bg-blue-600 dark:border-indigo-500 dark:bg-indigo-500" : "border-gray-300 dark:border-zinc-600"
+                      )}>
+                        {checked && <span className="text-white text-[9px] font-bold leading-none">✓</span>}
+                      </div>
+                      <span className="text-sm">{group.emoji}</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white truncate">{group.name}</span>
+                    </button>
+                  )
+                })}
+                {!isAmisChecked && groupIds.size === 0 && (
+                  <p className="text-[11px] text-gray-400 dark:text-zinc-500 px-1">🔒 Visible uniquement par toi</p>
+                )}
               </div>
             </div>
 

@@ -1,0 +1,206 @@
+<h2>Filtres catégories — grille 3×2</h2>
+<p class="subtitle">Clique une catégorie → affiche ses spots en dessous. Deux variantes de style.</p>
+
+<style>
+  .phone-frame {
+    width: 300px;
+    border-radius: 32px;
+    background: #0f0f0f;
+    padding: 12px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    display: inline-block;
+    vertical-align: top;
+  }
+  .phone-screen {
+    background: #111;
+    border-radius: 22px;
+    overflow: hidden;
+    min-height: 560px;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone-header {
+    padding: 16px 14px 10px;
+    background: #111;
+  }
+  .phone-title { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px; }
+  .tab-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+  .tab-row-top { display: flex; gap: 5px; }
+  .tab-pill {
+    flex: 1; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+  }
+  .tab-active { background: #fff; color: #000; }
+  .tab-inactive { background: #1e1e1e; color: #666; border: 1px solid #2a2a2a; }
+  .tab-general {
+    width: 100%; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+    background: #fff; color: #000;
+  }
+  .search-bar {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 14px; padding: 10px 14px; color: #555; font-size: 12px;
+  }
+  .phone-body { padding: 12px 14px; flex: 1; }
+  .section-label { font-size: 11px; font-weight: 700; color: #fff; margin: 10px 0 7px; }
+
+  /* Grille catégories */
+  .cat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+    margin-bottom: 14px;
+  }
+
+  /* Style A — tuiles avec emoji grand + label */
+  .cat-tile-a {
+    border-radius: 14px;
+    padding: 10px 6px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    cursor: default;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .cat-tile-a .cat-emoji { font-size: 22px; }
+  .cat-tile-a .cat-label { font-size: 9px; font-weight: 700; color: #ccc; text-align: center; }
+  .cat-tile-a.inactive { background: #1e1e1e; border-color: #2a2a2a; }
+  .cat-tile-a.active   { background: #1a1a3e; border-color: #4a4aff88; }
+  .cat-tile-a.active .cat-label { color: #8080ff; }
+
+  /* Style B — tuiles colorées par catégorie */
+  .cat-tile-b {
+    border-radius: 14px;
+    padding: 10px 6px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    cursor: default;
+    opacity: 0.7;
+  }
+  .cat-tile-b .cat-emoji { font-size: 22px; }
+  .cat-tile-b .cat-label { font-size: 9px; font-weight: 700; color: #fff; text-align: center; }
+  .cat-tile-b.active { opacity: 1; transform: scale(1.04); }
+
+  .carousel-row { display: flex; gap: 7px; overflow: hidden; margin-bottom: 10px; }
+  .spot-card-sm {
+    flex-shrink: 0; width: 82px; height: 82px; border-radius: 14px;
+    background: #1e1e1e; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 6px; font-size: 9px;
+    color: #ccc; font-weight: 600; position: relative;
+  }
+  .spot-emoji { position: absolute; top: 8px; left: 8px; font-size: 20px; }
+  .spot-card-label { background: rgba(0,0,0,0.6); border-radius: 6px; padding: 2px 4px; position: relative; z-index: 1; }
+
+  .surprise-btn {
+    background: linear-gradient(90deg, #6d28d9, #4f46e5);
+    border-radius: 16px; padding: 11px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .surprise-text { font-size: 13px; font-weight: 800; color: #fff; }
+  .surprise-sub { font-size: 9px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+  .phones-row {
+    display: flex; justify-content: center; align-items: flex-start;
+    flex-wrap: wrap; gap: 24px; margin-top: 4px;
+  }
+  .phone-label {
+    text-align: center; font-size: 11px; color: #888;
+    margin-bottom: 8px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+</style>
+
+<div class="phones-row">
+
+  <!-- Option A : tuiles neutres, sélection bleue -->
+  <div>
+    <div class="phone-label">Style A — neutre + sélection</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-inactive">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+        </div>
+        <div class="phone-body">
+          <div class="surprise-btn">
+            <div><div class="surprise-text">🎲 Surprends-moi</div><div class="surprise-sub">Dans un rayon de 10 km</div></div>
+            <div style="font-size:22px;">🔀</div>
+          </div>
+
+          <div class="cat-grid">
+            <div class="cat-tile-a active"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile-a inactive"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile-a inactive"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile-a inactive"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile-a inactive"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile-a inactive"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+
+          <div class="section-label">☕ Cafés — 24 spots</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café de Flore</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Procope</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Marly</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B : tuiles colorées par catégorie -->
+  <div>
+    <div class="phone-label">Style B — tuiles colorées</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-inactive">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+        </div>
+        <div class="phone-body">
+          <div class="surprise-btn">
+            <div><div class="surprise-text">🎲 Surprends-moi</div><div class="surprise-sub">Dans un rayon de 10 km</div></div>
+            <div style="font-size:22px;">🔀</div>
+          </div>
+
+          <div class="cat-grid">
+            <div class="cat-tile-b active" style="background:linear-gradient(135deg,#78350f,#b45309);"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile-b" style="background:linear-gradient(135deg,#14532d,#16a34a);"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile-b" style="background:linear-gradient(135deg,#7c2d12,#dc2626);"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile-b" style="background:linear-gradient(135deg,#4c1d95,#7c3aed);"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile-b" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile-b" style="background:linear-gradient(135deg,#831843,#db2777);"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+
+          <div class="section-label">☕ Cafés — 24 spots</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café de Flore</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Procope</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji">☕</div><div class="spot-card-label">Café Marly</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center; margin-top: 24px;">Style A (neutre) ou Style B (coloré) ? Ou autre chose ?</p>

@@ -1,0 +1,165 @@
+<h2>FriendsModal — Redesign avec Groupes</h2>
+<p class="subtitle">Les groupes sont actuellement introuvables et leurs invitations n'ont aucune UI. 3 propositions pour corriger ça.</p>
+
+<style>
+.phone { width:195px; border-radius:20px; overflow:hidden; border:2px solid #333; background:#111; }
+.phone-header { background:#1a1a1a; padding:8px 10px 0; }
+.tab-bar { display:flex; border-bottom:1px solid #222; overflow-x:auto; }
+.tab { flex:1; text-align:center; padding:7px 3px 6px; font-size:8.5px; font-weight:600; color:#555; border-bottom:2px solid transparent; white-space:nowrap; min-width:0; }
+.tab.active { color:#6366f1; border-bottom-color:#6366f1; }
+.phone-body { padding:9px; min-height:185px; max-height:185px; overflow:hidden; }
+.row { display:flex; align-items:center; gap:5px; padding:4px 0; border-bottom:1px solid #1e1e1e; }
+.av { width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:8px;color:white;font-weight:bold; }
+.av.group { border-radius:8px; background:linear-gradient(135deg,#7c3aed,#6366f1); }
+.dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
+.dot.on { background:#22c55e; }
+.dot.off { background:#ef4444; }
+.name { font-size:8px; color:#bbb; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.chip { font-size:7px; padding:2px 6px; border-radius:6px; white-space:nowrap; flex-shrink:0; }
+.chip.blue { background:#1e3a5f; color:#60a5fa; }
+.chip.purple { background:#2e1e5f; color:#a78bfa; }
+.chip.green { background:#1a3a1a; color:#4ade80; }
+.chip.amber { background:#3a2a00; color:#fbbf24; }
+.notif { display:inline-flex;align-items:center;justify-content:center;background:red;color:white;border-radius:50%;width:11px;height:11px;font-size:6.5px;font-weight:bold;margin-left:2px;vertical-align:middle; }
+.section-label { font-size:7px; color:#555; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin:6px 0 3px; }
+.group-card { background:#1a1a2a; border:1px solid #2d2d4a; border-radius:8px; padding:6px 8px; margin-bottom:5px; }
+.group-card .gc-name { font-size:9px; font-weight:700; color:#c4b5fd; }
+.group-card .gc-meta { font-size:7px; color:#666; margin-top:1px; }
+.pros-mini { margin-top:10px; }
+.pros-mini p { font-size:10px; margin:2px 0; }
+.pro { color:#4ade80; }
+.con { color:#f87171; }
+.warn { color:#fbbf24; }
+.bug-tag { display:inline-block;background:#7f1d1d;color:#fca5a5;font-size:9px;padding:1px 7px;border-radius:10px;margin-bottom:8px; }
+</style>
+
+<!-- État actuel : bug visualisé -->
+<div style="background:#1f0a0a;border:1px solid #4a1a1a;border-radius:12px;padding:12px 14px;margin-bottom:18px;">
+  <p style="font-size:12px;color:#f87171;margin:0 0 6px;"><strong>🐛 Problèmes actuels avec les Groupes</strong></p>
+  <p style="font-size:11px;color:#888;margin:2px 0;">— Création de groupe : uniquement depuis le dropdown de la carte (invisible)</p>
+  <p style="font-size:11px;color:#888;margin:2px 0;">— Gestion membres : icône ⚙️ dans ce même dropdown, 3 clics minimum</p>
+  <p style="font-size:11px;color:#f87171;margin:2px 0;font-weight:600;">— Invitations de groupe : comptées dans le badge Amis mais <u>aucune UI pour les accepter/refuser</u></p>
+  <p style="font-size:11px;color:#888;margin:2px 0;">— Pas de lien entre Groupes et Sorties</p>
+</div>
+
+<div class="options">
+
+  <!-- OPTION A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>3 onglets — Amis · Groupes · Activité</h3>
+      <p style="font-size:11px;margin-bottom:10px;">Groupes = onglet dédié. Sorties et classement rejoignent le feed Activité. Simple et équilibré.</p>
+
+      <div class="phone" style="margin:0 auto;">
+        <div class="phone-header">
+          <div class="tab-bar">
+            <div class="tab active">👥 Amis</div>
+            <div class="tab">🏘️ Groupes</div>
+            <div class="tab">🔔 Activité <span class="notif">4</span></div>
+          </div>
+        </div>
+        <div class="phone-body">
+          <div class="row"><div class="av">J</div><div class="dot on"></div><div class="name">@jules</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="row"><div class="av">M</div><div class="dot on"></div><div class="name">@marie</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="row"><div class="av">T</div><div class="dot off"></div><div class="name">@théo</div><div class="chip blue">📅 Sortie</div></div>
+          <div style="margin-top:8px;background:#1a1a2e;border-radius:7px;padding:6px 8px;">
+            <p style="font-size:8px;color:#818cf8;margin:0 0 3px;font-weight:700;">ONGLET GROUPES →</p>
+            <div class="group-card"><div class="gc-name">🎮 Gaming</div><div class="gc-meta">3 membres · 5 spots</div></div>
+            <div class="group-card" style="border:1px dashed #3a2d6a;background:transparent;"><div class="gc-meta" style="color:#7c6fa8;">+ Créer un groupe</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pros-mini">
+        <p class="pro">✅ Groupes enfin trouvables et gérables</p>
+        <p class="pro">✅ Invitations de groupe visibles dans Activité</p>
+        <p class="pro">✅ Même nombre d'onglets qu'aujourd'hui</p>
+        <p class="warn">⚠️ Sorties restent dans Activité (pas d'onglet dédié)</p>
+        <p class="con">❌ Classement perd en visibilité (dans Activité)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION B — recommandée -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>4 onglets — Amis · Groupes · Sorties · Activité <span style="font-size:10px;background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:8px;margin-left:4px;">Recommandé</span></h3>
+      <p style="font-size:11px;margin-bottom:10px;">Chaque concept social a son propre onglet. Maximum de clarté, chaque badge a un sens précis.</p>
+
+      <div class="phone" style="margin:0 auto;">
+        <div class="phone-header">
+          <div class="tab-bar">
+            <div class="tab active">👥 Amis</div>
+            <div class="tab">🏘️ Groupes <span class="notif">1</span></div>
+            <div class="tab">🗓️ Sorties <span class="notif">2</span></div>
+            <div class="tab">🔔 Activ. <span class="notif">3</span></div>
+          </div>
+        </div>
+        <div class="phone-body">
+          <div class="row"><div class="av">J</div><div class="dot on"></div><div class="name">@jules</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="row"><div class="av">M</div><div class="dot on"></div><div class="name">@marie</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="row"><div class="av">T</div><div class="dot off"></div><div class="name">@théo</div><div class="chip blue">📅 Sortie</div></div>
+          <div style="margin-top:8px;background:#111a2e;border-radius:7px;padding:6px 8px;">
+            <p style="font-size:7px;color:#818cf8;margin:0 0 3px;font-weight:700;">ONGLET GROUPES (badge = invitation en attente)</p>
+            <div class="group-card"><div class="gc-name">🎮 Gaming · 3 membres</div><div class="gc-meta">5 spots · <span style="color:#fbbf24;">Jules t'invite à rejoindre !</span></div></div>
+            <p style="font-size:7px;color:#818cf8;margin:5px 0 3px;font-weight:700;">ONGLET SORTIES (badge = invitations en attente)</p>
+            <div style="background:#1a1a1a;border-radius:6px;padding:5px 7px;"><p style="font-size:7px;color:#aaa;margin:0;">📍 Mia Nonna — Vendredi 20h</p><p style="font-size:7px;color:#fbbf24;margin:2px 0 0;">@jules t'invite</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pros-mini">
+        <p class="pro">✅ Chaque onglet = 1 concept = 1 badge clair</p>
+        <p class="pro">✅ Invitations de groupe enfin visibles (badge dédié)</p>
+        <p class="pro">✅ Sorties valorisées avec leur propre entrée</p>
+        <p class="pro">✅ Activité = feed pur (nouveaux spots + likes + classement)</p>
+        <p class="warn">⚠️ 4 onglets peut sembler dense sur mobile (labels courts)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>3 onglets — Amis+Groupes · Sorties · Activité</h3>
+      <p style="font-size:11px;margin-bottom:10px;">Amis et Groupes dans le même onglet (sections séparées). Économise un onglet tout en exposant les groupes.</p>
+
+      <div class="phone" style="margin:0 auto;">
+        <div class="phone-header">
+          <div class="tab-bar">
+            <div class="tab active">👥 Social <span class="notif">1</span></div>
+            <div class="tab">🗓️ Sorties <span class="notif">2</span></div>
+            <div class="tab">🔔 Activité <span class="notif">3</span></div>
+          </div>
+        </div>
+        <div class="phone-body">
+          <div class="section-label">Amis</div>
+          <div class="row"><div class="av">J</div><div class="dot on"></div><div class="name">@jules</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="row"><div class="av">M</div><div class="dot on"></div><div class="name">@marie</div><div class="chip blue">📅 Sortie</div></div>
+          <div class="section-label" style="margin-top:4px;">Groupes <span style="color:#fbbf24;font-size:7px;">· 1 invitation</span></div>
+          <div class="group-card"><div class="gc-name">🎮 Gaming</div><div class="gc-meta">3 membres · <span style="color:#fbbf24;">invitation en attente</span></div></div>
+          <div class="group-card" style="border:1px dashed #3a2d6a;background:transparent;padding:4px 8px;"><div class="gc-meta" style="color:#7c6fa8;font-size:7.5px;">+ Créer un groupe</div></div>
+        </div>
+      </div>
+
+      <div class="pros-mini">
+        <p class="pro">✅ Groupes visibles sans ajouter un onglet</p>
+        <p class="pro">✅ Cohérent : Amis et Groupes sont liés</p>
+        <p class="warn">⚠️ Premier onglet peut devenir long si beaucoup d'amis + groupes</p>
+        <p class="con">❌ "Social" est moins intuitif que "Amis" comme label</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="background:#111;border:1px solid #2a2a2a;border-radius:10px;padding:12px;margin-top:16px;">
+  <p style="font-size:11px;color:#e2e8f0;margin:0 0 5px;"><strong>Dans tous les cas, peu importe l'option :</strong></p>
+  <p style="font-size:10px;color:#888;margin:2px 0;">→ Création de groupe migre dans FriendsModal (plus depuis la carte)</p>
+  <p style="font-size:10px;color:#888;margin:2px 0;">→ Invitations de groupe reçoivent une UI accept/refuser</p>
+  <p style="font-size:10px;color:#888;margin:2px 0;">→ Classement mensuel migre dans Explorer</p>
+  <p style="font-size:10px;color:#888;margin:2px 0;">→ Bouton "Proposer ici" dans le panel spot (indépendant)</p>
+</div>

@@ -1,0 +1,104 @@
+<h2>Barre de filtres — avec les listes</h2>
+<p class="subtitle">Comment intégrer les listes dans la barre de filtres existante ?</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f13;padding:16px 12px;border-radius:8px 8px 0 0">
+      <div style="display:flex;gap:6px;overflow:hidden;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;white-space:nowrap;border:1px solid rgba(255,255,255,0.08)">
+          <span style="font-size:11px;color:#a0a0b0">👤</span>
+          <span style="font-size:11px;font-weight:600;color:#e0e0f0">Moi</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#6366f1;border-radius:20px;padding:6px 12px;white-space:nowrap">
+          <span style="font-size:11px">👥</span>
+          <span style="font-size:11px;font-weight:600;color:#fff">Amis</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;white-space:nowrap;border:1px solid rgba(255,255,255,0.08)">
+          <span style="font-size:11px">🏠</span>
+          <span style="font-size:11px;font-weight:600;color:#e0e0f0">Famille</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;white-space:nowrap;border:1px solid rgba(255,255,255,0.08)">
+          <span style="font-size:11px">🎓</span>
+          <span style="font-size:11px;font-weight:600;color:#e0e0f0">Fac</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;white-space:nowrap;border:1px solid rgba(255,255,255,0.08);opacity:0.5">
+          <span style="font-size:11px">›</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Pills scrollables</h3>
+      <p>Toutes les listes apparaissent comme des pills dans la barre. Scroll horizontal si trop de listes. Simple et direct.</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f13;padding:16px 12px;border-radius:8px 8px 0 0">
+      <div style="display:flex;gap:6px;align-items:center">
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;border:1px solid rgba(255,255,255,0.08)">
+          <span style="font-size:11px;color:#a0a0b0">👤</span>
+          <span style="font-size:11px;font-weight:600;color:#e0e0f0">Moi</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#6366f1;border-radius:20px;padding:6px 12px">
+          <span style="font-size:11px">👥</span>
+          <span style="font-size:11px;font-weight:600;color:#fff">Amis</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;border:1px solid rgba(99,102,241,0.5)">
+          <span style="font-size:11px">📋</span>
+          <span style="font-size:11px;font-weight:600;color:#818cf8">Listes</span>
+          <span style="background:#6366f1;border-radius:8px;padding:1px 5px;font-size:9px;font-weight:700;color:#fff">2</span>
+        </div>
+      </div>
+      <!-- Dropdown -->
+      <div style="margin-top:8px;background:#1a1a2e;border-radius:12px;border:1px solid rgba(255,255,255,0.08);overflow:hidden">
+        <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05)">
+          <span style="font-size:13px">🏠</span>
+          <span style="font-size:12px;font-weight:600;color:#e0e0f0">Famille</span>
+          <span style="font-size:10px;color:#666;margin-left:auto">4 membres</span>
+        </div>
+        <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;background:rgba(99,102,241,0.08)">
+          <span style="font-size:13px">🎓</span>
+          <span style="font-size:12px;font-weight:600;color:#818cf8">Fac</span>
+          <span style="font-size:10px;color:#666;margin-left:auto">7 membres</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Bouton "Listes" + dropdown</h3>
+      <p>Un seul bouton "Listes" dans la barre. Au clic, un menu déroulant s'ouvre avec tes listes. Le badge indique le nombre de listes actives.</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f0f13;padding:16px 12px;border-radius:8px 8px 0 0">
+      <!-- Barre principale -->
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:6px 12px;border:1px solid rgba(255,255,255,0.08)">
+          <span style="font-size:11px;color:#a0a0b0">👤</span>
+          <span style="font-size:11px;font-weight:600;color:#e0e0f0">Moi</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;background:#6366f1;border-radius:20px;padding:6px 12px">
+          <span style="font-size:11px">👥</span>
+          <span style="font-size:11px;font-weight:600;color:#fff">Amis</span>
+          <span style="font-size:10px;color:rgba(255,255,255,0.6)">▾</span>
+        </div>
+      </div>
+      <!-- Sous-filtres listes (apparaît quand Amis est actif) -->
+      <div style="display:flex;gap:5px;padding-left:4px">
+        <span style="font-size:10px;color:#666;align-self:center;margin-right:2px">Filtrer :</span>
+        <div style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:14px;padding:3px 10px;font-size:10px;font-weight:600;color:#818cf8">🏠 Famille</div>
+        <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:3px 10px;font-size:10px;font-weight:600;color:#666">🎓 Fac</div>
+        <div style="background:#1e1e2e;border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:3px 10px;font-size:10px;font-weight:600;color:#666">+ Créer</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Listes en sous-filtre d'Amis</h3>
+      <p>Quand tu es sur "Amis", une 2e rangée apparaît avec tes listes comme sous-filtres. Plus hiérarchique : les listes sont un sous-ensemble des amis.</p>
+    </div>
+  </div>
+
+</div>

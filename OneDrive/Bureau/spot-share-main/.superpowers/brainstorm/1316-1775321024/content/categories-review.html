@@ -1,0 +1,192 @@
+<h2>Révision des 8 catégories — grille 4×2</h2>
+<p class="subtitle">Classées du plus au moins représenté dans la vraie vie. Clique sur celles à changer.</p>
+
+<style>
+  .phone-frame {
+    width: 300px; border-radius: 32px; background: #0f0f0f;
+    padding: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  }
+  .phone-screen {
+    background: #111; border-radius: 22px; overflow: hidden;
+    min-height: 420px; display: flex; flex-direction: column;
+  }
+  .phone-header { padding: 14px 13px 10px; background: #111; }
+  .phone-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+  .tab-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+  .tab-row-top { display: flex; gap: 5px; }
+  .tab-pill { flex: 1; text-align: center; padding: 7px 4px; border-radius: 11px; font-size: 11px; font-weight: 700; }
+  .tab-inactive { background: #1e1e1e; color: #555; border: 1px solid #252525; }
+  .tab-general { width: 100%; text-align: center; padding: 7px 4px; border-radius: 11px; font-size: 11px; font-weight: 700; background: #fff; color: #000; }
+
+  .cat-grid-4 {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 6px; padding: 10px 13px 14px;
+  }
+  .cat-tile {
+    border-radius: 12px; padding: 9px 4px 7px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    border: 2px solid transparent; opacity: 0.85;
+    cursor: pointer;
+  }
+  .cat-tile:hover { opacity: 1; }
+  .cat-emoji { font-size: 20px; }
+  .cat-label { font-size: 8px; font-weight: 700; color: #fff; text-align: center; line-height: 1.2; }
+  .cat-num { font-size: 7px; color: rgba(255,255,255,0.5); margin-top: 1px; }
+
+  /* Comparison table */
+  .compare-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    background: #161616; border-radius: 14px; overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .compare-table th {
+    padding: 10px 14px; text-align: left; font-size: 10px;
+    font-weight: 700; color: #888; letter-spacing: 0.05em;
+    text-transform: uppercase; border-bottom: 1px solid #222;
+  }
+  .compare-table td { padding: 9px 14px; border-bottom: 1px solid #1a1a1a; color: #ccc; }
+  .compare-table tr:last-child td { border-bottom: none; }
+  .compare-table .rank { color: #555; font-size: 11px; width: 24px; }
+  .compare-table .old { color: #888; }
+  .compare-table .new-cat { color: #818cf8; font-weight: 700; }
+  .compare-table .unchanged { color: #4ade80; }
+  .compare-table .changed { color: #fbbf24; }
+  .compare-table .removed { color: #f87171; text-decoration: line-through; }
+  .tag-badge {
+    display: inline-block; border-radius: 5px; padding: 1px 6px;
+    font-size: 9px; font-weight: 700;
+  }
+  .tag-keep { background: #0a2a0a; color: #4ade80; border: 1px solid #1a5a1a; }
+  .tag-change { background: #2a2000; color: #fbbf24; border: 1px solid #5a4000; }
+  .tag-new { background: #1a1a3a; color: #818cf8; border: 1px solid #3a3a8a; }
+
+  .layout-center { display: flex; justify-content: center; margin-bottom: 28px; }
+  .note { font-size: 11px; color: #777; line-height: 1.7; max-width: 680px; margin: 0 auto 24px; text-align: center; }
+  .note strong { color: #aaa; }
+</style>
+
+<!-- Tableau comparatif -->
+<h3 style="text-align:center; margin-bottom: 12px;">Actuel → Proposé</h3>
+
+<div style="overflow-x:auto; margin-bottom: 28px;">
+<table class="compare-table">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Catégorie actuelle</th>
+      <th>Proposition</th>
+      <th>Lieux couverts</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="rank">1</td>
+      <td>☕ Café</td>
+      <td class="unchanged">☕ Café</td>
+      <td>Coffee shops, salons de thé, brunchs</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">2</td>
+      <td>🍽️ Restaurant</td>
+      <td class="unchanged">🍽️ Restaurant</td>
+      <td>Restaurants, bistrots, fast food, brasseries</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">3</td>
+      <td>🌿 Outdoor</td>
+      <td class="unchanged">🌿 Outdoor</td>
+      <td>Parcs, jardins, forêts, plages, nature</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">4</td>
+      <td>🍸 Bar</td>
+      <td class="unchanged">🍸 Bar</td>
+      <td>Bars, pubs, caves à vins, cocktails</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">5</td>
+      <td>🌅 Vue</td>
+      <td class="changed">🌅 Vue</td>
+      <td>Rooftops, panoramas, belvédères, ponts</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">6</td>
+      <td>🎭 Culture</td>
+      <td class="unchanged">🎭 Culture</td>
+      <td>Musées, galeries, cinémas, théâtres, expos</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+    <tr>
+      <td class="rank">7</td>
+      <td class="removed">🛍️ Shopping</td>
+      <td class="new-cat">🏃 Sport & Activité</td>
+      <td>Skateparks, salles de sport, escalade, piscines</td>
+      <td><span class="tag-badge tag-new">REMPLACÉ</span></td>
+    </tr>
+    <tr>
+      <td class="rank">8</td>
+      <td>📍 Autre</td>
+      <td class="unchanged">📍 Autre</td>
+      <td>Tout ce qui ne rentre pas ailleurs</td>
+      <td><span class="tag-badge tag-keep">KEEP</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note">
+  <strong>Shopping → Sport & Activité</strong> : les skateparks, salles de grimpe et terrains de sport sont déjà très présents dans l'app. Shopping couvre moins de "spots" mémorables à partager. Si tu veux garder Shopping, on peut mettre Sport en remplacement d'Autre.
+</p>
+
+<!-- Mockup grille 4×2 -->
+<h3 style="text-align:center; margin-bottom: 12px;">Aperçu grille 4×2</h3>
+<div class="layout-center">
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <div class="phone-header">
+        <div class="phone-title">Explorer</div>
+        <div class="tab-group">
+          <div class="tab-row-top">
+            <div class="tab-pill tab-inactive">Mes spots</div>
+            <div class="tab-pill tab-inactive">Amis</div>
+          </div>
+          <div class="tab-general">Général</div>
+        </div>
+      </div>
+      <div class="cat-grid-4">
+        <div class="cat-tile" style="background:linear-gradient(135deg,#78350f,#b45309)">
+          <div class="cat-emoji">☕</div><div class="cat-label">Café</div><div class="cat-num">① plus fréquent</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#7c2d12,#dc2626)">
+          <div class="cat-emoji">🍽️</div><div class="cat-label">Restaurant</div><div class="cat-num">②</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#14532d,#16a34a)">
+          <div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div><div class="cat-num">③</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)">
+          <div class="cat-emoji">🍸</div><div class="cat-label">Bar</div><div class="cat-num">④</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)">
+          <div class="cat-emoji">🌅</div><div class="cat-label">Vue</div><div class="cat-num">⑤</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#831843,#db2777)">
+          <div class="cat-emoji">🎭</div><div class="cat-label">Culture</div><div class="cat-num">⑥</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#064e3b,#059669)">
+          <div class="cat-emoji">🏃</div><div class="cat-label">Sport</div><div class="cat-num">⑦ nouveau</div>
+        </div>
+        <div class="cat-tile" style="background:linear-gradient(135deg,#1f2937,#4b5563)">
+          <div class="cat-emoji">📍</div><div class="cat-label">Autre</div><div class="cat-num">⑧</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="text-align:center;">Shopping remplacé par Sport. Tu veux changer quelque chose ?</p>

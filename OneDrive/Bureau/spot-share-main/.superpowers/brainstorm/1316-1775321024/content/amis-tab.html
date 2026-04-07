@@ -1,0 +1,227 @@
+<h2>Onglet Amis — avec filtre catégories 3×2</h2>
+<p class="subtitle">Avatars amis → Cette semaine → Filtre catégories → Spots filtrés</p>
+
+<style>
+  .phone-frame {
+    width: 300px; border-radius: 32px; background: #0f0f0f;
+    padding: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    display: inline-block; vertical-align: top;
+  }
+  .phone-screen {
+    background: #111; border-radius: 22px; overflow: hidden;
+    min-height: 600px; display: flex; flex-direction: column;
+  }
+  .phone-header { padding: 16px 14px 10px; background: #111; }
+  .phone-title { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px; }
+  .tab-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+  .tab-row-top { display: flex; gap: 5px; }
+  .tab-pill {
+    flex: 1; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+  }
+  .tab-active { background: #fff; color: #000; }
+  .tab-inactive { background: #1e1e1e; color: #666; border: 1px solid #2a2a2a; }
+  .tab-general {
+    width: 100%; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+    background: #1e1e1e; color: #666; border: 1px solid #2a2a2a;
+  }
+  .search-bar {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 14px; padding: 10px 14px; color: #555; font-size: 12px;
+  }
+  .phone-body { padding: 12px 14px; flex: 1; overflow: hidden; }
+  .section-label { font-size: 11px; font-weight: 700; color: #fff; margin: 10px 0 7px; }
+
+  .avatar-row { display: flex; gap: 10px; margin-bottom: 12px; overflow: hidden; }
+  .avatar-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .avatar-circle {
+    width: 46px; height: 46px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 800; color: #fff;
+    border: 2px solid #2a2a2a;
+  }
+  .avatar-circle.selected { border: 2.5px solid #fff; }
+  .avatar-name { font-size: 8px; color: #666; }
+  .avatar-name.selected { color: #fff; font-weight: 700; }
+
+  .week-badge {
+    display: inline-block; background: #0a2a0a; border: 1px solid #1a5a1a;
+    border-radius: 8px; padding: 2px 8px; font-size: 9px;
+    color: #4ade80; font-weight: 700; margin-bottom: 8px;
+  }
+
+  .carousel-row { display: flex; gap: 7px; overflow: hidden; margin-bottom: 14px; }
+  .spot-card-sm {
+    flex-shrink: 0; width: 82px; height: 82px; border-radius: 14px;
+    background: #1e1e1e; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 6px; position: relative;
+  }
+  .spot-emoji-c { position: absolute; top: 8px; left: 8px; font-size: 20px; }
+  .spot-card-label { background: rgba(0,0,0,0.6); border-radius: 6px; padding: 2px 4px; font-size: 9px; color: #ccc; font-weight: 600; position: relative; z-index: 1; }
+  .spot-author { font-size: 8px; color: #888; margin-top: 1px; position: relative; z-index: 1; }
+
+  .cat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 7px; margin-bottom: 14px;
+  }
+  .cat-tile {
+    border-radius: 14px; padding: 10px 6px 8px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 5px;
+    border: 2.5px solid transparent;
+    opacity: 0.75;
+  }
+  .cat-tile.selected { border-color: #fff; opacity: 1; box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
+  .cat-tile.dimmed { opacity: 0.35; }
+  .cat-emoji { font-size: 22px; }
+  .cat-label { font-size: 9px; font-weight: 700; color: #fff; text-align: center; }
+
+  .list-row {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px;
+    padding: 9px 12px; display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  }
+  .list-thumb {
+    width: 38px; height: 38px; background: #2a2a2a; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+  }
+  .list-title { font-size: 11px; font-weight: 700; color: #fff; }
+  .list-sub { font-size: 9px; color: #555; margin-top: 2px; }
+
+  .phones-row {
+    display: flex; justify-content: center;
+    flex-wrap: wrap; gap: 28px; margin-top: 4px;
+  }
+  .phone-label {
+    text-align: center; font-size: 11px; color: #888;
+    margin-bottom: 8px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .divider { height: 1px; background: #2a2a2a; margin: 4px 0 10px; }
+</style>
+
+<div class="phones-row">
+
+  <!-- Aucun filtre actif -->
+  <div>
+    <div class="phone-label">Aucun filtre</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-active">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou ami…</div>
+        </div>
+        <div class="phone-body">
+          <!-- Avatars sans @ -->
+          <div class="avatar-row">
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">R</div>
+              <div class="avatar-name">Romsko</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">A</div>
+              <div class="avatar-name">Aayron</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#10b981,#3b82f6)">M</div>
+              <div class="avatar-name">Mavence</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#ec4899,#8b5cf6)">C</div>
+              <div class="avatar-name">Céllan</div>
+            </div>
+          </div>
+
+          <div class="week-badge">🆕 Cette semaine</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm"><div class="spot-emoji-c">☕</div><div class="spot-card-label">Café Flore</div><div class="spot-author">Romsko</div></div>
+            <div class="spot-card-sm" style="background:#1a2a1a"><div class="spot-emoji-c">🛹</div><div class="spot-card-label">Skatepark</div><div class="spot-author">Aayron</div></div>
+            <div class="spot-card-sm" style="background:#1a1a2e"><div class="spot-emoji-c">🏙️</div><div class="spot-card-label">Rooftop</div><div class="spot-author">Mavence</div></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="cat-grid">
+            <div class="cat-tile" style="background:linear-gradient(135deg,#78350f,#b45309)"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#14532d,#16a34a)"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#7c2d12,#dc2626)"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#831843,#db2777)"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Catégorie Bars + ami Aayron sélectionnés -->
+  <div>
+    <div class="phone-label">Bars + ami filtré</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-active">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou ami…</div>
+        </div>
+        <div class="phone-body">
+          <!-- Aayron sélectionné -->
+          <div class="avatar-row">
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); opacity:0.35;">R</div>
+              <div class="avatar-name">Romsko</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle selected" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">A</div>
+              <div class="avatar-name selected">Aayron</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#10b981,#3b82f6); opacity:0.35;">M</div>
+              <div class="avatar-name">Mavence</div>
+            </div>
+            <div class="avatar-item">
+              <div class="avatar-circle" style="background:linear-gradient(135deg,#ec4899,#8b5cf6); opacity:0.35;">C</div>
+              <div class="avatar-name">Céllan</div>
+            </div>
+          </div>
+
+          <div class="week-badge">🆕 Cette semaine</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm" style="background:#1a2a1a"><div class="spot-emoji-c">🛹</div><div class="spot-card-label">Skatepark</div><div class="spot-author">Aayron</div></div>
+            <div class="spot-card-sm" style="background:#1a1a2e"><div class="spot-emoji-c">🍷</div><div class="spot-card-label">Bar secret</div><div class="spot-author">Aayron</div></div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="cat-grid">
+            <div class="cat-tile dimmed" style="background:linear-gradient(135deg,#78350f,#b45309)"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile dimmed" style="background:linear-gradient(135deg,#14532d,#16a34a)"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile dimmed" style="background:linear-gradient(135deg,#7c2d12,#dc2626)"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile selected" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile dimmed" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile dimmed" style="background:linear-gradient(135deg,#831843,#db2777)"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+
+          <div class="section-label">🍷 Bars — Aayron · 3 spots</div>
+          <div class="list-row"><div class="list-thumb">🍷</div><div><div class="list-title">Bar Pigalle</div><div class="list-sub">1.2 km · Aayron</div></div></div>
+          <div class="list-row"><div class="list-thumb">🍷</div><div><div class="list-title">Candelaria</div><div class="list-sub">2.1 km · Aayron</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center; margin-top: 24px;">Ça te convient ? Les deux filtres (ami + catégorie) sont cumulables.</p>

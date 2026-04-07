@@ -1,0 +1,155 @@
+<h2>Section 3 — Roadmap d'engagement</h2>
+<p class="subtitle">Recommandations priorisées par impact sur la fidélisation · Phase A→B</p>
+
+<style>
+.phase { border-radius: 14px; padding: 16px; margin-bottom: 16px; border: 1px solid; }
+.phase.now { background: #0a1a0a; border-color: #1e4a1e; }
+.phase.mid { background: #1a1200; border-color: #4a3800; }
+.phase.later { background: #0a0a1f; border-color: #1e1e4a; }
+.phase-label { font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;display:block; }
+.phase.now .phase-label { color:#4ade80; }
+.phase.mid .phase-label { color:#fbbf24; }
+.phase.later .phase-label { color:#818cf8; }
+.rec { display:flex;gap:12px;margin-bottom:10px;align-items:flex-start; }
+.rec-num { width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0; }
+.phase.now .rec-num { background:#166534;color:#4ade80; }
+.phase.mid .rec-num { background:#713f12;color:#fbbf24; }
+.phase.later .rec-num { background:#312e81;color:#818cf8; }
+.rec-text h4 { margin:0 0 3px;font-size:13px; }
+.rec-text p { margin:0;font-size:12px;color:#888;line-height:1.4; }
+.effort { font-size:10px;border-radius:10px;padding:1px 7px;display:inline-block;margin-left:6px; }
+.effort.low { background:#1c3a1c;color:#86efac; }
+.effort.med { background:#3a2e0a;color:#fde68a; }
+.effort.high { background:#1e1a3a;color:#a5b4fc; }
+.impact-bar { display:flex;gap:3px;margin-top:4px; }
+.impact-dot { width:8px;height:8px;border-radius:50%; }
+.impact-dot.fill { background:#4ade80; }
+.impact-dot.empty { background:#333; }
+</style>
+
+<div class="phase now">
+  <span class="phase-label">🚀 Court terme — Impact immédiat, effort faible</span>
+
+  <div class="rec">
+    <div class="rec-num">1</div>
+    <div class="rec-text">
+      <h4>Renommer l'onglet "Invitations" → "Activité" <span class="effort low">effort: bas</span></h4>
+      <p>Regrouper dans un vrai feed : demandes d'amis, sorties reçues, <strong>+ nouveaux spots ajoutés par tes amis, nouveaux likes sur tes spots</strong>. C'est le principal driver de retour quotidien sur une app sociale. Instagram Stories → notifications → retour. Même logique.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">2</div>
+    <div class="rec-text">
+      <h4>Remonter "Créer une sortie" depuis le panel d'un spot <span class="effort low">effort: bas</span></h4>
+      <p>Ajouter un bouton "📅 Proposer ici" dans le panel spot (à côté de Navigation et Partage). C'est le flow le plus naturel : tu vois un spot cool → tu invites un ami à y aller. Actuellement cette feature est introuvable.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">3</div>
+    <div class="rec-text">
+      <h4>Remonter le bouton "J'ai visité" dans le panel spot <span class="effort low">effort: bas</span></h4>
+      <p>Actuellement sous le fold (après scroll). Le monter juste sous le titre/like, à côté du ❤️. C'est une action sociale forte — plus visible = plus de visites enregistrées = plus d'engagement dans le cercle d'amis.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">4</div>
+    <div class="rec-text">
+      <h4>Badge "Nouveau" sur les pins de spots récents <span class="effort low">effort: bas</span></h4>
+      <p>Un petit dot ou halo sur les spots ajoutés < 48h. Donne une raison de rouvrir l'app : "y'a des nouveaux spots depuis hier ?" La logique <code>isNew()</code> existe déjà dans ExploreModal — juste à l'utiliser sur la carte.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">5</div>
+    <div class="rec-text">
+      <h4>Afficher le classement dans le profil <span class="effort low">effort: bas</span></h4>
+      <p>Sur la page Profil, afficher "Tu es #2 ce mois · 5 spots ajoutés". La compétition amicale est un driver de retour fort. Le classement existe, il est juste dans le mauvais endroit (FriendsModal > onglet 2 uniquement).</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="phase mid">
+  <span class="phase-label">⚙️ Moyen terme — Engagement + croissance A→B</span>
+
+  <div class="rec">
+    <div class="rec-num">6</div>
+    <div class="rec-text">
+      <h4>Notifications push PWA <span class="effort med">effort: moyen</span></h4>
+      <p>Sans push, l'app ne peut pas ramener les utilisateurs passifs. Priorité : notif quand un ami ajoute un spot, quand on est invité à une sortie, quand quelqu'un like ton spot. Le Service Worker est déjà impliqué via Next.js — c'est faisable.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">7</div>
+    <div class="rec-text">
+      <h4>Tips / micro-commentaires sur les spots <span class="effort med">effort: moyen</span></h4>
+      <p>Pas des commentaires complets — juste des tips courts (max 120 chars). "Prends la table du fond", "Évite le week-end, trop bondé". Crée de la valeur sociale et donne envie de revenir voir ce que les amis ont dit.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">8</div>
+    <div class="rec-text">
+      <h4>Partage de profil public <span class="effort med">effort: moyen</span></h4>
+      <p>Une page <code>/u/username</code> avec les spots publics et stats. Le partage de spot existe déjà (<code>/spot/[id]</code>) — même pattern. Permet à un ami de découvrir l'app via le profil d'un ami (vecteur de croissance A→B).</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">9</div>
+    <div class="rec-text">
+      <h4>Réorganiser FriendsModal : onglet "Sorties" dédié <span class="effort med">effort: moyen</span></h4>
+      <p>Sortir les Sorties de l'onglet "Invitations" vers leur propre onglet ou section dédiée. Ou mieux : ajouter un 4e bouton dans la bottom nav "Sorties 🗓️" avec badge pour les invitations en attente. Cette feature mérite sa propre entrée.</p>
+      <div class="impact-bar"><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot fill"></div><div class="impact-dot empty"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="phase later">
+  <span class="phase-label">🔮 Long terme — Phase B/C, croissance virale</span>
+
+  <div class="rec">
+    <div class="rec-num">10</div>
+    <div class="rec-text">
+      <h4>Spots éphémères mis en avant <span class="effort high">effort: élevé</span></h4>
+      <p>La colonne <code>expires_at</code> est déjà en DB. Créer une UI type "Stories" en haut de l'Explorer pour les spots éphémères actifs (concert ce soir, marché du week-end). Urgence = engagement fort.</p>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">11</div>
+    <div class="rec-num" style="display:none;"></div>
+    <div class="rec-text">
+      <h4>Mode découverte géo-étendu <span class="effort high">effort: élevé</span></h4>
+      <p>En phase B/C, permettre de voir les spots de personnes qu'on ne suit pas encore (amis d'amis, public dans un rayon). Le mode "Découverte" est déjà géré pour les users sans amis — il suffit de l'étendre avec des contrôles de confidentialité clairs.</p>
+    </div>
+  </div>
+
+  <div class="rec">
+    <div class="rec-num">12</div>
+    <div class="rec-text">
+      <h4>Recommandations intelligentes <span class="effort high">effort: élevé</span></h4>
+      <p>"Tes amis adorent les cafés dans le 11e — voici 3 spots qu'ils ont likés". Utilise les données existantes (likes, catégories, géo) pour personnaliser Explorer. Forte rétention, virale si les reco sont bonnes.</p>
+    </div>
+  </div>
+</div>
+
+<div style="background:#111;border:1px solid #333;border-radius:10px;padding:14px;margin-top:4px;">
+  <p style="font-size:12px;color:#e2e8f0;margin:0 0 8px;"><strong>Pour passer de A à B :</strong> les 5 priorités absolues sont :</p>
+  <p style="font-size:12px;color:#4ade80;margin:2px 0;">1. Feed d'activité (savoir ce que font les amis)</p>
+  <p style="font-size:12px;color:#4ade80;margin:2px 0;">2. Sorties accessibles depuis le panel spot</p>
+  <p style="font-size:12px;color:#fbbf24;margin:2px 0;">3. Notifications push PWA</p>
+  <p style="font-size:12px;color:#fbbf24;margin:2px 0;">4. Tips courts sur les spots</p>
+  <p style="font-size:12px;color:#818cf8;margin:2px 0;">5. Partage de profil public</p>
+</div>

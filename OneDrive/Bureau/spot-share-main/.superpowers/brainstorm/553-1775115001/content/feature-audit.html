@@ -1,0 +1,118 @@
+<h2>Section 2 — Audit des features existantes</h2>
+<p class="subtitle">Chaque feature notée sur Impact utilisateur · Clarté UX · Problèmes détectés</p>
+
+<style>
+.feature-card {
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid transparent;
+}
+.feature-card.ok { background: #0f1f0f; border-color: #1e3a1e; }
+.feature-card.warn { background: #1f1700; border-color: #3a2e00; }
+.feature-card.bad { background: #1f0a0a; border-color: #3a1a1a; }
+.badge { display:inline-block; border-radius:20px; padding:2px 10px; font-size:11px; font-weight:700; margin-left:8px; }
+.badge.green { background:#166534; color:#4ade80; }
+.badge.yellow { background:#713f12; color:#fbbf24; }
+.badge.red { background:#7f1d1d; color:#f87171; }
+.tag { display:inline-block; background: rgba(255,255,255,0.07); border-radius:6px; padding:2px 8px; font-size:10px; color:#aaa; margin:2px; }
+.issue { font-size:12px; color:#f87171; margin-top:6px; }
+.miss { font-size:12px; color:#fbbf24; margin-top:4px; }
+</style>
+
+<div class="feature-card ok">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">➕ Ajouter un spot</h3>
+    <span class="badge green">★ Killer feature</span>
+  </div>
+  <div><span class="tag">URL Instagram/TikTok</span><span class="tag">IA Google Places</span><span class="tag">Ajout manuel</span><span class="tag">Visibilité</span><span class="tag">Groupes</span><span class="tag">Expiration</span></div>
+  <p style="font-size:12px;color:#86efac;margin-top:8px;">✅ UX excellente, l'ajout par URL est différenciant. L'IA qui pré-remplit tout est le gros point fort du produit.</p>
+  <p class="miss">⚠️ Manque : aucun retour chiffré après ajout ("tu as ajouté 3 spots ce mois — tu es #2 au classement !"). Opportunité de gamification ratée.</p>
+</div>
+
+<div class="feature-card ok">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">🗺️ Carte + Filtres</h3>
+    <span class="badge green">Solide</span>
+  </div>
+  <div><span class="tag">Amis / Groupes / Mes spots</span><span class="tag">Filtre ami+catégorie</span><span class="tag">Mode 3D</span><span class="tag">Dark/Light</span><span class="tag">Clustering</span></div>
+  <p style="font-size:12px;color:#86efac;margin-top:8px;">✅ Filtres bien pensés. Le mode groupe et filtre par catégorie sont puissants.</p>
+  <p class="issue">🔴 Le filtre ami+catégorie (icône SlidersHorizontal) n'est visible qu'en mode Amis actif. Beaucoup d'utilisateurs ne le découvriront jamais.</p>
+  <p class="miss">⚠️ Manque : aucun badge "Nouveau" visible sur les pins des spots récents (< 48h). En phase B, l'utilisateur ne sait pas ce qui a changé depuis sa dernière visite.</p>
+</div>
+
+<div class="feature-card ok">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">📌 Panel Spot (clic sur un pin)</h3>
+    <span class="badge green">Bon contenu</span>
+  </div>
+  <div><span class="tag">Carousel photos</span><span class="tag">Likes (❤️)</span><span class="tag">Visites</span><span class="tag">Horaires</span><span class="tag">Navigation</span><span class="tag">Partage</span></div>
+  <p style="font-size:12px;color:#86efac;margin-top:8px;">✅ Riche en info. Le long-press sur ❤️ pour voir les likers est une belle petite feature.</p>
+  <p class="issue">🔴 "J'ai visité ce lieu" est sous le fold — la plupart des users ne scrolleront pas jusqu'à ce bouton.</p>
+  <p class="miss">⚠️ Manque : pas de commentaires/tips. Likes + visites c'est bien mais un commentaire court ("ask pour le menu du soir!") crée de la valeur pour les autres.</p>
+  <p class="miss">⚠️ Manque : pas de "spots similaires" ou "autres spots de cet ami" en bas du panel.</p>
+</div>
+
+<div class="feature-card warn">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">🔍 Explorer</h3>
+    <span class="badge yellow">Sous-exploité</span>
+  </div>
+  <div><span class="tag">Recherche texte</span><span class="tag">Filtre catégorie</span><span class="tag">Tri distance</span><span class="tag">Classement mensuel</span><span class="tag">Mode Surprise 🎲</span></div>
+  <p style="font-size:12px;color:#fbbf24;margin-top:8px;">⚠️ Feature puissante mais l'icône 🔍 + label "Explorer" n'est pas self-explaining pour un nouvel utilisateur.</p>
+  <p class="issue">🔴 Le mode "Surprise" (spot aléatoire) est une feature fun pour l'engagement mais quasi-invisible dans l'UI.</p>
+  <p class="issue">🔴 En phase A (groupe fermé), Explorer retourne les mêmes spots que la carte. Peu de valeur ajoutée perçue.</p>
+  <p class="miss">⚠️ Manque : "Top spots cette semaine" / trending. Donner une raison de revenir chaque semaine.</p>
+</div>
+
+<div class="feature-card warn">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">👥 FriendsModal — onglets Amis / Classement / Invitations</h3>
+    <span class="badge yellow">Trop dense</span>
+  </div>
+  <div><span class="tag">Liste amis en ligne</span><span class="tag">Proposer sortie</span><span class="tag">Podium mensuel</span><span class="tag">Demandes amis</span><span class="tag">Sorties invitées</span></div>
+  <p style="font-size:12px;color:#fbbf24;margin-top:8px;">⚠️ Les 3 onglets contiennent des features de natures très différentes regroupées de façon non intuitive.</p>
+  <p class="issue">🔴 "Invitations" est un mauvais nom : cet onglet contient demandes d'amis + sorties reçues + mes sorties + demandes envoyées. → Renommer en "Activité".</p>
+  <p class="issue">🔴 Le classement mensuel est la feature d'engagement la plus forte — l'enterrer dans FriendsModal > onglet 2 est une erreur. Peu de gens le trouvent.</p>
+  <p class="miss">⚠️ Manque : pas de feed d'activité globale ("X a ajouté un spot hier", "Y a liké ton spot").</p>
+</div>
+
+<div class="feature-card bad">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">🗓️ Sorties (Outings)</h3>
+    <span class="badge red">Feature invisible</span>
+  </div>
+  <div><span class="tag">Créer une sortie</span><span class="tag">Inviter des amis</span><span class="tag">Chat par invitation</span><span class="tag">Accepter / Décliner</span></div>
+  <p style="font-size:12px;color:#f87171;margin-top:8px;">🔴 Fonctionnalité très originale et différenciante, mais complètement introuvable pour un nouvel utilisateur.</p>
+  <p class="issue">🔴 Flow de création : FriendsModal → onglet "Amis" → trouver un ami dans la liste → "Proposer une sortie". 4 clics minimum, sans aucun hint dans la nav.</p>
+  <p class="issue">🔴 Pas d'entrée directe depuis le panel d'un spot. Pourtant "Proposer d'aller à cet endroit ?" depuis un spot serait le flow le plus naturel.</p>
+  <p class="miss">⚠️ Manque : raccourci direct dans la nav ou depuis le panel spot. C'est la feature qui peut le plus créer de la fidélisation.</p>
+</div>
+
+<div class="feature-card warn">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">🏘️ Groupes</h3>
+    <span class="badge yellow">Bonne idée, flow flou</span>
+  </div>
+  <div><span class="tag">Créer un groupe</span><span class="tag">Filtrer la carte</span><span class="tag">Spots privés par groupe</span></div>
+  <p style="font-size:12px;color:#fbbf24;margin-top:8px;">⚠️ Le concept est bon (groupe de famille, collègues, etc.) mais l'invitation de membres n'est pas évidente.</p>
+  <p class="miss">⚠️ Manque : lien entre groupes et sorties. Créer une sortie depuis un groupe serait naturel.</p>
+</div>
+
+<div class="feature-card ok">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <h3 style="margin:0;font-size:15px;">👤 Profil</h3>
+    <span class="badge green">Fonctionnel</span>
+  </div>
+  <div><span class="tag">Mes spots</span><span class="tag">Mes likes</span><span class="tag">Followers / Following</span><span class="tag">Ghost mode</span><span class="tag">Dark mode</span></div>
+  <p style="font-size:12px;color:#86efac;margin-top:8px;">✅ Bien structuré. Ghost mode apprécié pour la vie privée.</p>
+  <p class="miss">⚠️ Manque : stats engageantes ("X personnes ont visité tes spots", "Tu es #2 ce mois"). Le profil devrait être une source de fierté et de motivation.</p>
+  <p class="miss">⚠️ Manque : partage de profil (lien public). Pourtant le partage de spot existe déjà — même pattern, plus de surface de croissance.</p>
+</div>
+
+<div style="background:#1a1a2e;border:1px solid #2d2d4a;border-radius:10px;padding:14px;margin-top:16px;">
+  <p style="font-size:12px;color:#a5b4fc;margin:0 0 6px;"><strong>Résumé des priorités :</strong></p>
+  <p style="font-size:12px;color:#c7d2fe;margin:0;">🔴 <strong>Critique :</strong> Rendre les Sorties trouvables · Feed d'activité · Bouton visite visible</p>
+  <p style="font-size:12px;color:#fde68a;margin:4px 0 0;">🟡 <strong>Important :</strong> Classement plus visible · Explorer plus engageant · Stats profil</p>
+  <p style="font-size:12px;color:#86efac;margin:4px 0 0;">🟢 <strong>Amélioration :</strong> Commentaires spots · Partage profil · Badges "Nouveau"</p>
+</div>

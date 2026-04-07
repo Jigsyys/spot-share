@@ -1,0 +1,81 @@
+<h2>Barre de filtres — Groupes (v2)</h2>
+<p class="subtitle">Aperçu du bouton "Groupes" avec dropdown et création rapide</p>
+
+<div class="mockup">
+  <div class="mockup-header">Barre de filtres — état actif</div>
+  <div class="mockup-body" style="background:#0f0f13;padding:16px 12px">
+
+    <!-- Barre principale -->
+    <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;align-items:center;gap:5px;background:#1e1e2e;border-radius:20px;padding:7px 13px;border:1px solid rgba(255,255,255,0.08)">
+        <span style="font-size:12px">👤</span>
+        <span style="font-size:12px;font-weight:600;color:#a0a0b0">Moi</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;background:#6366f1;border-radius:20px;padding:7px 13px">
+        <span style="font-size:12px">👥</span>
+        <span style="font-size:12px;font-weight:600;color:#fff">Amis</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;background:#1a1a2e;border-radius:20px;padding:7px 13px;border:1px solid rgba(99,102,241,0.45)">
+        <span style="font-size:12px">🗂️</span>
+        <span style="font-size:12px;font-weight:600;color:#818cf8">Groupes</span>
+        <span style="background:#6366f1;border-radius:8px;padding:1px 6px;font-size:9px;font-weight:700;color:#fff;margin-left:1px">2</span>
+      </div>
+    </div>
+
+    <!-- Dropdown groupes -->
+    <div style="margin-top:10px;background:#16162a;border-radius:14px;border:1px solid rgba(255,255,255,0.07);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.4)">
+
+      <!-- Groupe 1 — sélectionné -->
+      <div style="padding:11px 14px;display:flex;align-items:center;gap:10px;background:rgba(99,102,241,0.1);border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🏠</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700;color:#e0e0f0">Famille</div>
+          <div style="font-size:10px;color:#666;margin-top:1px">4 membres · 12 spots partagés</div>
+        </div>
+        <div style="width:18px;height:18px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center">
+          <span style="color:#fff;font-size:11px;font-weight:700">✓</span>
+        </div>
+      </div>
+
+      <!-- Groupe 2 -->
+      <div style="padding:11px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#f59e0b,#ef4444);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🎓</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700;color:#e0e0f0">Fac</div>
+          <div style="font-size:10px;color:#666;margin-top:1px">7 membres · 5 spots partagés</div>
+        </div>
+        <div style="width:18px;height:18px;border-radius:50%;background:#1e1e2e;border:1px solid rgba(255,255,255,0.12)">
+        </div>
+      </div>
+
+      <!-- Groupe 3 -->
+      <div style="padding:11px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#10b981,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">⚽</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:700;color:#e0e0f0">Foot</div>
+          <div style="font-size:10px;color:#666;margin-top:1px">11 membres · 3 spots partagés</div>
+        </div>
+        <div style="width:18px;height:18px;border-radius:50%;background:#1e1e2e;border:1px solid rgba(255,255,255,0.12)">
+        </div>
+      </div>
+
+      <!-- Créer un nouveau groupe -->
+      <div style="padding:11px 14px;display:flex;align-items:center;gap:10px">
+        <div style="width:32px;height:32px;border-radius:10px;background:#1e1e2e;border:1.5px dashed rgba(99,102,241,0.4);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:#6366f1">+</div>
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:#6366f1">Créer un nouveau groupe</div>
+          <div style="font-size:10px;color:#666;margin-top:1px">Inviter des amis et partager des spots</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Résultat visible sur la carte -->
+    <div style="margin-top:12px;padding:8px 12px;background:rgba(99,102,241,0.08);border-radius:10px;border:1px solid rgba(99,102,241,0.2)">
+      <span style="font-size:11px;color:#818cf8;font-weight:600">📍 Affichage : spots du groupe "Famille"</span>
+    </div>
+
+  </div>
+</div>
+
+<p style="text-align:center;color:#666;font-size:12px;margin-top:16px">Ce que tu vois ici c'est le dropdown ouvert. Il se ferme quand tu cliques ailleurs.</p>

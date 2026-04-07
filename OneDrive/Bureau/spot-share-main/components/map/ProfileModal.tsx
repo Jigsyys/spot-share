@@ -73,7 +73,6 @@ interface ProfileModalProps {
   onSignOut?: () => void
   onSelectUser?: (id: string) => void
   onSelectSpot?: (id: string, lat: number, lng: number) => void
-  navHeight?: number
 }
 
 type SubView = null | "spots" | "followers" | "following" | "likes"
@@ -101,7 +100,6 @@ export default function ProfileModal({
   onSignOut,
   onSelectUser,
   onSelectSpot,
-  navHeight = 0,
 }: ProfileModalProps) {
   const [username, setUsername] = useState("")
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -190,21 +188,17 @@ export default function ProfileModal({
     }
 
     // 3. RPC en arrière-plan
-    supabaseRef.current.rpc("get_profile_stats", { p_user_id: user.id }).then(async ({ data }) => {
+    supabaseRef.current.rpc("get_profile_stats", { p_user_id: user.id }).then(({ data }) => {
       if (skeletonTimerRef.current) { clearTimeout(skeletonTimerRef.current); skeletonTimerRef.current = null }
       setStatsLoading(false)
-      if (data && data.username !== undefined) {
+      if (data) {
         applyStats(data, user.email?.split("@")[0])
         try { localStorage.setItem(`profile_stats_${user.id}`, JSON.stringify({ data, ts: Date.now() })) } catch { /* ignore */ }
       } else if (!hasCachedData) {
-        // RPC indisponible et pas de cache — charger directement depuis profiles
-        const { data: profile } = await supabaseRef.current
-          .from("profiles").select("username, avatar_url").eq("id", user.id).single()
-        if (profile?.username) {
-          setUsername(profile.username)
-          setNameInput(profile.username)
-          if (profile.avatar_url) setAvatarUrl(profile.avatar_url)
-        }
+        // Fallback email si RPC échoue et pas de cache
+        const fallback = user.email?.split("@")[0] ?? ""
+        setUsername(fallback)
+        setNameInput(fallback)
       }
     })
 
@@ -655,8 +649,7 @@ export default function ProfileModal({
             onDragEnd={(_e, { offset, velocity }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-[calc(50%+2rem)]"
-            style={{ bottom: navHeight > 0 ? navHeight : undefined }}
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-[calc(50%+2rem)]"
           >
             <div className="flex h-[90vh] flex-col overflow-hidden rounded-t-[2.5rem] border border-gray-200 dark:border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-950 text-gray-900 dark:text-white shadow-2xl sm:h-auto sm:max-h-[calc(100vh-7rem)] sm:rounded-3xl sm:bg-gray-50 dark:sm:bg-zinc-900">
               <div className="mx-auto mt-4 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700/50 sm:hidden" />

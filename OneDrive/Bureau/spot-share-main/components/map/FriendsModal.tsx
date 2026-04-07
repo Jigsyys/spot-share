@@ -189,7 +189,6 @@ interface FriendsModalProps {
   onOpenGroupSettings?: (group: { id: string; name: string; emoji: string; creator_id: string }) => void
   openToTab?: Tab
   onOpenToTabConsumed?: () => void
-  navHeight?: number
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,7 +217,6 @@ export default function FriendsModal({
   onOpenGroupSettings,
   openToTab,
   onOpenToTabConsumed,
-  navHeight = 0,
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
@@ -1236,8 +1234,7 @@ export default function FriendsModal({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 60 }}
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
-            className="fixed inset-x-0 z-50 sm:inset-auto sm:top-0 sm:right-0 sm:bottom-0 sm:w-[360px]"
-            style={{ bottom: navHeight > 0 ? navHeight : undefined }}
+            className="fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:top-0 sm:right-0 sm:bottom-0 sm:w-[360px]"
             drag={showCreateOuting ? false : "y"}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0.04, bottom: 0.35 }}

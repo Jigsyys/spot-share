@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback, useMemo, startTransition, createContext } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo, startTransition } from "react"
 import Map, { Marker as MapMarker, MapRef, Layer } from "react-map-gl/mapbox"
 import "mapbox-gl/dist/mapbox-gl.css"
 import { toast } from "sonner"
@@ -315,12 +315,8 @@ function OpeningHoursBlock({
   )
 }
 
-export const NavHeightContext = createContext(0)
-
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
-  const navRef = useRef<HTMLDivElement>(null)
-  const [navHeight, setNavHeight] = useState(80)
   const { user, loading: authLoading, signOut } = useAuth()
   const { resolvedTheme } = useTheme()
 
@@ -1517,14 +1513,6 @@ export default function MapView() {
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [selectedSpot?.id, fetchVisits, fetchReactions])
 
-  // Mesure la hauteur réelle de la nav bar mobile
-  useEffect(() => {
-    const el = navRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => setNavHeight(el.offsetHeight))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
 
   const points = useMemo(() => visibleSpots.map((spot) => ({
     type: "Feature" as const,
@@ -1650,7 +1638,7 @@ export default function MapView() {
 
   if (authLoading) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-gray-50 dark:bg-zinc-950">
+      <div className="flex h-[100dvh] w-full flex-col items-center justify-center bg-gray-50 dark:bg-zinc-950">
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
@@ -1666,7 +1654,6 @@ export default function MapView() {
   }
 
   return (
-    <NavHeightContext.Provider value={navHeight}>
     <div className="relative h-[100dvh] w-full overflow-hidden bg-gray-50 dark:bg-zinc-950">
       {/* Map Layer */}
       <div className="absolute inset-0 h-full w-full">
@@ -1776,7 +1763,7 @@ export default function MapView() {
         </div>
       </div>
 
-      <div className="absolute top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
+      <div className="absolute top-[calc(env(safe-area-inset-top)+1.5rem)] left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-2">
           <div className="relative flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-1 shadow-lg backdrop-blur-md">
@@ -2088,7 +2075,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight + 16 }}>
+      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -2123,7 +2110,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")} style={{ bottom: navHeight + 16 }}>
+      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {
@@ -2164,8 +2151,7 @@ export default function MapView() {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
-            style={{ bottom: navHeight > 0 ? navHeight + 4 : undefined }}
+            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
             {/* Drag Handle Mobile — glisser ici pour fermer */}
             <div
@@ -2293,7 +2279,7 @@ export default function MapView() {
               <div className="h-10" />
             )}
 
-            <div className="px-5 pt-4 sm:pb-6" style={{ paddingBottom: navHeight > 0 ? navHeight + 16 : undefined }}>
+            <div className="px-5 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
               <div className="flex items-start gap-3">
                 <h3 className="flex-1 line-clamp-2 text-2xl leading-tight font-extrabold">
                   {selectedSpot.title}
@@ -2556,8 +2542,7 @@ export default function MapView() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 400, damping: 34 }}
-              className="relative z-10 rounded-t-3xl bg-white dark:bg-zinc-950 px-4 pt-4"
-              style={{ paddingBottom: navHeight > 0 ? navHeight + 16 : 24 }}
+              className="relative z-10 rounded-t-3xl bg-white dark:bg-zinc-950 px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))]"
             >
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-[15px] font-bold text-gray-900 dark:text-white">Ajouter à un groupe</p>
@@ -2653,7 +2638,6 @@ export default function MapView() {
 
       {/* Bottom Navigation Bar — mobile only */}
       <div
-        ref={navRef}
         className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
@@ -2898,7 +2882,6 @@ export default function MapView() {
           setSelectedSpot(spot)
           mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
         }}
-        navHeight={navHeight}
       />
 
       <AddSpotModal
@@ -2917,7 +2900,6 @@ export default function MapView() {
           })
           return promise
         }}
-        navHeight={navHeight}
       />
       <FriendsModal
         isOpen={showFriendsModal}
@@ -2970,7 +2952,6 @@ export default function MapView() {
           setShowFriendsModal(false)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 })
         }}
-        navHeight={navHeight}
       />
       <ProfileModal
         isOpen={showProfileModal}
@@ -3013,7 +2994,6 @@ export default function MapView() {
           if (spot) setSelectedSpot(spot)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.5, duration: 1000 })
         }}
-        navHeight={navHeight}
       />
 
       <PublicProfileModal
@@ -3076,8 +3056,7 @@ export default function MapView() {
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 80, opacity: 0 }}
-            className="fixed left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm"
-            style={{ bottom: navHeight > 0 ? navHeight + 16 : 96 }}
+            className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm"
           >
             <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 shadow-xl p-4">
               <p className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
@@ -3127,6 +3106,5 @@ export default function MapView() {
         />
       )}
     </div>
-    </NavHeightContext.Provider>
   )
 }

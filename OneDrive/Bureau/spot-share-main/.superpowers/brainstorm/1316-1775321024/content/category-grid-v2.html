@@ -1,0 +1,183 @@
+<h2>Catégories colorées — sélection avec contour</h2>
+<p class="subtitle">Sans sélection → tous les spots. Avec sélection → contour blanc + spots filtrés.</p>
+
+<style>
+  .phone-frame {
+    width: 300px; border-radius: 32px; background: #0f0f0f;
+    padding: 12px; box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    display: inline-block; vertical-align: top;
+  }
+  .phone-screen {
+    background: #111; border-radius: 22px; overflow: hidden;
+    min-height: 580px; display: flex; flex-direction: column;
+  }
+  .phone-header { padding: 16px 14px 10px; background: #111; }
+  .phone-title { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 10px; }
+  .tab-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+  .tab-row-top { display: flex; gap: 5px; }
+  .tab-pill {
+    flex: 1; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+  }
+  .tab-active { background: #fff; color: #000; }
+  .tab-inactive { background: #1e1e1e; color: #666; border: 1px solid #2a2a2a; }
+  .tab-general {
+    width: 100%; text-align: center; padding: 9px 4px;
+    border-radius: 12px; font-size: 12px; font-weight: 700;
+    background: #fff; color: #000;
+  }
+  .search-bar {
+    background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 14px; padding: 10px 14px; color: #555; font-size: 12px;
+  }
+  .phone-body { padding: 12px 14px; flex: 1; }
+  .section-label { font-size: 11px; font-weight: 700; color: #fff; margin: 10px 0 7px; }
+
+  .cat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 7px; margin-bottom: 14px;
+  }
+  .cat-tile {
+    border-radius: 14px; padding: 10px 6px 8px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 5px;
+    border: 2.5px solid transparent;
+    transition: all 0.15s; opacity: 0.75;
+  }
+  .cat-tile.selected {
+    border-color: #fff;
+    opacity: 1;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.3);
+  }
+  .cat-tile.unselected-dimmed { opacity: 0.4; }
+  .cat-emoji { font-size: 22px; }
+  .cat-label { font-size: 9px; font-weight: 700; color: #fff; text-align: center; }
+
+  .carousel-row { display: flex; gap: 7px; overflow: hidden; margin-bottom: 10px; }
+  .spot-card-sm {
+    flex-shrink: 0; width: 82px; height: 82px; border-radius: 14px;
+    background: #1e1e1e; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 6px;
+    position: relative;
+  }
+  .spot-emoji-c { position: absolute; top: 8px; left: 8px; font-size: 20px; }
+  .spot-card-label { background: rgba(0,0,0,0.6); border-radius: 6px; padding: 2px 4px; font-size: 9px; color: #ccc; font-weight: 600; position: relative; z-index: 1; }
+
+  .list-row {
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 14px;
+    padding: 9px 12px; display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  }
+  .list-thumb {
+    width: 38px; height: 38px; background: #2a2a2a; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+  }
+  .list-title { font-size: 11px; font-weight: 700; color: #fff; }
+  .list-sub { font-size: 9px; color: #555; margin-top: 2px; }
+
+  .surprise-btn {
+    background: linear-gradient(90deg, #6d28d9, #4f46e5);
+    border-radius: 16px; padding: 11px 14px;
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+  }
+  .surprise-text { font-size: 13px; font-weight: 800; color: #fff; }
+  .surprise-sub { font-size: 9px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+  .phones-row {
+    display: flex; justify-content: center; align-items: flex-start;
+    flex-wrap: wrap; gap: 28px; margin-top: 4px;
+  }
+  .phone-label {
+    text-align: center; font-size: 11px; color: #888;
+    margin-bottom: 8px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+</style>
+
+<div class="phones-row">
+
+  <!-- État : aucune sélection → tout affiché -->
+  <div>
+    <div class="phone-label">Aucune sélection → tout</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-inactive">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+        </div>
+        <div class="phone-body">
+          <div class="surprise-btn">
+            <div><div class="surprise-text">🎲 Surprends-moi</div><div class="surprise-sub">Dans un rayon de 10 km</div></div>
+            <div style="font-size:22px;">🔀</div>
+          </div>
+          <div class="cat-grid">
+            <div class="cat-tile" style="background:linear-gradient(135deg,#78350f,#b45309)"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#14532d,#16a34a)"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#7c2d12,#dc2626)"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile" style="background:linear-gradient(135deg,#831843,#db2777)"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+          <div class="section-label">📍 Près de toi</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm"><div class="spot-emoji-c">☕</div><div class="spot-card-label">Café de Flore</div></div>
+            <div class="spot-card-sm" style="background:#1a2a1a"><div class="spot-emoji-c">🌿</div><div class="spot-card-label">Jardin secret</div></div>
+            <div class="spot-card-sm" style="background:#1a1a2e"><div class="spot-emoji-c">🏙️</div><div class="spot-card-label">Rooftop 11e</div></div>
+          </div>
+          <div class="list-row"><div class="list-thumb">🍽️</div><div><div class="list-title">Bistrot du Marais</div><div class="list-sub">350 m · @aayron</div></div></div>
+          <div class="list-row"><div class="list-thumb">🍷</div><div><div class="list-title">Bar Pigalle</div><div class="list-sub">1.2 km · @mavence</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- État : Cafés sélectionné → contour blanc, autres atténués -->
+  <div>
+    <div class="phone-label">Cafés sélectionné → filtre actif</div>
+    <div class="phone-frame">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">Explorer</div>
+          <div class="tab-group">
+            <div class="tab-row-top">
+              <div class="tab-pill tab-inactive">Mes spots</div>
+              <div class="tab-pill tab-inactive">Amis</div>
+            </div>
+            <div class="tab-general">Général</div>
+          </div>
+          <div class="search-bar">🔍 Spot, adresse ou @ami…</div>
+        </div>
+        <div class="phone-body">
+          <div class="surprise-btn">
+            <div><div class="surprise-text">🎲 Surprends-moi</div><div class="surprise-sub">Dans un rayon de 10 km</div></div>
+            <div style="font-size:22px;">🔀</div>
+          </div>
+          <div class="cat-grid">
+            <div class="cat-tile selected" style="background:linear-gradient(135deg,#78350f,#b45309)"><div class="cat-emoji">☕</div><div class="cat-label">Cafés</div></div>
+            <div class="cat-tile unselected-dimmed" style="background:linear-gradient(135deg,#14532d,#16a34a)"><div class="cat-emoji">🌿</div><div class="cat-label">Outdoor</div></div>
+            <div class="cat-tile unselected-dimmed" style="background:linear-gradient(135deg,#7c2d12,#dc2626)"><div class="cat-emoji">🍽️</div><div class="cat-label">Restos</div></div>
+            <div class="cat-tile unselected-dimmed" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)"><div class="cat-emoji">🍷</div><div class="cat-label">Bars</div></div>
+            <div class="cat-tile unselected-dimmed" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)"><div class="cat-emoji">🏙️</div><div class="cat-label">Vues</div></div>
+            <div class="cat-tile unselected-dimmed" style="background:linear-gradient(135deg,#831843,#db2777)"><div class="cat-emoji">🎨</div><div class="cat-label">Culture</div></div>
+          </div>
+          <div class="section-label">☕ Cafés — 24 spots</div>
+          <div class="carousel-row">
+            <div class="spot-card-sm"><div class="spot-emoji-c">☕</div><div class="spot-card-label">Café de Flore</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji-c">☕</div><div class="spot-card-label">Café Procope</div></div>
+            <div class="spot-card-sm"><div class="spot-emoji-c">☕</div><div class="spot-card-label">Café Marly</div></div>
+          </div>
+          <div class="list-row"><div class="list-thumb">☕</div><div><div class="list-title">Café de Flore</div><div class="list-sub">350 m · @romsko</div></div></div>
+          <div class="list-row"><div class="list-thumb">☕</div><div><div class="list-title">Ten Belles</div><div class="list-sub">800 m · @céllan</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="text-align:center; margin-top: 24px;">Ça te convient ? Re-cliquer sur la tuile active la désélectionne (retour à "tout").</p>

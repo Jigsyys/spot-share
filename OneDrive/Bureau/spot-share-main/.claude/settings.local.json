@@ -15,7 +15,40 @@
       "Bash(GIT_DIR=\"c:/Users/maxen/.git\" GIT_WORK_TREE=\"c:/Users/maxen/OneDrive/Bureau/spot-share-main\" git commit -m \"$\\(cat <<''EOF'':*)",
       "Bash(GIT_DIR=\"c:/Users/maxen/.git\" GIT_WORK_TREE=\"c:/Users/maxen/OneDrive/Bureau/spot-share-main\" git push origin main)",
       "Bash(git filter-repo:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(bash:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "mcp__supabase__get_advisors",
+      "Bash(python3 -c \" import sys, json data = json.load\\(sys.stdin\\) text = data[0]['text'] if data else '' advisors = json.loads\\(text\\) for a in advisors: print\\(a.get\\('name',''\\), '|', a.get\\('title',''\\), '|', a.get\\('metadata',{}\\).get\\('table',''\\), a.get\\('metadata',{}\\).get\\('column',''\\)\\) \")",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__apply_migration",
+      "Bash(npx vercel:*)",
+      "mcp__supabase__list_migrations",
+      "Bash(xargs grep:*)",
+      "mcp__supabase__get_logs",
+      "Bash(npx next:*)",
+      "Bash(grep -E \"^.*error.*$|Type error|Failed\")",
+      "Read(//c/Users/maxen/.claude/plugins/**)",
+      "Read(//c/Users/maxen/.claude/plugins/cache/**)",
+      "Bash(npm install:*)",
+      "Bash(typescript-language-server:*)",
+      "Bash(wc -l components/map/*.tsx)",
+      "mcp__ide__getDiagnostics",
+      "Bash(cat \"C:/Users/maxen/OneDrive/Bureau/spot-share-main/.superpowers/brainstorm/\"*/state/server-info)",
+      "Bash(xxd)",
+      "Bash(git checkout:*)",
+      "Bash(npx web-push:*)",
+      "Bash(openssl rand:*)",
+      "Bash(grep -E \"\\\\.\\(png|ico|jpg|svg\\)$\")",
+      "mcp__supabase__get_project_url"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

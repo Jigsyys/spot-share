@@ -1,0 +1,184 @@
+<h2>Design complet — Groupes</h2>
+<p class="subtitle">Dropdown avec réglages + sélecteur de visibilité à l'ajout d'un spot</p>
+
+<div style="display:flex;gap:20px;flex-wrap:wrap">
+
+  <!-- PARTIE 1 : Dropdown groupes avec réglages -->
+  <div style="flex:1;min-width:260px">
+    <div class="label" style="margin-bottom:8px">1 — Bouton "Groupes" sur la carte</div>
+    <div class="mockup">
+      <div class="mockup-header">Dropdown groupes (ouvert)</div>
+      <div class="mockup-body" style="background:#0f0f13;padding:12px">
+
+        <!-- Barre filtre -->
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:4px;background:#1e1e2e;border-radius:20px;padding:6px 11px;border:1px solid rgba(255,255,255,0.08)">
+            <span style="font-size:11px">👤</span><span style="font-size:11px;font-weight:600;color:#a0a0b0">Moi</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#6366f1;border-radius:20px;padding:6px 11px">
+            <span style="font-size:11px">👥</span><span style="font-size:11px;font-weight:600;color:#fff">Amis</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#1a1a2e;border-radius:20px;padding:6px 11px;border:1px solid rgba(99,102,241,0.45)">
+            <span style="font-size:11px">🗂️</span>
+            <span style="font-size:11px;font-weight:600;color:#818cf8">Groupes</span>
+            <span style="background:#6366f1;border-radius:8px;padding:1px 5px;font-size:9px;font-weight:700;color:#fff">2</span>
+          </div>
+        </div>
+
+        <!-- Dropdown -->
+        <div style="background:#16162a;border-radius:14px;border:1px solid rgba(255,255,255,0.07);overflow:hidden">
+
+          <!-- Groupe 1 -->
+          <div style="padding:10px 12px;display:flex;align-items:center;gap:9px;background:rgba(99,102,241,0.09);border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🏠</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Famille</div>
+              <div style="font-size:10px;color:#555">4 membres · 12 spots</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center;margin-right:4px">
+              <span style="color:#fff;font-size:10px;font-weight:700">✓</span>
+            </div>
+            <!-- Réglages -->
+            <div style="width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(255,255,255,0.07)">
+              <span style="font-size:13px">⚙️</span>
+            </div>
+          </div>
+
+          <!-- Groupe 2 -->
+          <div style="padding:10px 12px;display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#f59e0b,#ef4444);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🎓</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Fac</div>
+              <div style="font-size:10px;color:#555">7 membres · 5 spots</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#1e1e2e;border:1px solid rgba(255,255,255,0.1);margin-right:4px"></div>
+            <div style="width:26px;height:26px;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(255,255,255,0.07)">
+              <span style="font-size:13px">⚙️</span>
+            </div>
+          </div>
+
+          <!-- Créer -->
+          <div style="padding:10px 12px;display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:9px;background:#1e1e2e;border:1.5px dashed rgba(99,102,241,0.4);display:flex;align-items:center;justify-content:center;font-size:16px;color:#6366f1;flex-shrink:0">+</div>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:600;color:#6366f1">Créer un groupe</div>
+              <div style="font-size:10px;color:#555">Inviter des amis, partager des spots</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page réglages groupe -->
+    <div class="label" style="margin:14px 0 8px">Au clic sur ⚙️ — Page réglages du groupe</div>
+    <div style="background:#16162a;border-radius:14px;border:1px solid rgba(255,255,255,0.07);overflow:hidden">
+      <div style="padding:12px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px">🏠</div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#e0e0f0">Famille</div>
+          <div style="font-size:10px;color:#666">4 membres</div>
+        </div>
+        <div style="margin-left:auto;background:#6366f1;border-radius:10px;padding:5px 10px;font-size:11px;font-weight:600;color:#fff">+ Inviter</div>
+      </div>
+      <!-- Membres -->
+      <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Membres</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#a78bfa);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff">M</div>
+            <span style="font-size:12px;font-weight:600;color:#e0e0f0">toi (admin)</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff">P</div>
+            <span style="font-size:12px;color:#a0a0b0">papa</span>
+            <span style="margin-left:auto;font-size:10px;color:#444;background:#1e1e2e;padding:2px 6px;border-radius:6px">Retirer</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#10b981,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff">S</div>
+            <span style="font-size:12px;color:#a0a0b0">soeur</span>
+            <span style="margin-left:auto;font-size:10px;color:#444;background:#1e1e2e;padding:2px 6px;border-radius:6px">Retirer</span>
+          </div>
+          <!-- En attente -->
+          <div style="display:flex;align-items:center;gap:8px;opacity:0.6">
+            <div style="width:28px;height:28px;border-radius:50%;background:#2a2a3a;border:1px dashed #444;display:flex;align-items:center;justify-content:center;font-size:12px;color:#666">?</div>
+            <span style="font-size:12px;color:#666">maman <span style="font-size:10px;color:#f59e0b">· invitation envoyée</span></span>
+          </div>
+        </div>
+      </div>
+      <div style="padding:10px 14px">
+        <div style="font-size:11px;color:#ef4444;font-weight:600;cursor:pointer">🗑 Supprimer le groupe</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PARTIE 2 : Sélecteur dans ajout de spot -->
+  <div style="flex:1;min-width:260px">
+    <div class="label" style="margin-bottom:8px">2 — Sélecteur de visibilité dans "Ajouter un spot"</div>
+    <div class="mockup">
+      <div class="mockup-header">Modal ajout de spot</div>
+      <div class="mockup-body" style="background:#0f0f13;padding:12px">
+        <div style="background:#16162a;border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.07)">
+
+          <div style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px">Partager avec</div>
+
+          <!-- Option Amis -->
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;background:rgba(99,102,241,0.1);border:1.5px solid #6366f1;margin-bottom:6px">
+            <span style="font-size:18px">👥</span>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700;color:#fff">Tous mes amis</div>
+              <div style="font-size:10px;color:#818cf8">Visible par tous tes abonnés</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center"><span style="color:#fff;font-size:10px;font-weight:700">✓</span></div>
+          </div>
+
+          <!-- Option Groupe -->
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;background:#1e1e2e;border:1.5px solid rgba(255,255,255,0.07);margin-bottom:6px">
+            <span style="font-size:18px">🏠</span>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Famille</div>
+              <div style="font-size:10px;color:#666">4 membres seulement</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#1a1a2a;border:1px solid rgba(255,255,255,0.1)"></div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;background:#1e1e2e;border:1.5px solid rgba(255,255,255,0.07);margin-bottom:6px">
+            <span style="font-size:18px">🎓</span>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Fac</div>
+              <div style="font-size:10px;color:#666">7 membres seulement</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#1a1a2a;border:1px solid rgba(255,255,255,0.1)"></div>
+          </div>
+
+          <!-- Option Privé -->
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:10px;background:#1e1e2e;border:1.5px solid rgba(255,255,255,0.07)">
+            <span style="font-size:18px">🔒</span>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Privé</div>
+              <div style="font-size:10px;color:#666">Seulement moi</div>
+            </div>
+            <div style="width:16px;height:16px;border-radius:50%;background:#1a1a2a;border:1px solid rgba(255,255,255,0.1)"></div>
+          </div>
+        </div>
+
+        <!-- Invitation reçue (onglet Invitations) -->
+        <div style="margin-top:12px;background:#16162a;border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.07)">
+          <div style="font-size:10px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.6px;margin-bottom:9px">Invitation de groupe reçue</div>
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px">🏠</div>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Famille</div>
+              <div style="font-size:10px;color:#666">Invité par <span style="color:#818cf8">maxence</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:9px">
+            <div style="flex:1;background:#6366f1;border-radius:9px;padding:7px;text-align:center;font-size:11px;font-weight:700;color:#fff">Rejoindre</div>
+            <div style="flex:1;background:#1e1e2e;border-radius:9px;padding:7px;text-align:center;font-size:11px;font-weight:600;color:#666;border:1px solid rgba(255,255,255,0.07)">Refuser</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>

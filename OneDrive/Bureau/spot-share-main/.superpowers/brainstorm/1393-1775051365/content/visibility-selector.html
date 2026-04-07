@@ -1,0 +1,110 @@
+<h2>Sélecteur de visibilité — Ajout d'un spot</h2>
+<p class="subtitle">Comment choisit-on qui voit le spot au moment de l'ajout ?</p>
+
+<div class="split">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)" style="flex:1">
+    <div class="card-image" style="background:#0f0f13;padding:14px 12px;border-radius:8px 8px 0 0">
+
+      <!-- Formulaire simplifié -->
+      <div style="background:#16162a;border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.07)">
+        <div style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Visible par</div>
+
+        <!-- Pills sélectionnables -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <div style="display:flex;align-items:center;gap:4px;background:#1e1e2e;border-radius:16px;padding:5px 10px;border:1px solid rgba(255,255,255,0.08)">
+            <span style="font-size:11px">🔒</span>
+            <span style="font-size:11px;font-weight:600;color:#a0a0b0">Privé</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#6366f1;border-radius:16px;padding:5px 10px">
+            <span style="font-size:11px">👥</span>
+            <span style="font-size:11px;font-weight:600;color:#fff">Amis</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#1e1e2e;border-radius:16px;padding:5px 10px;border:1px solid rgba(255,255,255,0.08)">
+            <span style="font-size:11px">🏠</span>
+            <span style="font-size:11px;font-weight:600;color:#a0a0b0">Famille</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#1e1e2e;border-radius:16px;padding:5px 10px;border:1px solid rgba(255,255,255,0.08)">
+            <span style="font-size:11px">🎓</span>
+            <span style="font-size:11px;font-weight:600;color:#a0a0b0">Fac</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;background:#1e1e2e;border-radius:16px;padding:5px 10px;border:1px solid rgba(99,102,241,0.3)">
+            <span style="font-size:11px;color:#6366f1">+</span>
+            <span style="font-size:11px;font-weight:600;color:#6366f1">Groupe</span>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;padding:7px 10px;background:rgba(99,102,241,0.08);border-radius:8px;border:1px solid rgba(99,102,241,0.2)">
+          <span style="font-size:10px;color:#818cf8">👥 Visible par tous tes amis</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="card-body">
+      <h3>A — Pills dans le formulaire</h3>
+      <p>Un champ "Visible par" avec des pills à sélectionner directement dans l'écran d'ajout. Rapide, tout en un seul écran.</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)" style="flex:1">
+    <div class="card-image" style="background:#0f0f13;padding:14px 12px;border-radius:8px 8px 0 0">
+
+      <div style="background:#16162a;border-radius:12px;padding:12px;border:1px solid rgba(255,255,255,0.07)">
+        <div style="font-size:10px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Visible par</div>
+
+        <!-- Selector row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;background:#1e1e2e;border-radius:10px;padding:10px 12px;border:1px solid rgba(255,255,255,0.08)">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">👥</span>
+            <div>
+              <div style="font-size:12px;font-weight:700;color:#e0e0f0">Amis</div>
+              <div style="font-size:10px;color:#666">Tous tes abonnés</div>
+            </div>
+          </div>
+          <span style="color:#666;font-size:14px">▾</span>
+        </div>
+
+        <!-- Sheet qui s'ouvre -->
+        <div style="margin-top:8px;background:#1a1a2e;border-radius:12px;border:1px solid rgba(255,255,255,0.06);overflow:hidden">
+          <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <span style="font-size:14px">🔒</span>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600;color:#a0a0b0">Privé</div>
+              <div style="font-size:10px;color:#555">Seulement moi</div>
+            </div>
+          </div>
+          <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;background:rgba(99,102,241,0.1);border-bottom:1px solid rgba(255,255,255,0.05)">
+            <span style="font-size:14px">👥</span>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:700;color:#fff">Amis</div>
+              <div style="font-size:10px;color:#818cf8">Sélectionné</div>
+            </div>
+            <span style="color:#6366f1;font-size:13px;font-weight:700">✓</span>
+          </div>
+          <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <span style="font-size:14px">🏠</span>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600;color:#a0a0b0">Famille</div>
+              <div style="font-size:10px;color:#555">4 membres</div>
+            </div>
+          </div>
+          <div style="padding:8px 12px;display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px">🎓</span>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:600;color:#a0a0b0">Fac</div>
+              <div style="font-size:10px;color:#555">7 membres</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="card-body">
+      <h3>B — Selector + sheet</h3>
+      <p>Un bouton qui affiche la sélection actuelle. Au clic, une liste déroulante s'ouvre avec toutes les options. Plus clair sur ce qui est sélectionné.</p>
+    </div>
+  </div>
+
+</div>
