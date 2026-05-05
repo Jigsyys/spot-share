@@ -55,6 +55,7 @@ const SPOTS_CACHE_TTL = 2 * 60 * 60 * 1000 // 2h — Realtime maintient la fraî
 const PROFILE_CACHE_TTL = 2 * 60 * 60 * 1000 // 2h
 const FOLLOWING_CACHE_TTL = 60 * 60 * 1000 // 1h
 const LIKES_CACHE_TTL = 5 * 60 * 1000 // 5 min
+const MAX_SPOTS_IN_MEMORY = 400
 const DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const LIGHT_STYLE = "mapbox://styles/mapbox/outdoors-v12"
 
@@ -555,6 +556,19 @@ export default function MapView() {
             : s.profiles,
         }))
         withProfiles.forEach(s => spotsMapRef.current.set(s.id, s))
+
+        // Purge : évite la croissance infinie au fil des déplacements de carte
+        if (spotsMapRef.current.size > MAX_SPOTS_IN_MEMORY) {
+          const currentIds = new Set(withProfiles.map(s => s.id))
+          const sorted = [...spotsMapRef.current.entries()]
+            .sort(([, a], [, b]) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          const kept: globalThis.Map<string, Spot> = new globalThis.Map()
+          for (const [id, spot] of sorted) {
+            if (currentIds.has(id) || kept.size < MAX_SPOTS_IN_MEMORY) kept.set(id, spot)
+          }
+          spotsMapRef.current = kept
+        }
+
         setSpots(Array.from(spotsMapRef.current.values()))
 
         // 3. Enrichir en arrière-plan avec les profils manquants
@@ -570,13 +584,16 @@ export default function MapView() {
               profiles.forEach((p: { id: string; username: string | null; avatar_url: string | null; created_at: string }) => {
                 spotProfilesCacheRef.current.set(p.id, { username: p.username, avatar_url: p.avatar_url, created_at: p.created_at })
               })
-              setSpots(prev => prev.map(s => {
-                const prof = spotProfilesCacheRef.current.get(s.user_id)
-                if (!prof) return s
-                const updated = { ...s, profiles: { id: s.user_id, ...prof } }
-                spotsMapRef.current.set(s.id, updated)
-                return updated
-              }))
+              // Déféré : l'enrichissement des avatars n'est pas urgent pour l'UI
+              startTransition(() => {
+                setSpots(prev => prev.map(s => {
+                  const prof = spotProfilesCacheRef.current.get(s.user_id)
+                  if (!prof) return s
+                  const updated = { ...s, profiles: { id: s.user_id, ...prof } }
+                  spotsMapRef.current.set(s.id, updated)
+                  return updated
+                }))
+              })
             })
         }
 
@@ -610,10 +627,13 @@ export default function MapView() {
       }
     } catch {}
     try {
+      const spotIds = [...spotsMapRef.current.keys()].slice(0, 300)
+      if (spotIds.length === 0) return
       const { data, error } = await supabaseRef.current
         .from("spot_reactions")
         .select("spot_id")
         .eq("type", "love")
+        .in("spot_id", spotIds)
       if (error) { console.error("fetchLikeCounts:", error); return }
       if (!data) return
       const counts: Record<string, number> = {}
@@ -2075,7 +2095,7 @@ export default function MapView() {
 
 
       {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 bottom-[calc(9rem+env(safe-area-inset-bottom))] flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute right-4 bottom-20 flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => setShowExploreModal(true)}
@@ -2110,7 +2130,7 @@ export default function MapView() {
 
 
       {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute bottom-[calc(9rem+env(safe-area-inset-bottom))] left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
+      <div className={cn("pointer-events-none absolute bottom-20 left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => {

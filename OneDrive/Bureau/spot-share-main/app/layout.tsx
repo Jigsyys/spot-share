@@ -27,7 +27,6 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  viewportFit: "cover",
 }
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" })
