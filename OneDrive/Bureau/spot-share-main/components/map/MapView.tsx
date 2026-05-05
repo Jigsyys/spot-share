@@ -316,6 +316,20 @@ function OpeningHoursBlock({
   )
 }
 
+function shouldRefetch(
+  prev: [number, number, number, number],
+  next: [number, number, number, number]
+): boolean {
+  const [pw, ps, pe, pn] = prev
+  const [nw, ns, ne, nn] = next
+  const prevWidth = pe - pw
+  const prevHeight = pn - ps
+  const lngShift = Math.abs((nw + ne) / 2 - (pw + pe) / 2) / prevWidth
+  const latShift = Math.abs((ns + nn) / 2 - (ps + pn) / 2) / prevHeight
+  const widthRatio = Math.abs((ne - nw) / prevWidth - 1)
+  return lngShift > 0.25 || latShift > 0.25 || widthRatio > 0.5
+}
+
 export default function MapView() {
   const mapRef = useRef<MapRef>(null)
   const { user, loading: authLoading, signOut } = useAuth()
@@ -853,6 +867,8 @@ export default function MapView() {
 
   // Ref pour debounce du fetch viewport
   const fetchBoundsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastFetchedBoundsRef = useRef<[number, number, number, number] | null>(null)
+  const initialBoundsSetRef = useRef(false)
 
   const handleMapMoveEnd = useCallback(() => {
     const map = mapRef.current?.getMap()
@@ -863,15 +879,21 @@ export default function MapView() {
       b.getWest(), b.getSouth(), b.getEast(), b.getNorth()
     ]
     setBounds(newBounds)
+
+    const last = lastFetchedBoundsRef.current
+    if (last && !shouldRefetch(last, newBounds)) return
+
     if (fetchBoundsTimerRef.current) clearTimeout(fetchBoundsTimerRef.current)
     fetchBoundsTimerRef.current = setTimeout(() => {
+      lastFetchedBoundsRef.current = newBounds
       fetchSpotsByBounds(newBounds)
     }, 400)
   }, [fetchSpotsByBounds])
 
-  // On mount: fetch spots + like counts in parallel (no auth needed)
+  // On mount: fetch like counts uniquement — fetchSpotsByBounds est déclenché
+  // depuis onLoad avec le vrai viewport (évite le world-wide bbox au mount)
   useEffect(() => {
-    Promise.all([fetchSpotsByBounds(bounds), fetchLikeCounts()])
+    fetchLikeCounts()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1695,7 +1717,15 @@ export default function MapView() {
           onLoad={() => {
             if (mapRef.current) {
               const b = mapRef.current.getBounds()?.toArray().flat()
-              if (b) setBounds(b as [number, number, number, number])
+              const realBounds = b as [number, number, number, number] | undefined
+              if (realBounds) {
+                setBounds(realBounds)
+                if (!initialBoundsSetRef.current) {
+                  initialBoundsSetRef.current = true
+                  lastFetchedBoundsRef.current = realBounds
+                  fetchSpotsByBounds(realBounds)
+                }
+              }
               setZoom(mapRef.current.getZoom())
               const map = mapRef.current.getMap()
               applyLightFilters()
