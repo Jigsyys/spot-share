@@ -55,7 +55,7 @@
   background: var(--stone);
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .review-link {
@@ -73,7 +73,7 @@
 .review-link span {
   color: var(--clay-dark);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -82,7 +82,7 @@
   display: block;
   margin-top: 12px;
   color: var(--pine);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 30px;
   font-weight: 500;
   line-height: 1.05;
@@ -109,7 +109,7 @@
 .google-review-card span {
   color: var(--sand);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -117,7 +117,7 @@
 .google-reviews-summary strong {
   display: block;
   margin-top: 6px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 30px;
   font-weight: 500;
 }
@@ -131,7 +131,7 @@
 .google-reviews-summary a {
   flex: 0 0 auto;
   color: var(--cream);
-  font-weight: 900;
+  font-weight: 800;
   text-decoration: underline;
   text-underline-offset: 5px;
 }
@@ -164,7 +164,7 @@
 .google-review-card p {
   margin: 18px 0 0;
   color: var(--pine-deep);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 22px;
   line-height: 1.24;
 }
@@ -174,7 +174,7 @@
   margin-top: 18px;
   color: var(--clay-dark);
   font-style: normal;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .review-empty {
@@ -228,7 +228,7 @@
 .drawer-head span {
   color: var(--clay-dark);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -305,7 +305,7 @@
   color: var(--muted);
   text-align: center;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .calendar-day {
@@ -358,7 +358,7 @@
   flex-wrap: wrap;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 600;
 }
 
 .calendar-legend span {
@@ -399,7 +399,7 @@
   gap: 7px;
   color: var(--pine);
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .drawer-grid input,
@@ -433,14 +433,14 @@
   display: block;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 600;
 }
 
 .drawer-total strong {
   display: block;
   margin: 2px 0;
   color: var(--pine);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 32px;
   font-weight: 500;
 }
@@ -691,7 +691,7 @@ select {
   width: fit-content;
   display: inline-flex;
   color: var(--clay-dark);
-  font-weight: 820;
+  font-weight: 700;
   border-bottom: 1px solid currentColor;
 }
 
@@ -737,7 +737,7 @@ select {
 .mobile-nav a {
   padding: 16px 0;
   border-bottom: 1px solid rgba(255, 255, 255, .12);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 30px;
 }
 
@@ -789,7 +789,7 @@ select {
   margin: 0;
   color: var(--clay);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -802,7 +802,7 @@ h1,
 h2,
 h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -848,11 +848,11 @@ h3 {
 .booking-topline span {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 780;
+  font-weight: 600;
 }
 
 .booking-topline strong {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 48px;
   font-weight: 500;
 }
@@ -866,7 +866,7 @@ h3 {
   margin-top: 6px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 780;
+  font-weight: 600;
 }
 
 .quick-facts {
@@ -895,7 +895,7 @@ h3 {
   color: var(--clay-dark);
   text-align: center;
   font-size: 13px;
-  font-weight: 820;
+  font-weight: 700;
 }
 
 .at-a-glance {
@@ -921,7 +921,7 @@ h3 {
 .at-a-glance span {
   display: block;
   color: var(--pine);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 32px;
   line-height: 1;
 }
@@ -929,7 +929,7 @@ h3 {
 .at-a-glance p {
   margin: 8px 0 0;
   color: var(--muted);
-  font-weight: 760;
+  font-weight: 600;
 }
 
 .section {
@@ -1036,7 +1036,7 @@ figcaption {
   border-radius: 8px;
   backdrop-filter: blur(10px);
   font-size: 14px;
-  font-weight: 760;
+  font-weight: 600;
 }
 
 .comfort {
@@ -1086,7 +1086,7 @@ figcaption {
   background: var(--stone);
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-weight: 820;
+  font-weight: 700;
 }
 
 .experience {
@@ -1160,12 +1160,12 @@ figcaption {
 .decision-grid span {
   color: inherit;
   opacity: .7;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .decision-grid strong {
   display: block;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 32px;
   font-weight: 500;
   line-height: 1.05;
@@ -1232,7 +1232,7 @@ figcaption {
 }
 
 .place strong {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 30px;
   font-weight: 500;
 }
@@ -1276,7 +1276,7 @@ figcaption {
 .rates-grid span {
   display: block;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -1284,7 +1284,7 @@ figcaption {
 .rates-grid strong {
   display: block;
   margin-top: 18px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 50px;
   font-weight: 500;
   line-height: 1;
@@ -1312,14 +1312,14 @@ figcaption {
 
 .booking-steps span {
   color: var(--clay-dark);
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .booking-steps strong {
   display: block;
   margin-top: 16px;
   color: var(--pine);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 30px;
   font-weight: 500;
   line-height: 1.08;
@@ -1369,7 +1369,7 @@ figcaption {
   border: 1px solid rgba(255, 255, 255, .14);
   border-radius: 8px;
   font-size: 13px;
-  font-weight: 820;
+  font-weight: 700;
 }
 
 .reservation-form {
@@ -1386,7 +1386,7 @@ figcaption {
   padding: 14px;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 850;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -1419,7 +1419,7 @@ figcaption {
   gap: 7px;
   color: var(--pine);
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .reservation-form input,
@@ -1475,11 +1475,11 @@ figcaption {
 
 .price-box span {
   font-size: 13px;
-  font-weight: 820;
+  font-weight: 700;
 }
 
 .price-box strong {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 32px;
   font-weight: 500;
   white-space: nowrap;
@@ -1490,7 +1490,7 @@ figcaption {
   display: block;
   color: rgba(251, 246, 236, .78);
   font-size: 13px;
-  font-weight: 780;
+  font-weight: 600;
 }
 
 .reservation-form p {
@@ -1502,7 +1502,7 @@ figcaption {
 .reviews-grid blockquote p {
   margin: 0;
   color: var(--pine-deep);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 27px;
   line-height: 1.18;
 }
@@ -1512,7 +1512,7 @@ figcaption {
   margin-top: 22px;
   color: var(--clay-dark);
   font-style: normal;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .reviews .text-link {
@@ -1540,7 +1540,7 @@ summary {
   padding: 19px 20px;
   color: var(--pine);
   cursor: pointer;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 details p {
@@ -1568,7 +1568,7 @@ details p {
 .site-footer strong {
   display: block;
   color: var(--cream);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Fraunces", Georgia, serif;
   font-size: 28px;
   font-weight: 500;
 }
@@ -1589,14 +1589,14 @@ details p {
   margin-bottom: 6px;
   color: var(--cream);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
 }
 
 .site-footer a {
   color: rgba(251, 246, 236, .72);
-  font-weight: 780;
+  font-weight: 600;
 }
 
 .site-footer a:hover {
@@ -1919,6 +1919,6 @@ details p {
     background: var(--clay-dark);
     border-radius: 8px;
     box-shadow: 0 18px 52px rgba(16, 32, 24, .24);
-    font-weight: 900;
+    font-weight: 800;
   }
 }
