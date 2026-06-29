@@ -1075,7 +1075,7 @@ figcaption {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   list-style: none;
 }
@@ -1693,6 +1693,35 @@ details p {
 
 }
 
+@media (min-width: 640px) and (max-width: 1023px) {
+  .visual-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: minmax(220px, 1fr);
+  }
+
+  .visual-grid .visual-large {
+    grid-row: span 1;
+    grid-column: span 2;
+    min-height: 320px;
+  }
+
+  .amenities {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .decision-grid,
+  .places,
+  .rates-grid,
+  .reviews-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .review-links {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+  }
+}
+
 @media (max-width: 639px) {
   .site-header {
     top: 10px;
@@ -1828,9 +1857,12 @@ details p {
     min-height: 255px;
   }
 
-  .comfort-layout,
-  .amenities {
+  .comfort-layout {
     grid-template-columns: 1fr;
+  }
+
+  .amenities {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .comfort {
