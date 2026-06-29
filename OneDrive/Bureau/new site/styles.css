@@ -445,7 +445,7 @@
   font-weight: 500;
 }
 
-@media (max-width: 680px) {
+@media (max-width: 639px) {
   .booking-drawer {
     width: 100%;
   }
@@ -1637,7 +1637,7 @@ details p {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1023px) {
   .main-nav {
     display: none;
   }
@@ -1693,7 +1693,7 @@ details p {
 
 }
 
-@media (max-width: 680px) {
+@media (max-width: 639px) {
   .site-header {
     top: 10px;
     width: calc(100% - 20px);
@@ -1799,13 +1799,6 @@ details p {
 
   h2 {
     font-size: clamp(30px, 9vw, 42px);
-  }
-
-  .intro,
-  .decision,
-  .surroundings,
-  .faq {
-    display: none;
   }
 
   .visual-tour {
