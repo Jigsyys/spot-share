@@ -1976,6 +1976,19 @@ details p {
     font-size: 19px;
   }
 
+  .google-reviews-list {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+  }
+
+  .google-reviews-list .google-review-card {
+    flex: 0 0 86%;
+    scroll-snap-align: center;
+  }
+
   .amenities {
     gap: 8px;
   }
