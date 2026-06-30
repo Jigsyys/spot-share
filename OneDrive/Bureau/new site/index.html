@@ -23,7 +23,7 @@
 <body>
   <header class="site-header" data-header>
     <a class="brand" href="#accueil" aria-label="Accueil Le Cabanon d'Aix">
-      <img src="assets/logo.webp" alt="">
+      <img src="assets/logo.webp" alt="" width="200" height="132" loading="lazy">
       <span>Le Cabanon d'Aix</span>
     </a>
     <nav class="main-nav" aria-label="Navigation principale">
@@ -53,7 +53,7 @@
   <main id="accueil">
     <section class="hero">
       <div class="hero-image" aria-hidden="true">
-        <img src="assets/hero.jpg" alt="">
+        <img src="assets/hero.jpg" alt="" width="1440" height="686">
       </div>
 
       <div class="hero-inner">
@@ -120,31 +120,46 @@
       <div class="visual-grid reveal" id="visual-grid">
         <figure class="visual-large">
           <button type="button" class="lightbox-trigger" data-lightbox-index="0" aria-label="Agrandir : Le cabanon dans les pins">
-            <img src="assets/cabanon-exterieur.jpg" alt="Extérieur du Cabanon d'Aix en pinède">
+            <picture>
+              <source srcset="assets/cabanon-exterieur.webp" type="image/webp">
+              <img src="assets/cabanon-exterieur.jpg" alt="Extérieur du Cabanon d'Aix en pinède" width="3024" height="4032" loading="lazy">
+            </picture>
           </button>
           <figcaption>Le cabanon dans les pins</figcaption>
         </figure>
         <figure>
           <button type="button" class="lightbox-trigger" data-lightbox-index="1" aria-label="Agrandir : Terrasse privée">
-            <img src="assets/terrasse.jpeg" alt="Terrasse privée du Cabanon d'Aix">
+            <picture>
+              <source srcset="assets/terrasse.webp" type="image/webp">
+              <img src="assets/terrasse.jpeg" alt="Terrasse privée du Cabanon d'Aix" width="2048" height="1536" loading="lazy">
+            </picture>
           </button>
           <figcaption>Terrasse privée</figcaption>
         </figure>
         <figure>
           <button type="button" class="lightbox-trigger" data-lightbox-index="2" aria-label="Agrandir : Espace nuit">
-            <img src="assets/chambre.jpg" alt="Espace nuit du Cabanon d'Aix">
+            <picture>
+              <source srcset="assets/chambre.webp" type="image/webp">
+              <img src="assets/chambre.jpg" alt="Espace nuit du Cabanon d'Aix" width="3024" height="2411" loading="lazy">
+            </picture>
           </button>
           <figcaption>Espace nuit</figcaption>
         </figure>
         <figure>
           <button type="button" class="lightbox-trigger" data-lightbox-index="3" aria-label="Agrandir : Cuisine équipée">
-            <img src="assets/cuisine.jpeg" alt="Cuisine équipée du Cabanon d'Aix">
+            <picture>
+              <source srcset="assets/cuisine.webp" type="image/webp">
+              <img src="assets/cuisine.jpeg" alt="Cuisine équipée du Cabanon d'Aix" width="1536" height="1423" loading="lazy">
+            </picture>
           </button>
           <figcaption>Cuisine équipée</figcaption>
         </figure>
         <figure>
           <button type="button" class="lightbox-trigger" data-lightbox-index="4" aria-label="Agrandir : Pinède autour">
-            <img src="assets/pinede.jpg" alt="Pinède autour du Cabanon d'Aix">
+            <picture>
+              <source srcset="assets/pinede.webp" type="image/webp">
+              <img src="assets/pinede.jpg" alt="Pinède autour du Cabanon d'Aix" width="3024" height="2797" loading="lazy">
+            </picture>
           </button>
           <figcaption>Pinède autour</figcaption>
         </figure>
@@ -208,21 +223,30 @@
       </div>
       <div class="places">
         <a class="place reveal" href="que-faire-aix-en-provence.html">
-          <img src="assets/aix.jpg" alt="Aix-en-Provence">
+          <picture>
+            <source srcset="assets/aix.webp" type="image/webp">
+            <img src="assets/aix.jpg" alt="Aix-en-Provence" width="640" height="640" loading="lazy">
+          </picture>
           <div>
             <strong>Visiter Aix sans perdre sa journée</strong>
             <span>Marchés, ruelles, musées, terrasses : l'essentiel à faire depuis le Cabanon.</span>
           </div>
         </a>
         <a class="place reveal" href="week-end-aix-en-provence.html">
-          <img src="assets/sainte-victoire.jpg" alt="Montagne Sainte-Victoire">
+          <picture>
+            <source srcset="assets/sainte-victoire.webp" type="image/webp">
+            <img src="assets/sainte-victoire.jpg" alt="Montagne Sainte-Victoire" width="640" height="640" loading="lazy">
+          </picture>
           <div>
             <strong>Un week-end parfait à Aix</strong>
             <span>Un programme simple sur 2 ou 3 jours entre ville, pinède et Sainte-Victoire.</span>
           </div>
         </a>
         <a class="place reveal" href="calanques-depuis-aix.html">
-          <img src="assets/calanques.jpg" alt="Calanques depuis Aix-en-Provence">
+          <picture>
+            <source srcset="assets/calanques.webp" type="image/webp">
+            <img src="assets/calanques.jpg" alt="Calanques depuis Aix-en-Provence" width="640" height="640" loading="lazy">
+          </picture>
           <div>
             <strong>Les Calanques depuis Aix</strong>
             <span>Quand partir, comment organiser la journée et pourquoi dormir au calme au retour.</span>
@@ -405,7 +429,7 @@
 
   <footer class="site-footer">
     <div class="footer-brand">
-      <img src="assets/logo.webp" alt="">
+      <img src="assets/logo.webp" alt="" width="200" height="132" loading="lazy">
       <strong>Le Cabanon d'Aix</strong>
       <p>Gîte indépendant au calme de la pinède, près d'Aix-en-Provence.</p>
       <a class="button button-primary" href="#reservation" data-open-booking>Voir les dates</a>
