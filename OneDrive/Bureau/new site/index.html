@@ -117,27 +117,44 @@
         <span class="section-label">Photos</span>
         <h2>Voir le lieu avant de réserver.</h2>
       </div>
-      <div class="visual-grid reveal">
+      <div class="visual-grid reveal" id="visual-grid">
         <figure class="visual-large">
-          <img src="assets/cabanon-exterieur.jpg" alt="Extérieur du Cabanon d'Aix en pinède">
+          <button type="button" class="lightbox-trigger" data-lightbox-index="0" aria-label="Agrandir : Le cabanon dans les pins">
+            <img src="assets/cabanon-exterieur.jpg" alt="Extérieur du Cabanon d'Aix en pinède">
+          </button>
           <figcaption>Le cabanon dans les pins</figcaption>
         </figure>
         <figure>
-          <img src="assets/terrasse.jpeg" alt="Terrasse privée du Cabanon d'Aix">
+          <button type="button" class="lightbox-trigger" data-lightbox-index="1" aria-label="Agrandir : Terrasse privée">
+            <img src="assets/terrasse.jpeg" alt="Terrasse privée du Cabanon d'Aix">
+          </button>
           <figcaption>Terrasse privée</figcaption>
         </figure>
         <figure>
-          <img src="assets/chambre.jpg" alt="Espace nuit du Cabanon d'Aix">
+          <button type="button" class="lightbox-trigger" data-lightbox-index="2" aria-label="Agrandir : Espace nuit">
+            <img src="assets/chambre.jpg" alt="Espace nuit du Cabanon d'Aix">
+          </button>
           <figcaption>Espace nuit</figcaption>
         </figure>
         <figure>
-          <img src="assets/cuisine.jpeg" alt="Cuisine équipée du Cabanon d'Aix">
+          <button type="button" class="lightbox-trigger" data-lightbox-index="3" aria-label="Agrandir : Cuisine équipée">
+            <img src="assets/cuisine.jpeg" alt="Cuisine équipée du Cabanon d'Aix">
+          </button>
           <figcaption>Cuisine équipée</figcaption>
         </figure>
         <figure>
-          <img src="assets/pinede.jpg" alt="Pinède autour du Cabanon d'Aix">
+          <button type="button" class="lightbox-trigger" data-lightbox-index="4" aria-label="Agrandir : Pinède autour">
+            <img src="assets/pinede.jpg" alt="Pinède autour du Cabanon d'Aix">
+          </button>
           <figcaption>Pinède autour</figcaption>
         </figure>
+      </div>
+
+      <div class="lightbox" id="lightbox" hidden>
+        <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Fermer">×</button>
+        <button type="button" class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Photo précédente">‹</button>
+        <img class="lightbox-image" id="lightbox-image" src="" alt="">
+        <button type="button" class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Photo suivante">›</button>
       </div>
     </section>
 

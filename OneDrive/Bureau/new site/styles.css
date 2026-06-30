@@ -996,6 +996,81 @@ figure {
   min-height: 680px;
 }
 
+.lightbox-trigger {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: block;
+}
+
+@media (hover: hover) {
+  .lightbox-trigger:hover img {
+    transform: scale(1.04);
+  }
+}
+
+.lightbox-trigger img {
+  transition: transform .3s ease;
+}
+
+.lightbox {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(16, 32, 24, .92);
+}
+
+.lightbox[hidden] {
+  display: none;
+}
+
+.lightbox-image {
+  max-width: min(92vw, 1200px);
+  max-height: 86vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--r-card);
+}
+
+.lightbox-close,
+.lightbox-nav {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  color: var(--white);
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: var(--r-pill);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox-close {
+  top: 20px;
+  right: 20px;
+}
+
+.lightbox-prev {
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.lightbox-next {
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .story-side {
   display: grid;
   gap: 16px;
@@ -1841,12 +1916,26 @@ details p {
   }
 
   .visual-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 10px;
     grid-auto-rows: auto;
   }
 
   .visual-grid figure,
   .visual-grid .visual-large {
-    min-height: 255px;
+    flex: 0 0 86%;
+    scroll-snap-align: center;
+    min-height: 280px;
+  }
+
+  .lightbox-close,
+  .lightbox-nav {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
   }
 
   .comfort-layout {
