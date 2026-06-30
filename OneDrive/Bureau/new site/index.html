@@ -35,13 +35,13 @@
       <a href="#tarifs">Tarifs</a>
     </nav>
     <a class="button button-primary header-book" href="#reservation" data-open-booking>Réserver en direct</a>
-    <button class="menu-toggle" type="button" data-menu-toggle aria-label="Ouvrir le menu">
+    <button class="menu-toggle" type="button" data-menu-toggle aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="mobile-nav">
       <span></span>
       <span></span>
     </button>
   </header>
 
-  <nav class="mobile-nav" data-mobile-nav aria-label="Navigation mobile">
+  <nav class="mobile-nav" data-mobile-nav aria-label="Navigation mobile" id="mobile-nav">
     <a href="#lieu">Le lieu</a>
     <a href="#confort">Confort</a>
     <a href="#alentours">Autour</a>
@@ -354,7 +354,7 @@
   </main>
 
   <div class="booking-overlay" id="booking-overlay" hidden></div>
-  <aside class="booking-drawer" id="booking-drawer" aria-hidden="true" aria-label="Réservation">
+  <aside class="booking-drawer" id="booking-drawer" aria-hidden="true" aria-label="Réservation" role="dialog" aria-modal="true">
     <header class="drawer-head">
       <div>
         <span>Réservation directe</span>

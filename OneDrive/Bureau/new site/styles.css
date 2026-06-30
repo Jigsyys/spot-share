@@ -303,8 +303,10 @@
   font-weight: 800;
 }
 
-.calendar-day:hover {
-  border-color: var(--clay);
+@media (hover: hover) {
+  .calendar-day:hover {
+    border-color: var(--clay);
+  }
 }
 
 .calendar-day.is-empty {
@@ -536,6 +538,15 @@
   box-sizing: border-box;
 }
 
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--clay);
+  outline-offset: 2px;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -629,8 +640,10 @@ select {
   opacity: .86;
 }
 
-.main-nav a:hover {
-  opacity: 1;
+@media (hover: hover) {
+  .main-nav a:hover {
+    opacity: 1;
+  }
 }
 
 .button {
@@ -648,8 +661,10 @@ select {
   transition: transform .2s ease, background .2s ease, border-color .2s ease;
 }
 
-.button:hover {
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .button:hover {
+    transform: translateY(-1px);
+  }
 }
 
 .button-primary {
@@ -657,8 +672,10 @@ select {
   background: var(--clay-dark);
 }
 
-.button-primary:hover {
-  background: #653522;
+@media (hover: hover) {
+  .button-primary:hover {
+    background: #653522;
+  }
 }
 
 .button-light {
@@ -1252,9 +1269,11 @@ figcaption {
   transition: transform .22s ease, box-shadow .22s ease;
 }
 
-.place:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 24px 58px rgba(16, 32, 24, .18);
+@media (hover: hover) {
+  .place:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 24px 58px rgba(16, 32, 24, .18);
+  }
 }
 
 .place::after {
@@ -1666,8 +1685,10 @@ details p {
   font-weight: 600;
 }
 
-.site-footer a:hover {
-  color: var(--cream);
+@media (hover: hover) {
+  .site-footer a:hover {
+    color: var(--cream);
+  }
 }
 
 .footer-brand .button {

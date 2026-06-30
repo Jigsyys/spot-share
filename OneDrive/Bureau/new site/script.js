@@ -38,8 +38,9 @@ updateHeader();
 window.addEventListener("scroll", updateHeader, { passive: true });
 
 toggle?.addEventListener("click", () => {
-  document.body.classList.toggle("menu-open");
-  mobileNav?.classList.toggle("is-open");
+  const isOpen = document.body.classList.toggle("menu-open");
+  mobileNav?.classList.toggle("is-open", isOpen);
+  toggle.setAttribute("aria-expanded", String(isOpen));
 });
 
 mobileNav?.querySelectorAll("a").forEach((link) => {
@@ -104,14 +105,38 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") openLightbox(lightboxIndex - 1);
 });
 
+let lastFocusedElement = null;
+
+function getFocusableDrawerElements() {
+  return Array.from(drawer.querySelectorAll('a[href], button:not([disabled]), input, select, [tabindex]:not([tabindex="-1"])'));
+}
+
+function trapFocus(event) {
+  if (event.key !== "Tab") return;
+  const focusable = getFocusableDrawerElements();
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function openBooking(event) {
   event?.preventDefault();
+  lastFocusedElement = document.activeElement;
   overlay.hidden = false;
   requestAnimationFrame(() => {
     overlay.classList.add("is-open");
     drawer.classList.add("is-open");
     drawer.setAttribute("aria-hidden", "false");
+    closeButton?.focus();
   });
+  drawer.addEventListener("keydown", trapFocus);
   renderCalendar();
 }
 
@@ -119,9 +144,11 @@ function closeBooking() {
   overlay.classList.remove("is-open");
   drawer.classList.remove("is-open");
   drawer.setAttribute("aria-hidden", "true");
+  drawer.removeEventListener("keydown", trapFocus);
   setTimeout(() => {
     overlay.hidden = true;
   }, 220);
+  lastFocusedElement?.focus();
 }
 
 document.querySelectorAll("[data-open-booking]").forEach((link) => {
