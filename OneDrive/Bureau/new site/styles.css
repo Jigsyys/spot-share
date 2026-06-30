@@ -874,14 +874,6 @@ h3 {
   width: 100%;
 }
 
-.booking-note {
-  margin-top: 14px;
-  display: block;
-  color: var(--clay-dark);
-  text-align: center;
-  font-size: 13px;
-  font-weight: 700;
-}
 
 .at-a-glance {
   width: min(calc(100% - var(--gutter) * 2), var(--max));
@@ -1240,7 +1232,22 @@ figcaption {
 }
 
 .review-links {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 420px;
+}
+
+.text-link {
+  margin-top: 16px;
+  padding: 0;
+  display: inline-block;
+  color: var(--clay-dark);
+  background: none;
+  border: 0;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
 }
 
 .rates-grid article,
