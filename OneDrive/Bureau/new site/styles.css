@@ -41,22 +41,7 @@
   :root { --gutter: 48px; }
 }
 
-/* Site complet: guides, avis vérifiés et tiroir de réservation */
-.guide-links {
-  margin-top: 18px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
 
-.guide-links a {
-  padding: 12px 14px;
-  color: var(--pine);
-  background: var(--stone);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-weight: 700;
-}
 
 .review-link {
   margin: 0;
