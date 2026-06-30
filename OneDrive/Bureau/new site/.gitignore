@@ -1,0 +1,8 @@
+# Contient la vraie clé API Google — ne jamais committer
+.htaccess
+
+# Cache des avis Google généré côté serveur
+reviews-cache.json
+
+# Cache iCal Airbnb
+airbnb_cache.ics
