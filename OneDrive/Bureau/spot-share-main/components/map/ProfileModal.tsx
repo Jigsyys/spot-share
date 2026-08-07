@@ -36,8 +36,50 @@ interface Spot {
   title: string
   category?: string
   address?: string | null
+  image_url?: string | null
   lat: number
   lng: number
+}
+
+const SPOT_EMOJIS: Record<string, string> = {
+  café: "☕", restaurant: "🍽️", bar: "🍸", outdoor: "🌿",
+  vue: "🌅", culture: "🎭", shopping: "🛍️", other: "📍",
+}
+
+function ProfileSpotRow({ spot, onSelect, onDelete }: {
+  spot: Spot
+  onSelect: () => void
+  onDelete: () => void
+}) {
+  const [imgError, setImgError] = useState(false)
+  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const emoji = SPOT_EMOJIS[spot.category ?? "other"] ?? "📍"
+
+  return (
+    <div
+      onClick={onSelect}
+      role="button"
+      className="flex w-full cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/[0.07] bg-white dark:bg-zinc-900 p-3 text-left transition-all active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800"
+    >
+      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100 dark:bg-zinc-800">
+        {imageUrl && !imgError
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={imageUrl} alt={spot.title} loading="lazy" className="h-full w-full object-cover" onError={() => setImgError(true)} />
+          : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>
+        }
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{spot.title}</p>
+        {spot.address && <p className="mt-0.5 truncate text-xs text-gray-400 dark:text-zinc-500">{spot.address}</p>}
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        className="rounded-xl p-2 text-gray-400 dark:text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-500 flex-shrink-0"
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
+  )
 }
 
 interface FollowProfile {
@@ -91,7 +133,6 @@ export default function ProfileModal({
   onClose,
   user,
   spotsCount,
-  userSpots = [],
   followingIds = [],
   onProfileUpdate,
   onDeleteSpot,
@@ -125,6 +166,8 @@ export default function ProfileModal({
   const [loadingList, setLoadingList] = useState(false)
   const [likeHistory, setLikeHistory] = useState<LikeHistoryItem[]>([])
   const [loadingLikes, setLoadingLikes] = useState(false)
+  const [ownSpots, setOwnSpots] = useState<Spot[]>([])
+  const [loadingOwnSpots, setLoadingOwnSpots] = useState(false)
 
   // Suggestions
   const [suggestions, setSuggestions] = useState<{ id: string; username: string | null; avatar_url: string | null }[]>([])
@@ -212,17 +255,12 @@ export default function ProfileModal({
     if (!isOpen || !user) return
     setMonthlyRank(null)
     const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
     supabaseRef.current
-      .from("spots")
-      .select("user_id")
-      .gte("created_at", startOfMonth)
+      .rpc("get_monthly_ranking", { p_year: now.getFullYear(), p_month: now.getMonth() + 1 })
       .then(({ data }) => {
         if (!data) return
-        const counts: Record<string, number> = {}
-        data.forEach((s: { user_id: string }) => { counts[s.user_id] = (counts[s.user_id] ?? 0) + 1 })
-        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
-        const rank = sorted.findIndex(([id]) => id === user.id)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rank = (data as any[]).findIndex((r) => r.user_id === user.id)
         if (rank === 0) setMonthlyRank(1)
         else if (rank === 1) setMonthlyRank(2)
         else if (rank === 2) setMonthlyRank(3)
@@ -265,13 +303,14 @@ export default function ProfileModal({
       confirmLabel: "Supprimer",
       danger: true,
       onConfirm: async () => {
-        try {
-          await supabaseRef.current.from("spots").delete().eq("id", id)
-          toast.success("Lieu supprimé !")
-          onDeleteSpot?.(id)
-        } catch {
+        const res = await fetch(`/api/delete-spot?id=${id}`, { method: "DELETE" })
+        if (!res.ok && res.status !== 404) {
           toast.error("Erreur lors de la suppression.")
+          return
         }
+        toast.success("Lieu supprimé !")
+        setOwnSpots((prev) => prev.filter((s) => s.id !== id))
+        onDeleteSpot?.(id)
       },
     })
   }
@@ -608,12 +647,35 @@ export default function ProfileModal({
     finally { setLoadingLikes(false) }
   }, [user])
 
+  const loadOwnSpots = useCallback(async () => {
+    if (!user) return
+    setLoadingOwnSpots(true)
+    try {
+      const { data } = await supabaseRef.current
+        .from("spots")
+        .select("id, title, category, address, image_url, lat, lng")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+      setOwnSpots((data ?? []) as Spot[])
+    } catch { setOwnSpots([]) }
+    finally { setLoadingOwnSpots(false) }
+  }, [user])
+
   const openSubView = (view: SubView) => {
     setSubView(view)
+    if (view === "spots") loadOwnSpots()
     if (view === "followers") loadFollowersList()
     if (view === "following") loadFollowingList()
     if (view === "likes") loadLikeHistory()
   }
+
+  useEffect(() => {
+    if (isOpen) loadOwnSpots()
+  }, [isOpen, loadOwnSpots])
+
+  useEffect(() => {
+    if (subView === "following" && user) loadFollowingList()
+  }, [user, subView, loadFollowingList])
 
   const initials = username
     ? username.charAt(0).toUpperCase()
@@ -677,38 +739,31 @@ export default function ProfileModal({
                 {subView === "spots" && (
                   <div className="space-y-5">
                     <p className="mb-3 text-xs font-semibold tracking-wider text-gray-400 dark:text-zinc-500 uppercase">
-                      Mes spots ({userSpots.length})
+                      Mes spots ({ownSpots.length})
                     </p>
-                    {userSpots.length === 0 ? (
+                    {loadingOwnSpots ? (
+                      <div className="space-y-2 animate-pulse">
+                        {[1,2,3].map(i => (
+                          <div key={i} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 p-3">
+                            <div className="h-16 w-16 rounded-xl bg-gray-200 dark:bg-zinc-700 flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="h-3 w-2/3 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                              <div className="h-3 w-1/2 rounded-full bg-gray-200 dark:bg-zinc-700" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : ownSpots.length === 0 ? (
                       <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">Aucun spot ajouté pour l&apos;instant.</p>
                     ) : (
                       <div className="space-y-2">
-                        {userSpots.map((spot) => (
-                          <button
+                        {ownSpots.map((spot) => (
+                          <ProfileSpotRow
                             key={spot.id}
-                            onClick={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
-                            className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800 group"
-                          >
-                            <span className="text-lg">{CATEGORY_EMOJIS[spot.category || "other"] || "📍"}</span>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold">{spot.title}</p>
-                              {spot.address && <p className="truncate text-[11px] text-gray-400 dark:text-zinc-500">{spot.address}</p>}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeleteUserSpot(spot.id)
-                                }}
-                                className="rounded-xl p-2 text-gray-500 dark:text-zinc-400 transition-colors hover:bg-red-500/10 hover:text-red-500"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                              <div className="rounded-xl p-2 text-blue-600 dark:text-indigo-400 opacity-80 group-hover:opacity-100">
-                                <Navigation size={14} />
-                              </div>
-                            </div>
-                          </button>
+                            spot={spot}
+                            onSelect={() => onLocateSpot?.(spot.id, spot.lat, spot.lng)}
+                            onDelete={() => handleDeleteUserSpot(spot.id)}
+                          />
                         ))}
                       </div>
                     )}
@@ -984,7 +1039,7 @@ export default function ProfileModal({
                       <div className="grid grid-cols-3 gap-2">
                         <button onClick={() => openSubView("spots")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">
                           <span className="text-blue-600 dark:text-indigo-400"><MapPin size={14} /></span>
-                          <span className="text-lg font-bold">{spotsCount}</span>
+                          <span className="text-lg font-bold">{loadingOwnSpots ? spotsCount : ownSpots.length}</span>
                           <span className="text-xs text-gray-400 dark:text-zinc-500">Spots</span>
                         </button>
                         <button onClick={() => openSubView("following")} className="flex flex-col items-center gap-1 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-800/60 py-3 transition-colors hover:border-blue-600/30 dark:hover:border-indigo-500/30 hover:bg-blue-600/5 dark:hover:bg-indigo-500/5">

@@ -5,6 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Supabase Image Transformation requires Pro plan — passthrough for now
+// loading="lazy" on <img> tags handles the bandwidth optimization instead
+export function toThumbUrl(url: string, _width = 300, _quality = 65): string {
+  return url
+}
+
 /**
  * Parse les horaires Google Places (format "Lundi: 09:00 – 23:00")
  * Index Google : 0 = Lundi … 6 = Dimanche

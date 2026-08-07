@@ -6,7 +6,6 @@ import "mapbox-gl/dist/mapbox-gl.css"
 import { toast } from "sonner"
 import {
   MapPin,
-  Locate,
   Plus,
   Users,
   User,
@@ -14,7 +13,6 @@ import {
   Navigation,
   Search,
   X,
-  Building2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -22,15 +20,15 @@ import {
   CheckCircle2,
   Heart,
   SlidersHorizontal,
-  Shuffle,
   Settings,
   CalendarPlus,
   Check,
   LoaderCircle,
+  Home,
 } from "lucide-react"
 import { motion, AnimatePresence, useDragControls } from "framer-motion"
 import useSupercluster from "use-supercluster"
-import { cn, getOpeningStatus, getGoogleOpeningStatus } from "@/lib/utils"
+import { cn, getOpeningStatus, getGoogleOpeningStatus, toThumbUrl } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/hooks/useAuth"
 import { useTheme } from "next-themes"
@@ -373,6 +371,7 @@ export default function MapView() {
   const [togglingGroupId, setTogglingGroupId] = useState<string | null>(null)
   const [editingSpot, setEditingSpot] = useState<Spot | null>(null)
   const [carouselIdx, setCarouselIdx] = useState(0)
+  const [photoErrors, setPhotoErrors] = useState<Record<number, boolean>>({})
   const [descExpanded, setDescExpanded] = useState(false)
   const [showLikersPanel, setShowLikersPanel] = useState(false)
   const carouselRef = useRef<HTMLDivElement>(null)
@@ -380,7 +379,6 @@ export default function MapView() {
   const touchStartX = useRef<number | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const spotDragControls = useDragControls()
-  const [isLocating, setIsLocating] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showFriendsModal, setShowFriendsModal] = useState(false)
   const [friendsModalTab, setFriendsModalTab] = useState<"amis" | "sorties" | "classement" | undefined>(undefined)
@@ -546,13 +544,13 @@ export default function MapView() {
           setSpots(Array.from(spotsMapRef.current.values()))
         }
       }
-    } catch { /* localStorage unavailable */ }
+    } catch { try { localStorage.removeItem(SPOTS_CACHE_KEY) } catch { /* ignore */ } }
 
     // 2. Fetch spots dans le viewport uniquement (sans JOIN profiles)
     try {
       const { data, error } = await supabaseRef.current
         .from("spots")
-        .select("id, user_id, title, description, lat, lng, category, image_url, address, opening_hours, weekday_descriptions, maps_url, price_range, instagram_url, created_at, expires_at, visibility, group_id")
+        .select("id, user_id, title, lat, lng, category, image_url, address, weekday_descriptions, created_at, expires_at, visibility, group_id")
         .gte("lat", south).lte("lat", north)
         .gte("lng", safeWest).lte("lng", safeEast)
         .order("created_at", { ascending: false })
@@ -571,6 +569,19 @@ export default function MapView() {
         }))
         withProfiles.forEach(s => spotsMapRef.current.set(s.id, s))
 
+        // Réconciliation : retirer les spots dans ce viewport qui ont été supprimés de la DB
+        const dbIds = new Set(fresh.map(s => s.id))
+        let anyDeleted = false
+        spotsMapRef.current.forEach((spot, id) => {
+          if (id.startsWith("temp-")) return // spots optimistes en cours d'insertion
+          if (spot.lat >= south && spot.lat <= north &&
+              spot.lng >= safeWest && spot.lng <= safeEast &&
+              !dbIds.has(id)) {
+            spotsMapRef.current.delete(id)
+            anyDeleted = true
+          }
+        })
+
         // Purge : évite la croissance infinie au fil des déplacements de carte
         if (spotsMapRef.current.size > MAX_SPOTS_IN_MEMORY) {
           const currentIds = new Set(withProfiles.map(s => s.id))
@@ -584,6 +595,13 @@ export default function MapView() {
         }
 
         setSpots(Array.from(spotsMapRef.current.values()))
+
+        // Mise à jour localStorage si des spots ont été retirés par la réconciliation
+        if (anyDeleted) {
+          try {
+            localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: Array.from(spotsMapRef.current.values()), ts: Date.now() }))
+          } catch { /* quota */ }
+        }
 
         // 3. Enrichir en arrière-plan avec les profils manquants
         const missingUserIds = [...new Set(fresh.map(s => s.user_id))]
@@ -631,6 +649,25 @@ export default function MapView() {
     }
   }, [])
 
+  const fetchSpotDetails = useCallback(async (spotId: string) => {
+    const { data } = await supabaseRef.current
+      .from("spots")
+      .select("description, opening_hours, maps_url, price_range, instagram_url")
+      .eq("id", spotId)
+      .single()
+    if (!data) return
+    setSpots(prev => prev.map(s => s.id === spotId ? { ...s, ...data } : s))
+    spotsMapRef.current.forEach((s, id) => {
+      if (id === spotId) spotsMapRef.current.set(id, { ...s, ...data })
+    })
+    setSelectedSpot(prev => prev?.id === spotId ? { ...prev, ...data } : prev)
+  }, [])
+
+  const selectSpot = useCallback((spot: Spot) => {
+    setSelectedSpot(spot)
+    if (spot.description === undefined) fetchSpotDetails(spot.id)
+  }, [fetchSpotDetails])
+
   const fetchLikeCounts = useCallback(async () => {
     const cacheKey = "friendspot_likes_v1"
     try {
@@ -671,27 +708,19 @@ export default function MapView() {
         }
       }
     } catch {}
-    // Rafraîchir en arrière-plan
+    // Rafraîchir en arrière-plan (RPC : followers + profiles en 1 requête au lieu de 2)
     try {
       const { data } = await supabaseRef.current
-        .from("followers")
-        .select("following_id")
-        .eq("follower_id", user.id)
+        .rpc("get_friends_with_status", { p_user_id: user.id })
       if (data) {
-        const ids = data.map((f: { following_id: string }) => f.following_id)
+        const ids = (data as { id: string }[]).map((f) => f.id)
         setFollowingIds(ids)
         setVisibleFriendIds((prev) => [...new Set([...prev, ...ids])])
         try { localStorage.setItem(cacheKey, JSON.stringify({ data: ids, ts: Date.now() })) } catch {}
-        // Fetch profiles for all followed users
-        if (ids.length > 0) {
-          const { data: profiles } = await supabaseRef.current
-            .from("profiles").select("id, username, avatar_url").in("id", ids)
-          if (profiles) {
-            setFollowingProfilesMap(Object.fromEntries(
-              profiles.map((p: any) => [p.id, { username: p.username, avatar_url: p.avatar_url }])
-            ))
-          }
-        }
+        setFollowingProfilesMap(Object.fromEntries(
+          (data as { id: string; username: string; avatar_url: string | null }[])
+            .map((p) => [p.id, { username: p.username, avatar_url: p.avatar_url }])
+        ))
       }
     } catch {
       /* table might not exist */
@@ -904,13 +933,17 @@ export default function MapView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
-  // Heartbeat: met à jour last_active_at toutes les 5 min
+  // Heartbeat: met à jour last_active_at toutes les 3 min
   useEffect(() => {
     if (!user) return
-    const update = () => supabaseRef.current.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", user.id)
+    const update = () =>
+      supabaseRef.current.from("profiles").update({ last_active_at: new Date().toISOString() }).eq("id", user.id).then(() => {})
     update()
-    const interval = setInterval(update, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+    const interval = setInterval(update, 3 * 60 * 1000)
+    // Remettre à jour quand l'onglet redevient visible
+    const onVisible = () => { if (document.visibilityState === "visible") update() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible) }
   }, [user?.id])
 
   // Charger les IDs des spots du groupe actif
@@ -949,10 +982,10 @@ export default function MapView() {
     setFilter("friends")
     setVisibleFriendIds(followingIds)
     setFriendFilterIds(new Set())
-    setSelectedSpot(picked)
+    selectSpot(picked)
     setShowExploreModal(false)
     mapRef.current?.flyTo({ center: [picked.lng, picked.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
-  }, [followingIds, spots, userLocation, surprisePin])
+  }, [followingIds, spots, userLocation, surprisePin, selectSpot])
 
   // Clear surprise pin once the user has visited and then left the suggested spot
   const surpriseVisitedRef = useRef(false)
@@ -1021,6 +1054,33 @@ export default function MapView() {
         { event: "DELETE", schema: "public", table: "outing_invitations", filter: `invitee_id=eq.${user.id}` },
         () => setIncomingCount(prev => Math.max(0, prev - 1))
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "outing_invitations" },
+        async (payload) => {
+          const row = payload.new as { outing_id: string; invitee_id: string; status: string }
+          if (row.status !== "accepted") return
+          if (row.invitee_id === user.id) return
+          const { data: outing } = await supabaseRef.current
+            .from("outings")
+            .select("creator_id, title, location_name")
+            .eq("id", row.outing_id)
+            .eq("creator_id", user.id)
+            .maybeSingle()
+          if (!outing) return
+          const { data: profile } = await supabaseRef.current
+            .from("profiles")
+            .select("username")
+            .eq("id", row.invitee_id)
+            .maybeSingle()
+          const name = (profile as { username: string | null } | null)?.username ?? "Quelqu'un"
+          const outingTitle = outing.title || outing.location_name || "ta sortie"
+          toast(`🎉 ${name} participe !`, {
+            description: outingTitle,
+            action: { label: "Voir", onClick: () => { setFriendsModalTab("sorties"); setShowFriendsModal(true) } },
+          })
+        }
+      )
       // ── spot_group_invitations ──────────────────────────────────────────
       .on(
         "postgres_changes",
@@ -1068,7 +1128,7 @@ export default function MapView() {
           } else {
             const { data } = await supabaseRef.current
               .from("spots")
-              .select("id, user_id, title, description, lat, lng, category, image_url, address, opening_hours, weekday_descriptions, maps_url, price_range, instagram_url, created_at, expires_at, visibility, group_id, profiles(id, username, avatar_url, created_at)")
+              .select("id, user_id, title, lat, lng, category, image_url, address, weekday_descriptions, created_at, expires_at, visibility, group_id, profiles(id, username, avatar_url)")
               .eq("id", raw.id)
               .single()
             if (data) {
@@ -1131,31 +1191,6 @@ export default function MapView() {
     return base
   }, [spots, filter, user?.id, visibleFriendSet, friendFilterIds, friendFilterActive, friendCategoryFilter, activeGroupId, groupSpotIds])
 
-  const locateUser = useCallback(() => {
-    if (!navigator.geolocation || !mapRef.current) return
-    setIsLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setIsLocating(false)
-        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-        mapRef.current?.flyTo({
-          center: [pos.coords.longitude, pos.coords.latitude],
-          zoom: 15,
-          duration: 1200,
-        })
-      },
-      (err) => {
-        setIsLocating(false)
-        if (err.code === 1) {
-          toast.error("Localisation refusée", {
-            description: "Active la géolocalisation dans les paramètres de ton navigateur.",
-            duration: 6000,
-          })
-        }
-      },
-      { enableHighAccuracy: true }
-    )
-  }, [])
 
   // Interception du Web Share Target (PWA) + deep link ?spot=<id>
   useEffect(() => {
@@ -1197,6 +1232,7 @@ export default function MapView() {
   // Reset carousel index and description state when a new spot is selected
   useEffect(() => {
     setCarouselIdx(0)
+    setPhotoErrors({})
     setDescExpanded(false)
     setShowLikersPanel(false)
     setShowGroupPicker(false)
@@ -1210,12 +1246,15 @@ export default function MapView() {
     const spot = spots.find(s => s.id === id)
     if (spot) {
       pendingSpotIdRef.current = null
-      setSelectedSpot(spot)
+      selectSpot(spot)
       if (spot.lat && spot.lng) {
         mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15, duration: 1200 })
       }
+    } else if (spots.length >= 50) {
+      pendingSpotIdRef.current = null
+      toast.error("Ce spot n'existe plus ou n'est pas disponible.")
     }
-  }, [spots])
+  }, [spots, selectSpot])
 
 
   const handlePushAccept = useCallback(async () => {
@@ -1322,8 +1361,10 @@ export default function MapView() {
               weekday_descriptions: spotDbData.weekday_descriptions,
               profiles: profileSnap,
             }
+            spotsMapRef.current.set(realSpot.id, realSpot)
             setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
             setSelectedSpot(realSpot)
+            try { localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: Array.from(spotsMapRef.current.values()), ts: Date.now() })) } catch { /* quota */ }
             mapRef.current?.flyTo({ center: [spotDbData.lng, spotDbData.lat], zoom: 15, duration: 1200 })
           } else {
             await fetchSpotsByBounds(bounds)
@@ -1348,8 +1389,10 @@ export default function MapView() {
         weekday_descriptions: spotDbData.weekday_descriptions,
         profiles: profileSnap,
       }
+      spotsMapRef.current.set(realSpot.id, realSpot)
       setSpots((prev) => [realSpot, ...prev.filter((s) => s.id !== tempId)])
       setSelectedSpot(realSpot)
+      try { localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: Array.from(spotsMapRef.current.values()), ts: Date.now() })) } catch { /* quota */ }
       mapRef.current?.flyTo({ center: [spotDbData.lng, spotDbData.lat], zoom: 15, duration: 1200 })
     } catch (e: unknown) {
       const err = e as { message?: string }
@@ -1368,25 +1411,30 @@ export default function MapView() {
 
   const isAdmin = userProfile?.is_admin === true
 
-  const handleDeleteSpot = async (spotId: string) => {
-    if (!user) return
+  const removeSpotFromState = (spotId: string) => {
+    spotsMapRef.current.delete(spotId)
+    setSpots((prev) => prev.filter((s) => s.id !== spotId))
+    if (selectedSpot?.id === spotId) setSelectedSpot(null)
     try {
-      await supabaseRef.current.from("spot_reactions").delete().eq("spot_id", spotId)
-      let q = supabaseRef.current.from("spots").delete().eq("id", spotId)
-      if (!isAdmin) q = q.eq("user_id", user.id)
-      const { error } = await q
-      if (error) throw error
-      setSpots((prev) => prev.filter((s) => s.id !== spotId))
-      if (selectedSpot?.id === spotId) setSelectedSpot(null)
-    } catch (err) {
-      console.error("Error deleting spot:", err)
-      throw err
+      const allSpots = Array.from(spotsMapRef.current.values())
+      localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: allSpots, ts: Date.now() }))
+    } catch { /* quota exceeded */ }
+  }
+
+  const handleDeleteSpot = async (spotId: string) => {
+    const res = await fetch(`/api/delete-spot?id=${spotId}`, { method: "DELETE" })
+    if (!res.ok && res.status !== 404) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error ?? "Erreur lors de la suppression")
     }
+    removeSpotFromState(spotId)
   }
 
   const handleUpdateSpot = (updatedSpot: Spot) => {
+    spotsMapRef.current.set(updatedSpot.id, updatedSpot)
     setSpots((prev) => prev.map((s) => s.id === updatedSpot.id ? updatedSpot : s))
     if (selectedSpot?.id === updatedSpot.id) setSelectedSpot(updatedSpot)
+    try { localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: Array.from(spotsMapRef.current.values()), ts: Date.now() })) } catch { /* quota */ }
     // Rafraîchir les IDs du groupe actif si le spot édité en fait partie
     if (activeGroupId) {
       supabaseRef.current
@@ -1510,26 +1558,36 @@ export default function MapView() {
       setReactions(prev => [...prev, myReaction])
       setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: (prev[selectedSpot.id] ?? 0) + 1 }))
     }
+    let spotGone = false
     try {
-      if (hasLoved) {
-        const { error } = await supabaseRef.current.from("spot_reactions").delete()
-          .eq("spot_id", selectedSpot.id).eq("user_id", user.id).eq("type", "love")
-        if (error) throw error
-      } else {
-        const { error } = await supabaseRef.current.from("spot_reactions")
-          .upsert({ spot_id: selectedSpot.id, user_id: user.id, type: "love" }, { onConflict: "spot_id,user_id,type", ignoreDuplicates: true })
-        if (error) throw error
-      }
-      spotDataCacheRef.current.delete(selectedSpot.id) // invalidate cache after write
+      const res = await fetch("/api/toggle-like", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spotId: selectedSpot.id, action: hasLoved ? "remove" : "add" }),
+      })
+      if (res.status === 404) { spotGone = true; throw new Error("Spot supprimé") }
+      if (!res.ok) throw new Error("Erreur like")
+      spotDataCacheRef.current.delete(selectedSpot.id)
     } catch {
-      if (hasLoved) {
-        setReactions(prev => [...prev, myReaction])
-        setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: (prev[selectedSpot.id] ?? 0) + 1 }))
+      if (spotGone) {
+        // Spot supprimé de la DB — on le retire du state local
+        spotsMapRef.current.delete(selectedSpot.id)
+        setSpots(prev => prev.filter(s => s.id !== selectedSpot.id))
+        setSelectedSpot(null)
+        try {
+          localStorage.setItem(SPOTS_CACHE_KEY, JSON.stringify({ data: Array.from(spotsMapRef.current.values()), ts: Date.now() }))
+        } catch { /* quota */ }
+        toast.error("Ce spot n'existe plus.")
       } else {
-        setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
-        setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: Math.max(0, (prev[selectedSpot.id] ?? 1) - 1) }))
+        if (hasLoved) {
+          setReactions(prev => [...prev, myReaction])
+          setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: (prev[selectedSpot.id] ?? 0) + 1 }))
+        } else {
+          setReactions(prev => prev.filter(r => !(r.user_id === user.id && r.type === "love")))
+          setLikeCountsBySpotId(prev => ({ ...prev, [selectedSpot.id]: Math.max(0, (prev[selectedSpot.id] ?? 1) - 1) }))
+        }
+        toast.error("Erreur lors de la mise à jour.")
       }
-      toast.error("Erreur lors de la mise à jour.")
     }
   }, [user, selectedSpot, reactions, userProfile])
 
@@ -1571,7 +1629,7 @@ export default function MapView() {
     points,
     bounds,
     zoom,
-    options: { radius: 25, maxZoom: 16 },
+    options: { radius: 50, maxZoom: 16 },
   })
 
   const markerElements = useMemo(() => clusters.map((cluster) => {
@@ -1587,7 +1645,7 @@ export default function MapView() {
           longitude={longitude}
         >
           <div
-            className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-blue-600 dark:bg-indigo-500 text-sm font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
+            className="flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border-[3px] border-white/90 bg-blue-600 dark:bg-indigo-500 text-base font-bold text-white shadow-[0_0_20px_rgba(37,99,235,0.5)] dark:shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-transform hover:scale-110"
             onClick={(e) => {
               e.stopPropagation()
               if (!supercluster) return
@@ -1612,6 +1670,7 @@ export default function MapView() {
     const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
     const isMine = spot.user_id === user?.id
     const firstPhoto = spot.image_url?.split(",")[0]?.trim() || null
+    const thumbUrl = firstPhoto ? toThumbUrl(firstPhoto, 200, 65) : null
     const friendAvatar = !isMine ? (spot.profiles?.avatar_url ?? null) : null
     const friendInitial = !isMine ? (spot.profiles?.username ?? "?")[0].toUpperCase() : ""
     const markerScale = Math.min(1.4, Math.max(0.5, zoom / 15))
@@ -1624,7 +1683,7 @@ export default function MapView() {
         anchor="bottom"
         onClick={(e) => {
           e.originalEvent.stopPropagation()
-          setSelectedSpot(spot)
+          selectSpot(spot)
           mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
         }}
       >
@@ -1650,10 +1709,10 @@ export default function MapView() {
                 : "h-10 w-10 border-indigo-400 dark:border-indigo-300 shadow-indigo-500/30"
             )}
           >
-            {firstPhoto ? (
+            {thumbUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={firstPhoto}
+                src={thumbUrl}
                 alt=""
                 className="h-full w-full object-cover"
                 onError={(e) => {
@@ -2124,65 +2183,6 @@ export default function MapView() {
       </div>
 
 
-      {/* Floating Action Buttons (Desktop overrides & Locate) */}
-      <div className={cn("pointer-events-none absolute right-4 bottom-20 flex flex-col items-end gap-3 sm:bottom-6", selectedSpot ? "z-10" : "z-40")}>
-        <motion.button
-          whileTap={{ scale: 0.92 }}
-          onClick={() => setShowExploreModal(true)}
-          className="pointer-events-auto hidden"
-          title="Explorer"
-        >
-          <Search size={20} />
-        </motion.button>
-        <motion.button
-          whileTap={{ scale: 0.92 }}
-          onClick={locateUser}
-          className={cn(
-            "pointer-events-auto flex items-center justify-center rounded-2xl border border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 p-2.5 text-gray-700 dark:text-white shadow-lg backdrop-blur-md transition-all hover:bg-gray-100 dark:hover:bg-zinc-800",
-            isLocating && "animate-pulse"
-          )}
-        >
-          <Locate size={16} className={isLocating ? "text-indigo-400" : ""} />
-        </motion.button>
-
-        <motion.button
-          whileTap={{ scale: 0.93 }}
-          onClick={handleOpenAddSpot}
-          className={cn(
-            "pointer-events-auto hidden",
-            visibleSpots.length === 0 &&
-              "animate-pulse ring-4 ring-blue-600/20 dark:ring-indigo-500/20"
-          )}
-        >
-          <Plus size={18} /> Ajouter un spot
-        </motion.button>
-      </div>
-
-
-      {/* Bouton 3D (En bas à gauche) */}
-      <div className={cn("pointer-events-none absolute bottom-20 left-4 sm:bottom-6 sm:left-[4.5rem]", selectedSpot ? "z-10" : "z-40")}>
-        <motion.button
-          whileTap={{ scale: 0.92 }}
-          onClick={() => {
-            const next = !is3D
-            setIs3D(next)
-            mapRef.current?.easeTo({
-              pitch: next ? 55 : 0,
-              bearing: next ? -10 : 0,
-              duration: 800,
-            })
-          }}
-          className={cn(
-            "pointer-events-auto rounded-2xl border p-3 shadow-lg backdrop-blur-md transition-all",
-            is3D
-              ? "border-blue-500/50 dark:border-indigo-400/50 bg-blue-600/90 dark:bg-indigo-500/90 text-white shadow-blue-600/30 dark:shadow-indigo-500/30"
-              : "border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-900/90 text-gray-500 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white"
-          )}
-          title={is3D ? "Passer en 2D" : "Passer en 3D"}
-        >
-          <Building2 size={20} />
-        </motion.button>
-      </div>
 
       {/* Selected Spot Details (Version Agrandie Premium) */}
       <AnimatePresence>
@@ -2201,7 +2201,7 @@ export default function MapView() {
               if (info.offset.y > 60 || info.velocity.y > 500) setSelectedSpot(null)
             }}
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
+            className="absolute right-2 bottom-[calc(6rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[78vh] flex-col overflow-hidden rounded-[2.5rem] border border-gray-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 text-gray-900 dark:text-white shadow-[0_-10px_50px_rgba(0,0,0,0.2)] dark:shadow-[0_-10px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl sm:right-auto sm:bottom-6 sm:left-[4.5rem] sm:max-h-[88vh] sm:w-[440px] sm:rounded-3xl sm:shadow-2xl"
           >
             {/* Drag Handle Mobile — glisser ici pour fermer */}
             <div
@@ -2267,14 +2267,25 @@ export default function MapView() {
                     }}
                   >
                     {photos.map((url, idx) => (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
+                      <div
                         key={idx}
-                        src={url}
-                        alt={selectedSpot.title}
-                        className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-300 ease-in-out"
+                        className="absolute inset-0 transition-transform duration-300 ease-in-out"
                         style={{ transform: `translateX(${(idx - carouselIdx) * 100}%)` }}
-                      />
+                      >
+                        {!photoErrors[idx]
+                          ? /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={toThumbUrl(url, 1200, 85)}
+                              alt={selectedSpot.title}
+                              loading={idx === 0 ? "eager" : "lazy"}
+                              className="h-full w-full object-cover object-center"
+                              onError={() => setPhotoErrors(prev => ({ ...prev, [idx]: true }))}
+                            />
+                          : <div className="flex h-full w-full items-center justify-center bg-zinc-800">
+                              <span className="text-6xl">{CATEGORY_EMOJIS[selectedSpot.category] ?? "📍"}</span>
+                            </div>
+                        }
+                      </div>
                     ))}
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
@@ -2373,18 +2384,26 @@ export default function MapView() {
                 </p>
               )}
 
-              {selectedSpot.price_range && (
+              {selectedSpot.price_range === undefined ? (
+                <div className="mt-1.5 h-4 w-24 animate-pulse rounded-full bg-gray-200 dark:bg-zinc-700" />
+              ) : selectedSpot.price_range ? (
                 <p className="mt-1.5 flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
                   <span className="text-base leading-none">💶</span>{selectedSpot.price_range}
                 </p>
-              )}
+              ) : null}
 
               <OpeningHoursBlock
                 weekdays={selectedSpot.weekday_descriptions}
                 openingHours={selectedSpot.opening_hours}
               />
 
-              {selectedSpot.description && cleanDescription(selectedSpot.description) && (
+              {selectedSpot.description === undefined ? (
+                <div className="mt-4 space-y-2 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
+                  <div className="h-3.5 w-full animate-pulse rounded-full bg-gray-200 dark:bg-zinc-700" />
+                  <div className="h-3.5 w-4/5 animate-pulse rounded-full bg-gray-200 dark:bg-zinc-700" />
+                  <div className="h-3.5 w-2/3 animate-pulse rounded-full bg-gray-200 dark:bg-zinc-700" />
+                </div>
+              ) : selectedSpot.description && cleanDescription(selectedSpot.description) ? (
                 <div className="mt-4 rounded-2xl border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-zinc-900/60 p-4">
                   <p className={cn(
                     "text-[15px] leading-relaxed text-gray-600 dark:text-zinc-300",
@@ -2400,7 +2419,7 @@ export default function MapView() {
                     {descExpanded ? "Voir moins" : "Voir plus"}
                   </button>
                 </div>
-              )}
+              ) : null}
 
               {user && followingIds.length > 0 && (
                 <div className="mt-4 flex gap-2">
@@ -2429,6 +2448,7 @@ export default function MapView() {
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <a
+                  onPointerDown={(e) => e.stopPropagation()}
                   href={selectedSpot.maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([selectedSpot.title, selectedSpot.address].filter(Boolean).join(" "))}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -2437,6 +2457,7 @@ export default function MapView() {
                   <Navigation size={16} /> S&apos;y rendre
                 </a>
                 <button
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={async () => {
                     const spotUrl = `${window.location.origin}/spot/${selectedSpot.id}`
                     const text = `📍 ${selectedSpot.title}${selectedSpot.address ? ` · ${selectedSpot.address}` : ""}`
@@ -2458,6 +2479,7 @@ export default function MapView() {
                 {(selectedSpot.user_id === user?.id || isAdmin) && (
                   <>
                     <button
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => {
                         openConfirm({
                           title: "Supprimer ce lieu ?",
@@ -2686,121 +2708,162 @@ export default function MapView() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar — mobile only */}
+      {/* Bottom Navigation Bar — floating Instagram-style pill, mobile only */}
       <div
-        className="sm:hidden fixed right-0 bottom-0 left-0 z-[90] border-t border-gray-200 dark:border-white/10 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl"
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-[90] flex justify-center"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="flex h-16 items-center justify-around px-2">
+        <div className="mx-1 mb-8 flex items-center gap-0.5 rounded-full border border-black/[0.10] dark:border-white/[0.10] bg-white/97 dark:bg-zinc-900/97 backdrop-blur-2xl shadow-[0_4px_28px_rgba(0,0,0,0.20)] dark:shadow-[0_4px_28px_rgba(0,0,0,0.65)] px-2 py-[5px]">
+
+          {/* Home / Carte */}
           <button
             onClick={() => {
               setSelectedSpot(null)
+              setPublicProfileUserId(null)
+              setShowFriendFilter(false)
+              setShowGroupsDropdown(false)
               setShowProfileModal(false)
               setShowFriendsModal(false)
               setShowAddModal(false)
               setShowExploreModal(false)
             }}
             className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               !showProfileModal && !showFriendsModal && !showAddModal
-                 ? "text-blue-600 dark:text-indigo-400"
-                 : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "flex h-[46px] w-[60px] items-center justify-center rounded-full transition-all active:scale-90",
+              !showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal
+                ? "bg-black/[0.06] dark:bg-white/[0.09]"
+                : ""
             )}
           >
-            <MapPin
+            <Home
               size={22}
-              className={
-                !selectedSpot && !showProfileModal && !showFriendsModal && !showAddModal
-                  ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
-                  : ""
-              }
+              strokeWidth={!showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal ? 2.5 : 1.5}
+              className={!showProfileModal && !showFriendsModal && !showAddModal && !showExploreModal
+                ? "text-gray-900 dark:text-white"
+                : "text-gray-400 dark:text-zinc-500"}
             />
-            <span className="text-[10px] font-medium">Carte</span>
           </button>
 
+          {/* Amis / Friends */}
           <button
             onClick={() => {
               fetchFollowing()
+              setSelectedSpot(null)
+              setPublicProfileUserId(null)
+              setShowFriendFilter(false)
+              setShowGroupsDropdown(false)
               setShowProfileModal(false)
               setShowAddModal(false)
               setShowExploreModal(false)
               setShowFriendsModal(true)
               setIncomingCount(0)
-              // Marquer toutes les notifs actuelles comme vues
               if (user) {
                 try { localStorage.setItem(`friendspot_notif_seen_${user.id}`, new Date().toISOString()) } catch {}
               }
             }}
             className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showFriendsModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "relative flex h-[46px] w-[60px] items-center justify-center rounded-full transition-all active:scale-90",
+              showFriendsModal ? "bg-black/[0.06] dark:bg-white/[0.09]" : ""
             )}
           >
-            <div className="relative">
-              <Users size={22} className={showFriendsModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
-              {incomingCount > 0 && (
-                <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
-                  {incomingCount}
-                </div>
-              )}
-            </div>
-            <span className="text-[10px] font-medium">Amis</span>
+            <Users
+              size={22}
+              strokeWidth={showFriendsModal ? 2.5 : 1.5}
+              className={showFriendsModal ? "text-gray-900 dark:text-white" : "text-gray-400 dark:text-zinc-500"}
+            />
+            {incomingCount > 0 && (
+              <span className="absolute top-2 right-2.5 h-[9px] w-[9px] rounded-full bg-red-500 ring-[1.5px] ring-white dark:ring-zinc-900" />
+            )}
           </button>
 
-          <div className="relative -top-5">
-            <button
-              onClick={() => {
-                setShowProfileModal(false)
-                setShowFriendsModal(false)
-                setShowExploreModal(false)
-                handleOpenAddSpot()
-              }}
-              className="flex h-14 w-14 items-center justify-center rounded-full border-4 border-white dark:border-zinc-950 bg-gradient-to-br from-blue-600 dark:from-indigo-500 to-sky-500 dark:to-purple-600 text-white shadow-[0_4px_20px_rgba(37,99,235,0.4)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.4)] transition-transform hover:scale-105 active:scale-95"
-            >
-              <Plus size={24} strokeWidth={3} />
-            </button>
-          </div>
-
+          {/* Add Spot — flat, centré dans la bar */}
           <button
             onClick={() => {
+              setSelectedSpot(null)
+              setPublicProfileUserId(null)
+              setShowFriendFilter(false)
+              setShowGroupsDropdown(false)
+              setShowProfileModal(false)
+              setShowFriendsModal(false)
+              setShowExploreModal(false)
+              handleOpenAddSpot()
+            }}
+            className={cn(
+              "flex h-[46px] w-[60px] items-center justify-center rounded-full transition-all active:scale-90",
+              showAddModal ? "bg-black/[0.06] dark:bg-white/[0.09]" : ""
+            )}
+          >
+            <Plus
+              size={24}
+              strokeWidth={2}
+              className={showAddModal ? "text-gray-900 dark:text-white" : "text-gray-500 dark:text-zinc-400"}
+            />
+          </button>
+
+          {/* Explorer / Search */}
+          <button
+            onClick={() => {
+              setSelectedSpot(null)
+              setPublicProfileUserId(null)
+              setShowFriendFilter(false)
+              setShowGroupsDropdown(false)
               setShowProfileModal(false)
               setShowFriendsModal(false)
               setShowAddModal(false)
               setShowExploreModal(true)
             }}
             className={cn(
-              "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-              showExploreModal
-                ? "text-blue-600 dark:text-indigo-400"
-                : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
+              "flex h-[46px] w-[60px] items-center justify-center rounded-full transition-all active:scale-90",
+              showExploreModal ? "bg-black/[0.06] dark:bg-white/[0.09]" : ""
             )}
           >
-            <Search size={22} className={showExploreModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
-            <span className="text-[10px] font-medium">Explorer</span>
+            <Search
+              size={22}
+              strokeWidth={showExploreModal ? 2.5 : 1.5}
+              className={showExploreModal ? "text-gray-900 dark:text-white" : "text-gray-400 dark:text-zinc-500"}
+            />
           </button>
 
+          {/* Profil / Avatar */}
           <button
             onClick={() => {
+              setSelectedSpot(null)
+              setPublicProfileUserId(null)
+              setShowFriendFilter(false)
+              setShowGroupsDropdown(false)
               setShowFriendsModal(false)
               setShowAddModal(false)
               setShowExploreModal(false)
               setShowProfileModal(true)
               markLikesSeen()
             }}
-            className={cn(
-               "flex w-16 flex-col items-center gap-1 p-2 transition-colors",
-               showProfileModal ? "text-blue-600 dark:text-indigo-400" : "text-gray-400 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300"
-            )}
+            className="relative flex h-[46px] w-[60px] items-center justify-center rounded-full transition-all active:scale-90"
           >
             <div className="relative">
-              <User size={22} className={showProfileModal ? "drop-shadow-[0_0_8px_rgba(37,99,235,0.8)] dark:drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" : ""} />
+              {userProfile?.avatar_url
+                ? /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={userProfile.avatar_url}
+                    alt=""
+                    className={cn(
+                      "h-[27px] w-[27px] rounded-full object-cover transition-all",
+                      showProfileModal
+                        ? "ring-[2.5px] ring-gray-900 dark:ring-white ring-offset-[1.5px] ring-offset-white dark:ring-offset-zinc-900"
+                        : "opacity-55"
+                    )}
+                  />
+                : <div className={cn(
+                    "flex h-[27px] w-[27px] items-center justify-center rounded-full bg-gray-200 dark:bg-zinc-700 text-[11px] font-bold text-gray-700 dark:text-zinc-300 transition-all",
+                    showProfileModal
+                      ? "ring-[2.5px] ring-gray-900 dark:ring-white ring-offset-[1.5px] ring-offset-white dark:ring-offset-zinc-900"
+                      : "opacity-55"
+                  )}>
+                    {userProfile?.username?.[0]?.toUpperCase() ?? "?"}
+                  </div>
+              }
               {newLikesCount > 0 && (
-                <div className="absolute -top-1 -right-1 flex h-[14px] w-[14px] items-center justify-center rounded-full border border-white dark:border-zinc-950 bg-red-500 text-[8px] font-bold text-white">
-                  {newLikesCount > 9 ? "9+" : newLikesCount}
-                </div>
+                <span className="absolute -top-0.5 -right-0.5 h-[9px] w-[9px] rounded-full bg-red-500 ring-[1.5px] ring-white dark:ring-zinc-900" />
               )}
             </div>
-            <span className="text-[10px] font-medium">Profil</span>
           </button>
         </div>
       </div>
@@ -2809,7 +2872,7 @@ export default function MapView() {
       <div className="hidden sm:flex fixed left-0 top-0 bottom-0 z-[90] w-16 flex-col items-center border-r border-gray-200 dark:border-white/[0.06] bg-white/90 dark:bg-zinc-950/90 backdrop-blur-xl py-4 gap-1">
         {/* Logo */}
         <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-500 shadow-md">
-          <MapPin size={16} className="text-white" />
+          <Users size={16} className="text-white" />
         </div>
 
         {/* Carte */}
@@ -2915,7 +2978,7 @@ export default function MapView() {
         onSelectUser={(id) => { setShowExploreModal(false); setPublicProfileUserId(id) }}
         onSelectSpot={(spot) => {
           setShowExploreModal(false)
-          setSelectedSpot(spot)
+          selectSpot(spot)
           mapRef.current?.flyTo({
             center: [spot.lng, spot.lat],
             zoom: 15.5,
@@ -2929,7 +2992,7 @@ export default function MapView() {
           setVisibleFriendIds(followingIds)
           setFriendFilterIds(new Set())
           setShowExploreModal(false)
-          setSelectedSpot(spot)
+          selectSpot(spot)
           mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 900 })
         }}
       />
@@ -2974,7 +3037,7 @@ export default function MapView() {
           const spot = spots.find(s => s.id === spotId)
           if (!spot) return
           setShowFriendsModal(false)
-          setSelectedSpot(spot)
+          selectSpot(spot)
           mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
         }}
         spots={spots}
@@ -3015,6 +3078,7 @@ export default function MapView() {
             title: s.title,
             category: s.category ?? undefined,
             address: s.address,
+            image_url: s.image_url,
             lat: s.lat,
             lng: s.lng,
           }))}
@@ -3024,7 +3088,7 @@ export default function MapView() {
           setUserProfile((prev) => ({ ...prev, ...updated }))
           if (user) try { localStorage.setItem(`friendspot_profile_${user.id}`, JSON.stringify({ data: updated, ts: Date.now() })) } catch { /* ignore */ }
         }}
-        onDeleteSpot={handleDeleteSpot}
+        onDeleteSpot={removeSpotFromState}
         onUnfollow={(id) => {
           setFollowingIds((prev) => prev.filter((x) => x !== id))
           setVisibleFriendIds((prev) => prev.filter((x) => x !== id))
@@ -3033,7 +3097,7 @@ export default function MapView() {
           setShowProfileModal(false)
           setFilter("mine")
           const spot = spots.find((s) => s.id === spotId)
-          if (spot) setSelectedSpot(spot)
+          if (spot) selectSpot(spot)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1200 })
         }}
         onSignOut={signOut}
@@ -3041,7 +3105,7 @@ export default function MapView() {
         onSelectSpot={(spotId, lat, lng) => {
           setShowProfileModal(false)
           const spot = spots.find((s) => s.id === spotId)
-          if (spot) setSelectedSpot(spot)
+          if (spot) selectSpot(spot)
           mapRef.current?.flyTo({ center: [lng, lat], zoom: 15.5, duration: 1000 })
         }}
       />
@@ -3063,7 +3127,7 @@ export default function MapView() {
             }
           }
           const spot = spots.find((s) => s.id === spotId)
-          if (spot) setSelectedSpot(spot)
+          if (spot) selectSpot(spot)
           mapRef.current?.flyTo({
             center: [lng, lat],
             zoom: 15,
@@ -3149,7 +3213,7 @@ export default function MapView() {
             const spot = spots.find(s => s.id === spotId)
             setSelectedGroupForSettings(null)
             if (spot) {
-              setSelectedSpot(spot)
+              selectSpot(spot)
               mapRef.current?.flyTo({ center: [spot.lng, spot.lat], zoom: 15.5, offset: [0, 100], duration: 800 })
             }
           }}

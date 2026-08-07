@@ -13,7 +13,9 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public files (images, etc.)
+     * - /api/admin/* (admin endpoints protected by secret, not by session cookie)
+     * - /spot/* (public sharing pages)
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/admin|spot/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }

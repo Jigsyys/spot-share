@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Search, Shuffle, MapPin, LoaderCircle } from "lucide-react"
 import type { Spot } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import { cn, toThumbUrl } from "@/lib/utils"
 import { CATEGORY_EMOJIS, CATEGORIES } from "@/lib/categories"
 import { useSwipeToClose } from "@/hooks/useSwipeToClose"
 
@@ -124,19 +124,21 @@ function CategoryGrid({
 
 /** Grille 2 colonnes — mode Moi */
 function SpotGridCard({ spot, onSelect }: { spot: Spot; onSelect: () => void }) {
-  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const rawUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const imageUrl = rawUrl ? toThumbUrl(rawUrl, 400, 70) : null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const novel = isNew(spot.created_at)
   const countdown = expiresIn(spot.expires_at)
+  const [imgError, setImgError] = useState(false)
 
   return (
     <button
       onClick={onSelect}
       className="group relative aspect-square w-full overflow-hidden rounded-2xl bg-gray-100 active:scale-[0.97] transition-transform"
     >
-      {imageUrl
+      {imageUrl && !imgError
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+        ? <img src={imageUrl} alt={spot.title} loading="lazy" className="h-full w-full object-cover" onError={() => setImgError(true)} />
         : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
       }
       <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
@@ -169,12 +171,14 @@ function SpotHCard({
   onSelect: () => void
   onSelectUser?: (id: string) => void
 }) {
-  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const rawUrl2 = spot.image_url?.split(",")[0]?.trim() || null
+  const imageUrl = rawUrl2 ? toThumbUrl(rawUrl2, 400, 70) : null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const novel = isNew(spot.created_at)
   const countdown = expiresIn(spot.expires_at)
   const username = spot.profiles?.username ?? null
   const avatar = spot.profiles?.avatar_url ?? null
+  const [imgError, setImgError] = useState(false)
 
   return (
     <button
@@ -183,9 +187,9 @@ function SpotHCard({
       style={{ width: "9.5rem" }}
     >
       <div className="relative h-28 w-full overflow-hidden bg-gray-100">
-        {imageUrl
+        {imageUrl && !imgError
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+          ? <img src={imageUrl} alt={spot.title} loading="lazy" className="h-full w-full object-cover" onError={() => setImgError(true)} />
           : <div className="flex h-full w-full items-center justify-center text-4xl">{emoji}</div>
         }
         {novel && !countdown && (
@@ -234,12 +238,14 @@ function SpotListRow({
   onSelect: () => void
   onSelectUser?: (id: string) => void
 }) {
-  const imageUrl = spot.image_url?.split(",")[0]?.trim() || null
+  const rawUrl3 = spot.image_url?.split(",")[0]?.trim() || null
+  const imageUrl = rawUrl3 ? toThumbUrl(rawUrl3, 400, 70) : null
   const emoji = CATEGORY_EMOJIS[spot.category ?? "other"] ?? "📍"
   const open = isOpenNow(spot.weekday_descriptions ?? null)
   const countdown = expiresIn(spot.expires_at)
   const username = spot.profiles?.username ?? null
   const avatar = spot.profiles?.avatar_url ?? null
+  const [imgError, setImgError] = useState(false)
 
   return (
     <button
@@ -247,9 +253,9 @@ function SpotListRow({
       className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 p-3 text-left active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-zinc-800 transition-all"
     >
       <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-gray-100">
-        {imageUrl
+        {imageUrl && !imgError
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={imageUrl} alt={spot.title} className="h-full w-full object-cover" />
+          ? <img src={imageUrl} alt={spot.title} loading="lazy" className="h-full w-full object-cover" onError={() => setImgError(true)} />
           : <div className="flex h-full w-full items-center justify-center text-2xl">{emoji}</div>
         }
       </div>
@@ -359,10 +365,15 @@ export default function ExploreModal({
     }
   }, [isOpen])
 
+  const [generalLimit, setGeneralLimit] = useState(10)
+  const [friendsLimit, setFriendsLimit] = useState(10)
+
   const handleTab = (tab: Mode) => {
     setMode(tab)
     setFriendFilter(null)
     setCategoryFilter(tab === "friends" ? "café" : null)
+    setGeneralLimit(10)
+    setFriendsLimit(10)
   }
 
   // ─── Data derivations ──────────────────────────────────────────────────────
@@ -538,7 +549,7 @@ export default function ExploreModal({
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-x-0 top-0 bottom-16 z-[70] sm:inset-0 bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm"
           />
 
           {/* Panel */}
@@ -554,9 +565,9 @@ export default function ExploreModal({
             onDragEnd={(_e: unknown, { offset, velocity }: { offset: { y: number }; velocity: { y: number } }) => {
               if (offset.y > 120 || velocity.y > 400) onClose()
             }}
-            className="fixed inset-x-0 bottom-16 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
+            className="fixed inset-x-0 bottom-0 z-[80] sm:inset-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2"
           >
-            <div className="flex h-[calc(92vh-4rem)] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
+            <div className="flex h-[92vh] flex-col overflow-hidden rounded-t-[2rem] bg-gray-50 dark:bg-zinc-950 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-3xl">
 
               {/* Drag handle */}
               <div className="mx-auto mt-3 mb-1 h-1 w-10 flex-shrink-0 rounded-full bg-gray-300 dark:bg-zinc-700 sm:hidden" />
@@ -639,7 +650,7 @@ export default function ExploreModal({
               </div>
 
               {/* ── Contenu scrollable ── */}
-              <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-5 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-6">
+              <div ref={swipe.ref} onTouchStart={swipe.onTouchStart} onTouchEnd={swipe.onTouchEnd} className="flex-1 overflow-y-auto px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:pb-6">
 
                 {/* ════ MODE GÉNÉRAL ════ */}
                 {mode === "general" && (
@@ -655,7 +666,11 @@ export default function ExploreModal({
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-lg font-bold text-white">🎲 Surprends-moi</p>
-                            <p className="mt-0.5 text-sm text-white/70">Dans un rayon de {surpriseRadius} km</p>
+                            <p className="mt-0.5 text-sm text-white/70">
+                              {userLocation
+                                ? `Dans un rayon de ${surpriseRadius} km`
+                                : "Géolocalisation désactivée"}
+                            </p>
                           </div>
                           <motion.div
                             animate={surpriseLoading ? { rotate: 360 } : { rotate: 0 }}
@@ -666,24 +681,26 @@ export default function ExploreModal({
                           </motion.div>
                         </div>
                       </button>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
-                        <div className="flex gap-1 flex-wrap">
-                          {[2, 5, 10, 20, 50].map(km => (
-                            <button
-                              key={km}
-                              onClick={() => setSurpriseRadius(km)}
-                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
-                                surpriseRadius === km
-                                  ? "bg-violet-500 text-white"
-                                  : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
-                              }`}
-                            >
-                              {km} km
-                            </button>
-                          ))}
+                      {userLocation && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-gray-400 dark:text-zinc-500 flex-shrink-0">Rayon :</span>
+                          <div className="flex gap-1 flex-wrap">
+                            {[2, 5, 10, 20, 50].map(km => (
+                              <button
+                                key={km}
+                                onClick={() => setSurpriseRadius(km)}
+                                className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors ${
+                                  surpriseRadius === km
+                                    ? "bg-violet-500 text-white"
+                                    : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                                }`}
+                              >
+                                {km} km
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Grille catégories */}
@@ -721,22 +738,30 @@ export default function ExploreModal({
                       ) : recentSpots.length === 0 ? (
                         <EmptyState mode="general" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                       ) : (
-                        <div className="space-y-2">
-                          {hasFilters && (
-                            <p className="mb-2 text-xs text-gray-400">
-                              {recentSpots.length} résultat{recentSpots.length > 1 ? "s" : ""}
-                            </p>
+                        <div className="space-y-3">
+                          <p className="text-xs text-gray-400">
+                            {hasFilters
+                              ? `${recentSpots.length} résultat${recentSpots.length > 1 ? "s" : ""}`
+                              : `${Math.min(generalLimit, recentSpots.length)} / ${recentSpots.length} spots`
+                            }
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {recentSpots.slice(0, generalLimit).map(({ spot }: DistSpot) => (
+                              <SpotGridCard
+                                key={spot.id}
+                                spot={spot}
+                                onSelect={() => onSelectSpot(spot)}
+                              />
+                            ))}
+                          </div>
+                          {recentSpots.length > generalLimit && (
+                            <button
+                              onClick={() => setGeneralLimit(l => l + 10)}
+                              className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 py-3 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                            >
+                              Voir 10 de plus ({recentSpots.length - generalLimit} restants)
+                            </button>
                           )}
-                          {recentSpots.map(({ spot, distance }: DistSpot) => (
-                            <SpotListRow
-                              key={spot.id}
-                              spot={spot}
-                              distance={nearbySpots.some((n: DistSpot) => n.spot.id === spot.id) ? distance : undefined}
-                              showAuthor
-                              onSelect={() => onSelectSpot(spot)}
-                              onSelectUser={onSelectUser}
-                            />
-                          ))}
                         </div>
                       )}
                     </div>
@@ -859,19 +884,27 @@ export default function ExploreModal({
                     ) : filteredPool.length === 0 ? (
                       <EmptyState mode="friends" hasQuery={!!debouncedQuery} onAddSpot={onAddSpot} onOpenFriends={onOpenFriends} />
                     ) : (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <p className="text-xs text-gray-400 dark:text-zinc-600">
-                          {filteredPool.length} spot{filteredPool.length > 1 ? "s" : ""}
+                          {Math.min(friendsLimit, recentSpots.length)} / {recentSpots.length} spot{recentSpots.length > 1 ? "s" : ""}
                         </p>
-                        {recentSpots.map(({ spot }: DistSpot) => (
-                          <SpotListRow
-                            key={spot.id}
-                            spot={spot}
-                            showAuthor
-                            onSelect={() => onSelectSpot(spot)}
-                            onSelectUser={onSelectUser}
-                          />
-                        ))}
+                        <div className="grid grid-cols-2 gap-2">
+                          {recentSpots.slice(0, friendsLimit).map(({ spot }: DistSpot) => (
+                            <SpotGridCard
+                              key={spot.id}
+                              spot={spot}
+                              onSelect={() => onSelectSpot(spot)}
+                            />
+                          ))}
+                        </div>
+                        {recentSpots.length > friendsLimit && (
+                          <button
+                            onClick={() => setFriendsLimit(l => l + 10)}
+                            className="w-full rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-zinc-900 py-3 text-sm font-semibold text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                          >
+                            Voir 10 de plus ({recentSpots.length - friendsLimit} restants)
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

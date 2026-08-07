@@ -52,6 +52,11 @@ function isOnline(dateString?: string) {
   return Date.now() - new Date(dateString).getTime() < 15 * 60000
 }
 
+function isRecentlyActive(dateString?: string) {
+  if (!dateString) return true
+  return Date.now() - new Date(dateString).getTime() < 7 * 24 * 60 * 60 * 1000
+}
+
 function formatOutingDate(dateString?: string | null): string {
   if (!dateString) return "Date à confirmer"
   const d = new Date(dateString)
@@ -220,6 +225,7 @@ export default function FriendsModal({
 }: FriendsModalProps) {
   // ── UI state ────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<Tab>("amis")
+  const [classementSub, setClassementSub] = useState<"month" | "spots">("month")
 
   // Consommer openToTab quand il change (navigation depuis notification)
   useEffect(() => {
@@ -256,6 +262,7 @@ export default function FriendsModal({
   // ── Loading state ───────────────────────────────────────────
   const [searchLoading, setSearchLoading] = useState(false)
   const [followingLoading, setFollowingLoading] = useState(false)
+  const [outingsLoading, setOutingsLoading] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [respondingGroupInviteId, setRespondingGroupInviteId] = useState<string | null>(null)
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
@@ -316,15 +323,15 @@ export default function FriendsModal({
         if (cached) { setFollowing(JSON.parse(cached)); hasCached = true }
       } catch { /* ignore */ }
       if (!hasCached) setFollowingLoading(true)
-      // Puis charger les données fraîches
+      // Puis charger les données fraîches avec last_active_at explicite
       try {
         const { data } = await supabaseRef.current
           .from("profiles")
-          .select("id, username, avatar_url, last_lat, last_lng, last_active_at")
+          .select("id, username, avatar_url, last_active_at")
           .in("id", ids)
         const profiles = (data as Profile[]) ?? []
         setFollowing(profiles)
-        localStorage.setItem(`following_${currentUser.id}`, JSON.stringify(profiles))
+        try { localStorage.setItem(`following_${currentUser.id}`, JSON.stringify(profiles)) } catch {}
       } catch { /* ignore */ }
       setFollowingLoading(false)
     },
@@ -394,6 +401,7 @@ export default function FriendsModal({
 
   const loadOutings = useCallback(async () => {
     if (!currentUser) return
+    setOutingsLoading(true)
     const cacheKey = `friendspot_outings_${currentUser.id}`
     try {
       const raw = localStorage.getItem(cacheKey)
@@ -456,6 +464,8 @@ export default function FriendsModal({
       try { localStorage.setItem(cacheKey, JSON.stringify({ data: enriched, ts: Date.now() })) } catch {}
     } catch (e) {
       console.error("loadOutings:", e)
+    } finally {
+      setOutingsLoading(false)
     }
   }, [currentUser])
 
@@ -464,7 +474,7 @@ export default function FriendsModal({
     try {
       const { data } = await supabaseRef.current
         .from("outing_invitations")
-        .select("*, outings(*)")
+        .select("id, outing_id, invitee_id, status, reply, created_at, outings(id, title, description, location_name, spot_id, scheduled_at, status, creator_id, lat, lng)")
         .eq("invitee_id", currentUser.id)
         .eq("status", "pending")
       if (!data) return
@@ -551,6 +561,21 @@ export default function FriendsModal({
     }
   }, [currentUser])
 
+  const [recentMySpots, setRecentMySpots] = useState<Array<{ id: string; title: string; image_url?: string | null; lat: number; lng: number; category?: string | null }>>([])
+
+  const loadRecentMySpots = useCallback(async () => {
+    if (!currentUser) return
+    try {
+      const { data } = await supabaseRef.current
+        .from("spots")
+        .select("id, title, image_url, lat, lng, category")
+        .eq("user_id", currentUser.id)
+        .order("created_at", { ascending: false })
+        .limit(3)
+      if (data) setRecentMySpots(data as any[])
+    } catch { /* ignore */ }
+  }, [currentUser])
+
   const acceptGroupInvitation = useCallback(async (inv: GroupInvitationEnriched) => {
     if (!currentUser || respondingGroupInviteId) return
     setRespondingGroupInviteId(inv.id)
@@ -605,7 +630,7 @@ export default function FriendsModal({
     if (!currentUser) return
     try {
       const { data } = await supabaseRef.current
-        .from("outing_invitations").select("*, outings(*)").eq("id", invId).single()
+        .from("outing_invitations").select("id, outing_id, invitee_id, status, reply, created_at, outings(id, title, description, location_name, spot_id, scheduled_at, status, creator_id, lat, lng)").eq("id", invId).single()
       if (!data || data.status !== "pending" || (data.outings as any)?.status === "cancelled") return
       const outing = data.outings as any
       const creatorId = outing?.creator_id
@@ -749,30 +774,17 @@ export default function FriendsModal({
     // Montrer le spinner uniquement s'il n'y a pas de données en cache
     if (!hasCachedRanking) setMonthlyRankingLoading(true)
     const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
     supabaseRef.current
-      .from("spots")
-      .select("user_id, profiles(id, username, avatar_url)")
-      .gte("created_at", startOfMonth)
-      .then(({ data: spotsData }) => {
-        const counts: Record<string, { username: string | null; avatar_url: string | null; count: number }> = {}
+      .rpc("get_monthly_ranking", { p_year: now.getFullYear(), p_month: now.getMonth() + 1 })
+      .then(({ data: rankData }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(spotsData ?? []).forEach((s: any) => {
-          const profile = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles
-          if (!counts[s.user_id]) {
-            counts[s.user_id] = { username: profile?.username ?? null, avatar_url: profile?.avatar_url ?? null, count: 0 }
-          }
-          counts[s.user_id].count++
-        })
-        const sorted = Object.entries(counts)
-          .map(([userId, v]) => ({ userId, ...v }))
-          .sort((a, b) => b.count - a.count)
-        const top5 = sorted.slice(0, 5)
-        const userRank = me ? (sorted.findIndex(e => e.userId === me.id) >= 5 ? { entry: sorted[sorted.findIndex(e => e.userId === me.id)], rank: sorted.findIndex(e => e.userId === me.id) + 1 } : null) : null
+        const rows: any[] = rankData ?? []
+        const top5 = rows.slice(0, 5).map(r => ({ userId: r.user_id, username: r.username, avatar_url: r.avatar_url, count: Number(r.spot_count) }))
+        const meIdx = me ? rows.findIndex((r: any) => r.user_id === me.id) : -1
+        const userRank = me && meIdx >= 5 ? { entry: { userId: rows[meIdx].user_id, username: rows[meIdx].username, avatar_url: rows[meIdx].avatar_url, count: Number(rows[meIdx].spot_count) }, rank: meIdx + 1 } : null
         setMonthlyRankingData(top5)
         setUserMonthlyRank(userRank)
         setMonthlyRankingLoading(false)
-        // Persist for next open
         if (cacheKey) {
           try {
             const existing = localStorage.getItem(cacheKey)
@@ -857,6 +869,7 @@ export default function FriendsModal({
     loadOutings()
     loadOutingInvitations()
     loadGroupInvitations()
+    loadRecentMySpots()
 
     const channel = supabaseRef.current
       .channel(`friends-modal-${currentUser.id}`)
@@ -932,15 +945,35 @@ export default function FriendsModal({
           setOutings(prev => prev.map(o => o.id === updated.id ? { ...o, status: updated.status as any } : o))
         }
       })
+      // ── profiles (présence amis en temps réel) ───────────────
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "profiles",
+      }, (payload) => {
+        const updated = payload.new as Profile
+        setFollowing(prev => {
+          const idx = prev.findIndex(f => f.id === updated.id)
+          if (idx === -1) return prev
+          const next = [...prev]
+          next[idx] = { ...next[idx], ...updated }
+          return next
+        })
+      })
       .subscribe()
 
     return () => { supabaseRef.current.removeChannel(channel) }
   }, [
     isOpen, currentUser,
     loadFollowing, loadSentRequests, loadIncomingRequests,
-    loadSuggestions, loadOutings, loadOutingInvitations, loadGroupInvitations, onRefreshFollowing,
+    loadSuggestions, loadOutings, loadOutingInvitations, loadGroupInvitations, loadRecentMySpots, onRefreshFollowing,
     patchOutingInvitation, patchGroupInvitation, patchIncomingRequest,
   ])
+
+  // ─── Refresh périodique présence (filet de sécurité si realtime profiles non actif) ──
+  useEffect(() => {
+    if (!isOpen || activeTab !== "amis") return
+    const interval = setInterval(() => loadFollowing(), 90 * 1000)
+    return () => clearInterval(interval)
+  }, [isOpen, activeTab, loadFollowing])
 
   // ─── Search ──────────────────────────────────────────────────
 
@@ -1182,6 +1215,13 @@ export default function FriendsModal({
     [following]
   )
 
+  const recentFriends = useMemo(
+    () => sortedFollowing.filter(f => isRecentlyActive(f.last_active_at)),
+    [sortedFollowing]
+  )
+  const inactiveFriendsCount = following.length - recentFriends.length
+
+
   const toggleFriendSelection = (id: string) =>
     setSelectedFriendIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -1310,7 +1350,12 @@ export default function FriendsModal({
                   {tabs.map(tab => (
                     <button
                       key={tab.id}
-                      onClick={() => { setActiveTab(tab.id as Tab); setQuery("") }}
+                      onClick={() => {
+                        setActiveTab(tab.id as Tab)
+                        setQuery("")
+                        if (tab.id === "amis" && !followingLoading) loadFollowing()
+                        if (tab.id === "sorties" && !outingsLoading) { loadOutings(); loadRecentMySpots() }
+                      }}
                       className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-semibold transition-all duration-200 ${
                         activeTab === tab.id
                           ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white shadow-sm ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
@@ -1378,7 +1423,6 @@ export default function FriendsModal({
                               onSendRequest={() => sendRequest(profile.id)}
                               onCancelRequest={() => cancelRequest(profile.id)}
                               onUnfollow={() => unfollow(profile.id)}
-                              onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
                             />
                           ))
                         )}
@@ -1416,30 +1460,30 @@ export default function FriendsModal({
                                   onSendRequest={() => sendRequest(profile.id)}
                                   onCancelRequest={() => cancelRequest(profile.id)}
                                   onUnfollow={() => unfollow(profile.id)}
-                                  onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
                                 />
                               ))}
                           </Section>
                         )}
-                        <Section
-                          title={onlineCount > 0 ? "Hors ligne" : `Tous les amis (${following.length})`}
-                          icon={<Clock size={10} />}
-                        >
-                          {sortedFollowing
-                            .filter(f => !isOnline(f.last_active_at))
-                            .map(profile => (
-                              <UserRow
-                                key={profile.id} profile={profile}
-                                initials={initials(profile.username)}
-                                isFollowing isPending={false}
-                                loading={loadingId === profile.id}
-                                onSendRequest={() => sendRequest(profile.id)}
-                                onCancelRequest={() => cancelRequest(profile.id)}
-                                onUnfollow={() => unfollow(profile.id)}
-                                onSelectUser={() => { onSelectUser?.(profile.id); onClose() }}
-                              />
-                            ))}
-                        </Section>
+                        {sortedFollowing.filter(f => !isOnline(f.last_active_at)).length > 0 && (
+                          <Section
+                            title={onlineCount > 0 ? "Hors ligne" : `Tous les amis (${sortedFollowing.length})`}
+                            icon={<Clock size={10} />}
+                          >
+                            {sortedFollowing
+                              .filter(f => !isOnline(f.last_active_at))
+                              .map(profile => (
+                                <UserRow
+                                  key={profile.id} profile={profile}
+                                  initials={initials(profile.username)}
+                                  isFollowing isPending={false}
+                                  loading={loadingId === profile.id}
+                                  onSendRequest={() => sendRequest(profile.id)}
+                                  onCancelRequest={() => cancelRequest(profile.id)}
+                                  onUnfollow={() => unfollow(profile.id)}
+                                />
+                              ))}
+                          </Section>
+                        )}
                       </>
                     )}
 
@@ -1625,6 +1669,49 @@ export default function FriendsModal({
                 {activeTab === "sorties" && (
                   <div className="space-y-5 pb-2">
 
+                    {/* Sortie rapide — 3 derniers spots */}
+                    {recentMySpots.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-zinc-600">
+                          Sortie rapide
+                        </p>
+                        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5">
+                          {recentMySpots.map((s: any) => {
+                            const img = s.image_url?.split(",")[0]?.trim() || null
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => {
+                                  setSelectedLocation({
+                                    id: `spot-${s.id}`,
+                                    label: s.title,
+                                    sublabel: "Mon spot",
+                                    lat: s.lat,
+                                    lng: s.lng,
+                                    isAppSpot: true,
+                                    spotId: s.id,
+                                  })
+                                  setShowCreateOuting(true)
+                                }}
+                                className="flex-shrink-0 w-28 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.07] bg-white dark:bg-zinc-900 text-left transition-all active:scale-95 hover:border-indigo-400/60 dark:hover:border-indigo-500/40"
+                              >
+                                <div className="relative h-16 w-full overflow-hidden bg-gray-100 dark:bg-zinc-800">
+                                  {img
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    ? <img src={img} alt={s.title} className="h-full w-full object-cover" />
+                                    : <div className="flex h-full w-full items-center justify-center text-2xl">📍</div>}
+                                </div>
+                                <div className="px-1.5 py-1.5">
+                                  <p className="truncate text-[10px] font-semibold text-gray-800 dark:text-zinc-200">{s.title}</p>
+                                  <p className="text-[9px] text-indigo-500 dark:text-indigo-400 mt-0.5">Proposer ici</p>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* CTA Proposer une sortie */}
                     <button
                       onClick={() => setShowCreateOuting(true)}
@@ -1669,6 +1756,7 @@ export default function FriendsModal({
                             spots={spots}
                             onCancel={cancelOuting}
                             onLocate={onLocateOuting}
+                            onWithdraw={outing.creator_id !== currentUser?.id ? () => withdrawOuting(outing.id) : undefined}
                           />
                         ))}
                       </Section>
@@ -1684,15 +1772,33 @@ export default function FriendsModal({
                       />
                     )}
 
-
+                    <div style={{ height: "max(6rem, calc(env(safe-area-inset-bottom) + 5rem))", flexShrink: 0 }} />
                   </div>
                 )}
 
                 {/* ════ ACTIVITÉ ══════════════════════════════════ */}
                 {activeTab === "classement" && (
-                  <div className="space-y-8 pb-2">
+                  <div className="space-y-5 pb-2">
+
+                    {/* ── Sub-tab pills ───────────────────────────── */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setClassementSub("month")}
+                        className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-all ${classementSub === "month" ? "bg-indigo-500 text-white shadow-sm" : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"}`}
+                      >
+                        🏆 Ce mois-ci
+                      </button>
+                      <button
+                        onClick={() => setClassementSub("spots")}
+                        className={`flex-1 rounded-xl py-2 text-[12px] font-semibold transition-all ${classementSub === "spots" ? "bg-rose-500 text-white shadow-sm" : "bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-700"}`}
+                      >
+                        ❤️ Top spots
+                      </button>
+                    </div>
 
                     {/* ── Classement mensuel ─────────────────────── */}
+                    {classementSub === "month" && (
+                    <>
                     <div>
                       <div className="flex items-center justify-between mb-5">
                         <div>
@@ -1880,9 +1986,10 @@ export default function FriendsModal({
                         sub="Le classement apparaît quand tes amis ajoutent des spots !"
                       />
                     )}
+                    </>)}
 
                     {/* ── Top spots les plus aimés (global) ──────── */}
-                    <div>
+                    {classementSub === "spots" && (<div>
                       <div className="flex items-center justify-between mb-5">
                         <div>
                           <p className="text-[16px] font-bold text-gray-900 dark:text-white">Spots les plus aimés</p>
@@ -1981,14 +2088,15 @@ export default function FriendsModal({
                           </div>
                         </div>
                       )}
-                    </div>
+                    </div>)}
 
+                    <div style={{ height: "max(6rem, calc(env(safe-area-inset-bottom) + 5rem))", flexShrink: 0 }} />
                   </div>
                 )}
 
 
                 {/* Spacer universel — empêche le dernier élément d'être sous la barre */}
-                <div style={{ height: "max(5rem, calc(env(safe-area-inset-bottom) + 4rem))" }} />
+                <div style={{ height: "max(6rem, calc(env(safe-area-inset-bottom) + 5rem))", flexShrink: 0 }} />
               </div>
 
               {/* ══ CREATE OUTING OVERLAY ══════════════════════════ */}
@@ -2474,7 +2582,7 @@ function UserRow({
   const online = isOnline(profile.last_active_at)
   return (
     <div
-      className="group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-gray-50 dark:hover:bg-white/[0.04]"
+      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all hover:bg-gray-50 dark:hover:bg-white/[0.04]${onSelectUser ? " cursor-pointer" : ""}`}
       onClick={onSelectUser}
     >
       <div className="relative flex-shrink-0">

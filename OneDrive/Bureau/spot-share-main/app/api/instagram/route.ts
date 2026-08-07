@@ -795,6 +795,8 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
 
     // Résoudre les redirects côté serveur → URLs directes lh3.googleusercontent.com
     // (évite d'exposer la clé API dans le HTML client)
+    // Si l'URL résolue est un token signé expirant (AJRVUZ / AL8-SNG format),
+    // on télécharge et stocke dans Supabase Storage pour une URL permanente.
     const photoUrls: string[] = []
     for (const p of (r.photos || []).slice(0, 3)) {
       const redirectUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${p.photo_reference}&key=${apiKey}`
@@ -805,7 +807,32 @@ async function getPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
         })
         const directUrl = photoRes.headers.get("location")
         const resolved = directUrl || redirectUrl
-        if (resolved.startsWith("https://")) photoUrls.push(resolved)
+        if (!resolved.startsWith("https://")) continue
+
+        // Les URLs /place-photos/AJRVUZ... et /place-photos/AL8-SN... expirent.
+        // On les télécharge et stocke dans Supabase Storage pour avoir une URL permanente.
+        const isExpiring = resolved.includes("/place-photos/AJRVUZ") || resolved.includes("/place-photos/AL8-SN")
+        if (isExpiring) {
+          try {
+            const imgRes = await fetch(resolved, { signal: AbortSignal.timeout(8000) })
+            if (imgRes.ok) {
+              const blob = await imgRes.blob()
+              const ext = blob.type.includes("png") ? "png" : "jpeg"
+              const filename = `spots/google-${p.photo_reference.slice(0, 20)}-${Date.now()}.${ext}`
+              const { createServiceClient } = await import("@/lib/supabase/service")
+              const sb = createServiceClient()
+              const { data: uploaded } = await sb.storage
+                .from("avatars")
+                .upload(filename, blob, { contentType: blob.type, upsert: true })
+              if (uploaded) {
+                const { data: { publicUrl } } = sb.storage.from("avatars").getPublicUrl(filename)
+                photoUrls.push(publicUrl)
+                continue
+              }
+            }
+          } catch { /* fallback to expiring URL */ }
+        }
+        photoUrls.push(resolved)
       } catch {
         photoUrls.push(redirectUrl)
       }

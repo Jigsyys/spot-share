@@ -224,16 +224,39 @@ async function resolvePhotoUrls(
   apiKey: string
 ): Promise<string[]> {
   if (!photos?.length) return []
+  const { createServiceClient } = await import("@/lib/supabase/service")
+  const sb = createServiceClient()
   const results: string[] = []
+
   for (const photo of photos.slice(0, 3)) {
     const apiUrl = `${PLACES_PHOTO_BASE}/${photo.name}/media?key=${apiKey}&maxHeightPx=1000`
     try {
       const res = await fetch(apiUrl, { redirect: "manual", signal: AbortSignal.timeout(5000) })
       const cdnUrl = res.headers.get("location")
       const resolved = cdnUrl ?? apiUrl
-      if (resolved.startsWith("https://")) results.push(resolved)
+      if (!resolved.startsWith("https://")) continue
+
+      try {
+        const imgRes = await fetch(resolved, { signal: AbortSignal.timeout(8000) })
+        if (imgRes.ok) {
+          const blob = await imgRes.blob()
+          const ext = blob.type.includes("png") ? "png" : "jpeg"
+          const hash = photo.name.slice(-20)
+          const filename = `spots/places-${hash}-${Date.now()}.${ext}`
+          const { data: uploaded } = await sb.storage
+            .from("avatars")
+            .upload(filename, blob, { contentType: blob.type, upsert: true })
+          if (uploaded) {
+            const { data: { publicUrl } } = sb.storage.from("avatars").getPublicUrl(filename)
+            results.push(publicUrl)
+            continue
+          }
+        }
+      } catch { /* upload failed — fall through to CDN URL */ }
+
+      results.push(resolved)
     } catch {
-      results.push(apiUrl)
+      /* photo skipped */
     }
   }
   return results
